@@ -1,10 +1,8 @@
-from pathlib import Path
+from __future__ import annotations
 import json
+from pathlib import Path
 from app.database.models import DocumentNode
-from app.chunking.chunker import (
-    chunk_document,
-    save_chunks,
-)
+from app.chunking.chunker import chunk_document, save_chunks
 
 INPUT_DIR = Path("output/retrieval")
 OUTPUT_DIR = Path("output/chunks")
@@ -28,11 +26,18 @@ def main() -> None:
         exist_ok=True,
     )
 
+    OUTPUT_DIR.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
     files = sorted(INPUT_DIR.glob("*.json"))
 
     if not files:
-        print(f"No JSON files found in {INPUT_DIR}")
+        print(f"No retrieval files found in {INPUT_DIR}")
         return
+
+    print(f"Found {len(files)} document(s).")
 
     for path in files:
         print()
@@ -50,7 +55,12 @@ def main() -> None:
             output_dir=OUTPUT_DIR,
         )
 
-        print(f"Total chunks: {len(chunks)}")
+        print(f"Created {len(chunks)} chunk(s).")
+
+    print()
+    print("=" * 60)
+    print("Chunking finished.")
+    print("=" * 60)
 
 
 if __name__ == "__main__":

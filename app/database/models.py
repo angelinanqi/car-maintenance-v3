@@ -45,3 +45,47 @@ class DocumentNode(BaseModel):
     ordered: bool | None = None
 
     children: list["DocumentNode"] = Field(default_factory=list)
+
+    @classmethod
+    def from_tree_dict(
+        cls,
+        data: dict,
+        parent_id=None,
+    ) -> "DocumentNode":
+        metadata = data.get(
+            "metadata",
+            {},
+        )
+
+        node = cls(
+            id=metadata["id"],
+            document_name=data["document_name"],
+            doctype=data["type"],
+            parent_id=(
+                metadata.get("parent_id") if metadata.get("parent_id") else parent_id
+            ),
+            source_tag=metadata["source_tag"],
+            source_depth=metadata["source_depth"],
+            source_position=metadata["source_position"],
+            title=data.get("title"),
+            level=data.get("level"),
+            text=data.get("text"),
+            src=data.get("src"),
+            alt=data.get("alt"),
+            caption=data.get("caption"),
+            ordered=data.get("ordered"),
+            children=[],
+        )
+
+        node.children = [
+            cls.from_tree_dict(
+                child,
+                parent_id=node.id,
+            )
+            for child in data.get(
+                "children",
+                [],
+            )
+        ]
+
+        return node

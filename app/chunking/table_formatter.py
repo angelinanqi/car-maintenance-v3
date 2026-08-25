@@ -23,10 +23,100 @@ def get_cell_text(
     parts: list[str] = []
 
     for child in cell.children:
-        if child.text and child.text.strip():
-            parts.append(child.text.strip())
+        child_text = collect_text(child)
+
+        if child_text:
+            parts.append(child_text)
+
+    return "\n".join(parts)
+
+
+def collect_text(
+    node: DocumentNode,
+) -> str:
+    if node.text and node.text.strip():
+        return node.text.strip()
+
+    parts: list[str] = []
+
+    for child in node.children:
+        child_text = collect_text(child)
+
+        if child_text:
+            parts.append(child_text)
 
     return " ".join(parts)
+
+
+def is_header_row(
+    row: DocumentNode,
+    total_rows: int,
+) -> bool:
+    """
+    Decide whether the first row should be treated as headers.
+
+    Rules:
+    - A table with only one row does not have a header.
+    - A two-column table is treated as label/value data.
+    - For larger tables, the first row is considered a header
+      only when it has at least two non-empty cells.
+    """
+
+    cells = get_cells(row)
+
+    values = [get_cell_text(cell) for cell in cells]
+
+    non_empty = [value for value in values if value.strip()]
+
+    if total_rows <= 1:
+        return False
+
+    if len(values) == 2:
+        return False
+
+    return len(non_empty) >= 2
+
+
+def format_label_value_row(
+    cells: list[DocumentNode],
+) -> str:
+    values = [get_cell_text(cell) for cell in cells]
+
+    values = [value for value in values if value.strip()]
+
+    if not values:
+        return ""
+
+    if len(values) == 1:
+        return f"- {values[0]}"
+
+    if len(values) == 2:
+        return f"- {values[0]}: {values[1]}"
+
+    return "- " + "\n  ".join(values)
+
+
+def format_header_row(
+    headers: list[str],
+    cells: list[DocumentNode],
+) -> str:
+    values = [get_cell_text(cell) for cell in cells]
+
+    parts: list[str] = []
+
+    for index, value in enumerate(values):
+        if not value.strip():
+            continue
+
+        if index < len(headers) and headers[index]:
+            parts.append(f"{headers[index]}: {value}")
+        else:
+            parts.append(value)
+
+    if not parts:
+        return ""
+
+    return "- " + "\n  ".join(parts)
 
 
 def format_table(
@@ -37,50 +127,37 @@ def format_table(
     if not rows:
         return ""
 
-    formatted_rows: list[str] = []
+    formatted: list[str] = []
 
-    headers = get_cells(rows[0])
+    if table.caption and table.caption.strip():
+        formatted.append(f"Table: {table.caption.strip()}")
 
-    header_texts = [get_cell_text(cell) for cell in headers]
+    first_row = rows[0]
 
-    has_headers = any(text for text in header_texts)
+    if is_header_row(
+        first_row,
+        len(rows),
+    ):
+        headers = [get_cell_text(cell) for cell in get_cells(first_row)]
 
-    data_rows = rows[1:] if has_headers else rows
+        data_rows = rows[1:]
 
-    if table.caption:
-        formatted_rows.append(f"Table: {table.caption.strip()}")
-
-    for row in data_rows:
-        cells = get_cells(row)
-
-        values = [get_cell_text(cell) for cell in cells]
-
-        if not any(values):
-            continue
-
-        if has_headers:
-            row_parts: list[str] = []
-
-            for index, value in enumerate(values):
-                if not value:
-                    continue
-
-                if index < len(header_texts):
-                    header = header_texts[index]
-
-                    if header:
-                        row_parts.append(f"{header}: {value}")
-                    else:
-                        row_parts.append(value)
-                else:
-                    row_parts.append(value)
-
-            if row_parts:
-                formatted_rows.append("- " + "\n  ".join(row_parts))
-
-        else:
-            formatted_rows.append(
-                "- " + "\n  ".join(value for value in values if value)
+        for row in data_rows:
+            row_text = format_header_row(
+                headers=headers,
+                cells=get_cells(row),
             )
 
-    return "\n\n".join(formatted_rows)
+            if row_text:
+                formatted.append(row_text)
+
+    else:
+        for row in rows:
+            row_text = format_label_value_row(
+                cells=get_cells(row),
+            )
+
+            if row_text:
+                formatted.append(row_text)
+
+    return "\n\n".join(formatted)
