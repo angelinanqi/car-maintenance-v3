@@ -229,5 +229,188 @@ Semantic Node JSON
 Database
 
 ```
+# Stage 3 — Database Ingestion
 
-Stage 3 will use the normalized node JSON as its input for database import.
+Stage 3 imports the normalized semantic node trees from Stage 2 into Supabase/PostgreSQL. 
+
+It persists the document hierarchy in a relational table using foreign keys (`parent_id`), allowing full tree reconstruction during retrieval.
+
+> **Note:** Database UUIDs are generated dynamically by Supabase upon insert. The normalization stage does not generate or depend on DB UUIDs.
+
+---
+
+## Directory Layout
+
+```text
+rag_project/
+├── app/database/          # Schema models, Supabase client, and importer logic
+├── output/nodes/          # Input: Normalized JSON trees from Stage 2
+└── output/database/       # Output: Ingestion execution checkpoints
+
+```
+
+---
+
+## Core Components
+
+* **`app/database/models.py`**
+Defines Pydantic representations (`DocumentNodeCreate` for inserts, `DocumentNode` for DB retrieval with runtime `children` mapping).
+* **`app/database/client.py`**
+Initializes the Supabase client instance using environment variables.
+* **`app/database/importer.py`**
+Handles document validation, existing record deletion, top-down tree insertion, UUID resolution for parent-child links, and local checkpoint export.
+* **`scripts/run_import.py`**
+Stage 3 runner. Iterates through `output/nodes/*.json` and executes the import pipeline.
+
+---
+``
+
+## Schema & Indexing
+
+All nodes reside in a single self-referential table (`document_nodes`):
+
+* **Primary Key:** `id` (`uuid`, default `gen_random_uuid()`)
+* **Foreign Key:** `parent_id` (`uuid`, references `document_nodes(id)` `ON DELETE CASCADE`)
+* **Indexes:** `document_name` (fast document lookup), `parent_id` (fast child node retrieval)
+
+---
+
+## Running the Database Stage
+
+Ensure normalized JSON trees exist in `output/nodes/`, then execute:
+
+```bash
+python -m scripts.run_import
+
+```
+
+### Execution Flow
+
+1. **Idempotent Clean Step:** Existing records matching `document_name` are deleted (cascading to all children).
+2. **Top-Down Insertion:** Root nodes insert first $\rightarrow$ Supabase returns generated UUIDs $\rightarrow$ UUIDs bind as `parent_id` for recursive child inserts.
+3. **Checkpoint Generation:** Exports execution metadata and DB-persisted records to `output/database/<document_name>.json`.
+
+
+# Stage 4: Retrieval
+
+This stage retrieves document nodes from Supabase and reconstructs the original semantic tree.
+
+## Input
+
+The database table:
+
+```text
+public.document_nodes
+```
+
+The database contains flattened node records with `parent_id` relationships.
+
+## Process
+
+```text
+Supabase
+↓
+Retrieve node records
+↓
+Group records by document
+↓
+Rebuild parent-child relationships
+↓
+Restore source ordering
+↓
+Validate hierarchy
+↓
+Save reconstructed trees
+```
+
+Database retrieval order is **not** assumed to represent document order.
+
+Nodes are connected using `parent_id`, then children are sorted using `source_position`.
+
+The reconstructed hierarchy is also checked for missing parents and cycles.
+
+## Files
+
+### `app/database/retriever.py`
+
+Contains the retrieval and tree reconstruction logic.
+
+Responsibilities:
+
+* Retrieve nodes from Supabase.
+* Group nodes by `document_name`.
+* Reconstruct parent-child relationships using `parent_id`.
+* Restore the original order using `source_position`.
+* Validate the reconstructed hierarchy.
+* Save the reconstructed tree as JSON.
+
+### `scripts/run_retrieval.py`
+
+Entry point for the retrieval stage.
+
+It connects to Supabase and runs the retrieval process.
+
+Run it from the project root:
+
+```bash
+python -m scripts.run_retrieval
+```
+
+## Output
+
+Reconstructed document trees are saved to:
+
+```text
+output/retrieval/
+```
+
+Each document gets its own JSON file:
+
+```text
+output/retrieval/
+├── document_a.json
+├── document_b.json
+└── ...
+```
+
+The output preserves:
+
+* document name
+* node ID
+* parent ID
+* node type
+* source tag
+* source depth
+* source position
+* title
+* text
+* image information
+* table information
+* child nodes
+
+The output is a hierarchical representation reconstructed from the flat database records.
+
+## Example
+
+Database records:
+
+```text
+Document
+├── Section
+│   ├── Paragraph
+│   └── Table
+│       ├── Row
+│       │   ├── Cell
+│       │   └── Cell
+│       └── Row
+│           ├── Cell
+│           └── Cell
+```
+
+are reconstructed into the same parent-child structure in:
+
+```text
+output/retrieval/document.json
+```
+
+This reconstructed tree is the input for the next stage, **Chunking**.

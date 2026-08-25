@@ -1,0 +1,3 @@
+supabase
+pydantic
+python-dotenv
