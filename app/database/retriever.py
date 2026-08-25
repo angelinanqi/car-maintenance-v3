@@ -5,12 +5,30 @@ from uuid import UUID
 from app.database.models import DocumentNode
 
 TABLE_NAME = "document_nodes"
-
+BATCH_SIZE = 1000
 
 def get_nodes(supabase) -> list[DocumentNode]:
-    response = supabase.table(TABLE_NAME).select("*").execute()
+    nodes: list[DocumentNode] = []
+    start = 0
 
-    return [DocumentNode(**row) for row in response.data]
+    while True:
+        response = (
+            supabase.table(TABLE_NAME)
+            .select("*")
+            .range(start, start + BATCH_SIZE - 1)
+            .execute()
+        )
+
+        batch = [DocumentNode(**row) for row in response.data]
+
+        nodes.extend(batch)
+
+        if len(batch) < BATCH_SIZE:
+            break
+
+        start += BATCH_SIZE
+
+    return nodes
 
 
 def group_nodes_by_document(
