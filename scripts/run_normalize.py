@@ -19,7 +19,7 @@ def normalize_file(
     ) as file:
         html_tree = json.load(file)
 
-    document_name = input_file.stem
+    document_name = input_file.stem.removesuffix("_html_tree")
 
     builder = SemanticBuilder()
 
