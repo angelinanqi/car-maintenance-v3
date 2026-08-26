@@ -414,3 +414,284 @@ output/retrieval/document.json
 ```
 
 This reconstructed tree is the input for the next stage, **Chunking**.
+
+
+# RAG Pipeline: Stage 6 - Embedding
+
+## Purpose
+
+This stage converts the semantic chunks produced by Stage 5 into vector embeddings and stores them in ChromaDB for semantic retrieval.
+
+The pipeline is:
+
+Markdown
+→ Parsing
+→ Normalization
+→ Database
+→ Retrieval
+→ Chunking
+→ Embedding
+
+OCR is handled separately and is not part of this project.
+
+## Input
+
+Stage 6 reads the chunk files produced by Stage 5:
+
+```text
+output/chunks/
+````
+
+Each chunk contains:
+
+* semantic text
+* document name
+* section path
+* node IDs
+* parent information
+* source information
+* other metadata
+
+The chunk text is what gets embedded. Technical metadata is stored separately.
+
+## Embedding Model
+
+The embedding model used is:
+
+```text
+nomic-ai/nomic-embed-text-v1.5
+```
+
+It is loaded through `sentence-transformers`.
+
+The model requires task prefixes.
+
+For document embeddings:
+
+```text
+search_document: <chunk text>
+```
+
+For query embeddings:
+
+```text
+search_query: <user question>
+```
+
+This distinction must be preserved.
+
+## Embedding Dimensions
+
+The current baseline uses the model's full:
+
+```text
+768 dimensions
+```
+
+Nomic Embed Text v1.5 supports Matryoshka dimensions such as 768, 512, 256, 128, and 64.
+
+Dimension tuning is intentionally postponed.
+
+## Vector Database
+
+ChromaDB is used as the vector database.
+
+The database uses Chroma's persistent client so that embeddings remain available after the program exits.
+
+Storage:
+
+```text
+output/embeddings/chroma/
+```
+
+Collection:
+
+```text
+rag_chunks
+```
+
+Collection metadata records the embedding model and dimension.
+
+## Chunk IDs
+
+Chunks do not currently have IDs in Supabase.
+
+Node IDs and chunk IDs are therefore treated as different concepts.
+
+Each chunk receives a unique ID during embedding, for example:
+
+```text
+myvi-2005-owner-manual-eng_chunk_000001
+myvi-2005-owner-manual-eng_chunk_000002
+```
+
+These IDs are used as Chroma IDs.
+
+Original node IDs remain inside the chunk metadata for traceability.
+
+A single node may contribute to multiple chunks, so a node UUID cannot be used as a chunk ID.
+
+## Embedding Process
+
+The stage performs:
+
+```text
+output/chunks/*.json
+        ↓
+load chunks
+        ↓
+extract chunk text
+        ↓
+add "search_document:" prefix
+        ↓
+Nomic Embed Text v1.5
+        ↓
+embedding vectors
+        ↓
+ChromaDB
+```
+
+Multiple chunk files/documents can be processed in one run.
+
+## Project Files
+
+The main Stage 6 files are:
+
+```text
+app/
+└── embedding/
+    ├── __init__.py
+    ├── embedder.py
+    └── vector_store.py
+
+scripts/
+└── run_embedding.py
+```
+
+### `app/embedding/embedder.py`
+
+Responsible for loading the embedding model and generating embeddings.
+
+It provides separate functionality for:
+
+* document embeddings
+* query embeddings
+
+The document and query prefixes are handled here.
+
+### `app/embedding/vector_store.py`
+
+Responsible for interacting with ChromaDB.
+
+It handles:
+
+* persistent ChromaDB connection
+* collection creation/access
+* inserting/upserting embeddings
+* storing chunk text
+* storing chunk metadata
+* using unique chunk IDs
+
+### `scripts/run_embedding.py`
+
+The stage entry point.
+
+It loads the chunk files and sends them through the embedding process.
+
+Run it from the project root:
+
+```bash
+python -m scripts.run_embedding
+```
+
+Do not run:
+
+```bash
+python scripts/run_embedding.py
+```
+
+## Output
+
+Generated embedding data is stored under:
+
+```text
+output/embeddings/
+```
+
+including the persistent ChromaDB files.
+
+These files are generated artifacts and should not normally be committed to Git.
+
+The repository should contain the code required to recreate them.
+
+## Current Baseline
+
+The current chunking/embedding baseline uses approximately:
+
+```text
+Chunk size: 2000 characters
+Embedding model: nomic-ai/nomic-embed-text-v1.5
+Embedding dimension: 768
+Vector database: ChromaDB
+Collection: rag_chunks
+```
+
+The current test corpus contains approximately 891 chunks for the tested document.
+
+These settings are intentionally frozen for now.
+
+Do not tune the chunk size, embedding dimension, or embedding model during this stage.
+
+## Initial Retrieval Test
+
+A semantic search test was performed after embedding.
+
+A query about parking on a slope retrieved relevant results including:
+
+* parking on a slope
+* parking on a hill
+* applying the parking brake
+* turning the front wheels on uphill/downhill slopes
+
+Results were relevant across multiple vehicle manuals.
+
+This confirms that the baseline embedding and vector-storage pipeline is functioning.
+
+Formal retrieval evaluation will be performed in the next stage.
+
+## Important Decisions
+
+The following decisions are intentional:
+
+* ChromaDB is used for vector storage.
+* Nomic Embed Text v1.5 is used for embeddings.
+* Full 768-dimensional embeddings are used initially.
+* Document embeddings use `search_document:`.
+* Query embeddings use `search_query:`.
+* Chunk IDs are separate from database node IDs.
+* Chunk metadata is stored separately from the embedding text.
+* The current raw corpus is retained as the baseline.
+* Markdown cleaning is postponed.
+* Embedding/model tuning is postponed.
+
+## Next Stage
+
+Stage 7 will implement the retrieval layer:
+
+```text
+User query
+↓
+Nomic query embedding
+↓
+ChromaDB similarity search
+↓
+Top-k chunks
+↓
+Retrieved context
+```
+
+The retrieval layer will initially focus on simple vector similarity search.
+
+Parent/section expansion, metadata filtering, retrieval evaluation, and LLM generation can be added later.
+
+```

@@ -1,5 +1,7 @@
 from pathlib import Path
+from typing import Any
 import chromadb
+from chromadb.api.types import QueryResult, Metadata
 
 CHROMA_PATH = Path("output/embeddings/chroma")
 COLLECTION_NAME = "rag_chunks"
@@ -9,7 +11,9 @@ class VectorStore:
     def __init__(self):
         CHROMA_PATH.mkdir(parents=True, exist_ok=True)
 
-        self.client = chromadb.PersistentClient(path=str(CHROMA_PATH))
+        self.client = chromadb.PersistentClient(
+            path=str(CHROMA_PATH)
+        )
 
         self.collection = self.client.get_or_create_collection(
             name=COLLECTION_NAME,
@@ -23,8 +27,8 @@ class VectorStore:
         self,
         ids: list[str],
         documents: list[str],
-        embeddings: list[list[float]],
-        metadatas: list[dict],
+        embeddings: Any,
+        metadatas: list[Metadata],
     ):
         self.collection.upsert(
             ids=ids,
@@ -33,12 +37,17 @@ class VectorStore:
             metadatas=metadatas,
         )
 
-    def query(
+    def search(
         self,
-        embedding: list[float],
-        n_results: int = 5,
-    ):
+        query_embedding: list[float],
+        top_k: int = 5,
+    ) -> QueryResult:
         return self.collection.query(
-            query_embeddings=[embedding],
-            n_results=n_results,
+            query_embeddings=[query_embedding],
+            n_results=top_k,
+            include=[
+                "documents",
+                "metadatas",
+                "distances",
+            ],
         )
