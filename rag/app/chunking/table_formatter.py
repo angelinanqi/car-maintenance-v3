@@ -1,5 +1,5 @@
 from __future__ import annotations
-from app.database.models import DocumentNode
+from rag.app.database.models import DocumentNode
 
 
 def get_rows(

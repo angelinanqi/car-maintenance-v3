@@ -1,6 +1,6 @@
 import chromadb
 
-from app.embedding.embedder import Embedder
+from rag.app.embedding.embedder import Embedder
 
 CHROMA_PATH = "output/embeddings/chroma"
 COLLECTION_NAME = "rag_chunks"

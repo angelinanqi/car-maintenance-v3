@@ -2,7 +2,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from uuid import UUID
-from app.database.models import DocumentNode
+from rag.app.database.models import DocumentNode
 
 TABLE_NAME = "document_nodes"
 BATCH_SIZE = 1000

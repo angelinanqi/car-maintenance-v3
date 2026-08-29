@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 from supabase import Client
-from app.database.models import DocumentNodeCreate
+from rag.app.database.models import DocumentNodeCreate
 
 TABLE_NAME = "document_nodes"
 

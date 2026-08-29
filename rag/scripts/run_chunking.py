@@ -1,8 +1,8 @@
 from __future__ import annotations
 import json
 from pathlib import Path
-from app.database.models import DocumentNode
-from app.chunking.chunker import chunk_document, save_chunks
+from rag.app.database.models import DocumentNode
+from rag.app.chunking.chunker import chunk_document, save_chunks
 
 INPUT_DIR = Path("output/retrieval")
 OUTPUT_DIR = Path("output/chunks")

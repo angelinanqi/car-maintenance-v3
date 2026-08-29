@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
-from app.embedding.embedder import Embedder
-from app.embedding.vector_store import VectorStore
+from rag.app.embedding.embedder import Embedder
+from rag.app.embedding.vector_store import VectorStore
 
 CHUNK_DIR = Path("output/chunks")
 

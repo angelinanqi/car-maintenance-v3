@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from app.normalization.builder import SemanticBuilder
+from rag.app.normalization.builder import SemanticBuilder
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 

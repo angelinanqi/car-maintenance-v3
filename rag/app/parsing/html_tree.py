@@ -1,7 +1,7 @@
 from pathlib import Path
 from bs4 import BeautifulSoup
 from bs4.element import Tag, NavigableString
-from app.models.html_node import HTMLNode
+from rag.app.models.html_node import HTMLNode
 
 
 class HTMLParser:

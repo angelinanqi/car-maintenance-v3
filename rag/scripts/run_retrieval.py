@@ -1,6 +1,6 @@
 from pathlib import Path
-from app.database.client import get_supabase_client
-from app.database.retriever import retrieve_documents
+from rag.app.database.client import get_supabase_client
+from rag.app.database.retriever import retrieve_documents
 
 OUTPUT_DIR = Path("output/retrieval")
 

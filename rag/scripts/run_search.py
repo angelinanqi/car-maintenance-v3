@@ -1,7 +1,7 @@
 import argparse
-from app.embedding.embedder import Embedder
-from app.embedding.vector_store import VectorStore
-from app.retrieval.search import Searcher
+from rag.app.embedding.embedder import Embedder
+from rag.app.embedding.vector_store import VectorStore
+from rag.app.retrieval.search import Searcher
 
 DEFAULT_QUERY = "What should I do when parking the vehicle on a slope?"
 DEFAULT_TOP_K = 5

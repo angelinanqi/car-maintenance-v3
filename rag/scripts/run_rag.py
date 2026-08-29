@@ -1,9 +1,9 @@
 import argparse
-from app.embedding.embedder import Embedder
-from app.embedding.vector_store import VectorStore
-from app.generation.ollama import OllamaClient
-from app.generation.prompt import build_context, build_prompt
-from app.retrieval.search import Searcher
+from rag.app.embedding.embedder import Embedder
+from rag.app.embedding.vector_store import VectorStore
+from rag.app.generation.ollama import OllamaClient
+from rag.app.generation.prompt import build_context, build_prompt
+from rag.app.retrieval.search import Searcher
 
 DEFAULT_QUERY = "How do I start the engine?"
 DEFAULT_TOP_K = 5

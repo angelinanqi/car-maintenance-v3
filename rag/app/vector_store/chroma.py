@@ -1,5 +1,6 @@
 from pathlib import Path
 import chromadb
+from chromadb.api.types import Embedding, Metadata
 
 COLLECTION_NAME = "vehicle_manual_chunks"
 
@@ -16,9 +17,9 @@ class ChromaStore:
     def upsert(
         self,
         ids: list[str],
-        embeddings: list[list[float]],
+        embeddings: list[Embedding],
         documents: list[str],
-        metadatas: list[dict],
+        metadatas: list[Metadata],
     ) -> None:
         self.collection.upsert(
             ids=ids,

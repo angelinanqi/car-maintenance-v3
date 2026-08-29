@@ -1,5 +1,5 @@
-from app.models.metadata import Metadata
-from app.models.node import (
+from rag.app.models.metadata import Metadata
+from rag.app.models.node import (
     Node,
     Document,
     Section,

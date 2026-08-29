@@ -2,9 +2,9 @@ from __future__ import annotations
 from pathlib import Path
 from uuid import UUID
 import json
-from app.database.models import DocumentNode
-from app.models.chunk import Chunk, ChunkMetadata
-from app.chunking.table_formatter import format_table
+from rag.app.database.models import DocumentNode
+from rag.app.models.chunk import Chunk, ChunkMetadata
+from rag.app.chunking.table_formatter import format_table
 
 CHUNK_SIZE = 2000
 

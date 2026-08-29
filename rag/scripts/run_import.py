@@ -1,6 +1,6 @@
 from pathlib import Path
-from app.database.client import get_supabase_client
-from app.database.importer import import_directory
+from rag.app.database.client import get_supabase_client
+from rag.app.database.importer import import_directory
 
 INPUT_DIR = Path("output/nodes")
 OUTPUT_DIR = Path("output/database")

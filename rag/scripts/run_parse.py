@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from app.parsing.html_tree import HTMLParser
+from rag.app.parsing.html_tree import HTMLParser
 
 INPUT_DIR = Path("output/parse")
 

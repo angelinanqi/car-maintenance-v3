@@ -1,4 +1,4 @@
-from app.retrieval.search import RetrievalResult
+from rag.app.retrieval.search import RetrievalResult
 
 
 def build_context(

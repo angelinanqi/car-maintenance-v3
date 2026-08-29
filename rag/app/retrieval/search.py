@@ -1,8 +1,8 @@
 from dataclasses import dataclass
 from typing import Any
 from chromadb.api.types import QueryResult
-from app.embedding.embedder import Embedder
-from app.embedding.vector_store import VectorStore
+from rag.app.embedding.embedder import Embedder
+from rag.app.embedding.vector_store import VectorStore
 
 
 @dataclass

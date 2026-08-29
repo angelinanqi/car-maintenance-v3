@@ -1,7 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
-from app.models.metadata import Metadata
+from rag.app.models.metadata import Metadata
 
 
 @dataclass

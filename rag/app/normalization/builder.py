@@ -1,11 +1,11 @@
-from app.models.node import (
+from rag.app.models.node import (
     Document,
     Paragraph,
     Cell,
     ListItem,
 )
 
-from app.normalization.converters import (
+from rag.app.normalization.converters import (
     build_metadata,
     convert_node,
 )
