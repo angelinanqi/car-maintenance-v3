@@ -26,9 +26,9 @@ export default function ProjectsPage() {
 
     // Sample Dataset
     const [items, setItems] = useState([
-        { id: 1, name: 'Q3 Financial Report', category: 'Finance', status: 'Active', date: '2026-08-15' },
-        { id: 2, name: 'User Onboarding Flow', category: 'Design', status: 'Pending', date: '2026-08-20' },
-        { id: 3, name: 'System Architecture', category: 'DevOps', status: 'Active', date: '2026-08-28' },
+        { id: 1, name: 'Myvi Car Manual', category: 'Manuals', status: 'Active', date: '2026-08-15' },
+        { id: 2, name: 'Perodua Bezza Warranty Booklet', category: 'Manuals', status: 'Pending', date: '2026-08-20' },
+        { id: 3, name: 'Emergency SOPs Proton Saga', category: 'Other', status: 'Active', date: '2026-08-28' },
     ]);
 
     // Open Edit Modal with selected row data

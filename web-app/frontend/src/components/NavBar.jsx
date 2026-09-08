@@ -21,7 +21,7 @@ export default function NavBar() {
             <VStack align="stretch" gap={4}>
                 <Box px={2} py={2}>
                     <Text fontSize="xl" fontWeight="bold" letterSpacing="tight">
-                        MyBrand
+                        Car App
                     </Text>
                 </Box>
 

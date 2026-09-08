@@ -116,7 +116,7 @@ export default function CreateArticlePage() {
           <Field.Label fontWeight="semibold">Article Title</Field.Label>
 
           <Input
-            placeholder="e.g. 5 Quick Tips for Next.js 15"
+            placeholder="e.g. 5 Quick Tips for Long Trips"
             size="lg"
             value={title}
             onChange={(e) => setTitle(e.target.value)}

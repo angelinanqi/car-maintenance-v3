@@ -25,67 +25,93 @@ import AdminLayout from "../../../components/layouts/AdminLayout";
 export default function SOPManagerPage() {
   const [mode, setMode] = useState("edit");
 
-  // SOP List State
+  // Roadside Emergency SOP List State
   const [sops, setSops] = useState([
     {
       id: 1,
-      title: "Database Failover Procedure",
+      title: "Highway Engine Breakdown SOP",
       stepsCount: 4,
       status: "Active",
       updatedAt: "1 Sep 2026",
     },
     {
       id: 2,
-      title: "API Rate Limiting Spike SOP",
+      title: "Flat Tire on Active Roadway",
       stepsCount: 3,
       status: "Active",
       updatedAt: "28 Aug 2026",
+    },
+    {
+      id: 3,
+      title: "Overheating Engine Protocol",
+      stepsCount: 3,
+      status: "Active",
+      updatedAt: "15 Aug 2026",
     },
   ]);
 
   const [selectedSopId, setSelectedSopId] = useState(1);
 
-  // Steps State
+  // Roadside Emergency Steps State
   const [steps, setSteps] = useState([
     {
       id: 101,
       stepNumber: 1,
-      title: "Identify Primary Database Failure",
+      title: "Safely Pull Over & Signal Danger",
       description:
-        "Check CloudWatch metrics for RDS latency > 5000ms or 500 status codes on core API routes.",
+        "Turn on hazard lights immediately. Guide the vehicle onto the hard shoulder or off the main traffic lane as far right/left as safely possible.",
       imageUrl: "",
       completed: false,
     },
     {
       id: 102,
       stepNumber: 2,
-      title: "Trigger Multi-AZ Failover",
+      title: "Evacuate Passengers & Set Warning Triangle",
       description:
-        "Log into AWS Console -> RDS -> Actions -> Reboot with Failover. Verify secondary replica takes over.",
-      imageUrl: "https://via.placeholder.com/600x200?text=RDS+Failover+Diagram",
+        "All occupants should exit from the non-traffic side and stand behind safety barriers. Set your reflective warning triangle 45 meters (150 feet) behind the vehicle.",
+      imageUrl: "",
       completed: false,
     },
     {
       id: 103,
       stepNumber: 3,
-      title: "Notify On-Call Team & Stakeholders",
+      title: "Contact Emergency Roadside Assistance",
       description:
-        'Send alert to #dev-emergency Slack channel and update status page to "Degraded Performance".',
+        "Call the highway patrol hotline or your insurance towing service. Provide your exact GPS location, nearest kilometer marker, and vehicle status.",
+      imageUrl: "",
+      completed: false,
+    },
+    {
+      id: 104,
+      stepNumber: 4,
+      title: "Stay Clear of Traffic Until Help Arrives",
+      description:
+        "Do not stay inside the vehicle if pulled over on a high-speed shoulder. Wait safely behind the barrier facing oncoming traffic.",
       imageUrl: "",
       completed: false,
     },
   ]);
 
-  // Emergency Contacts State (Simplified: Name + Phone)
+  // Roadside Emergency Contacts (Towing, Highway Patrol, Insurance)
   const [contacts, setContacts] = useState([
-    { id: 1, name: "Alex Tan", phone: "+60 12-345 6789", isEditing: false },
     {
-      id: 2,
-      name: "Sarah Jenkins",
-      phone: "+60 16-987 6543",
+      id: 1,
+      name: "Highway Patrol Hotline (PLUS)",
+      phone: "1-800-88-0000",
       isEditing: false,
     },
-    { id: 3, name: "David Lee", phone: "+60 19-876 5432", isEditing: false },
+    {
+      id: 2,
+      name: "24/7 Towing & Recovery Service",
+      phone: "+60 12-345 6789",
+      isEditing: false,
+    },
+    {
+      id: 3,
+      name: "Insurance Roadside Dispatch",
+      phone: "1-300-88-9999",
+      isEditing: false,
+    },
   ]);
 
   const selectedSop = sops.find((s) => s.id === selectedSopId);
@@ -138,7 +164,7 @@ export default function SOPManagerPage() {
       ...contacts,
       {
         id: Date.now(),
-        name: "New Contact",
+        name: "New Emergency Contact",
         phone: "+60 10-000 0000",
         isEditing: true,
       },
@@ -147,14 +173,16 @@ export default function SOPManagerPage() {
 
   return (
     <AdminLayout
-      title="Emergency SOPs"
-      description="Runbooks & Incident Response Protocols"
+      title="Roadside Emergency SOPs"
+      description="Breakdown Safety Runbooks & Emergency Dispatch Contacts"
     >
       <Stack gap={6}>
         {/* TOP MAIN TABS */}
         <Tabs.Root defaultValue="steps" variant="line">
           <Tabs.List mb={6}>
-            <Tabs.Trigger value="steps">Playbooks & Steps</Tabs.Trigger>
+            <Tabs.Trigger value="steps">
+              Roadside Playbooks & Steps
+            </Tabs.Trigger>
             <Tabs.Trigger value="contacts">
               Emergency Contacts ({contacts.length})
             </Tabs.Trigger>
@@ -251,7 +279,7 @@ export default function SOPManagerPage() {
                       <Heading size="md">{selectedSop?.title}</Heading>
                       {mode === "incident" && (
                         <Badge colorPalette="red" variant="solid" size="sm">
-                          LIVE INCIDENT MODE
+                          LIVE BREAKDOWN MODE
                         </Badge>
                       )}
                     </HStack>
@@ -271,7 +299,7 @@ export default function SOPManagerPage() {
                         colorPalette="red"
                         onClick={() => setMode("incident")}
                       >
-                        🚨 Run Incident Mode
+                        🚨 Run Emergency Mode
                       </Button>
                     ) : (
                       <Button
@@ -280,7 +308,7 @@ export default function SOPManagerPage() {
                         colorPalette="whiteAlpha"
                         onClick={() => setMode("edit")}
                       >
-                        Exit Incident Mode
+                        Exit Emergency Mode
                       </Button>
                     )}
                   </HStack>
@@ -292,7 +320,7 @@ export default function SOPManagerPage() {
                       <Stack gap={2}>
                         <Flex justify="space-between" align="center">
                           <Text fontSize="sm" fontWeight="bold">
-                            Execution Progress: {completedCount} /{" "}
+                            Safety Execution Progress: {completedCount} /{" "}
                             {steps.length} Steps Completed
                           </Text>
                           <Text fontSize="sm" fontWeight="bold" color="red.600">
@@ -452,15 +480,15 @@ export default function SOPManagerPage() {
             </Grid>
           </Tabs.Content>
 
-          {/* TAB 2: Clean Learn-Card Style Contacts List */}
+          {/* TAB 2: Emergency Contacts List */}
           <Tabs.Content value="contacts">
             <Stack gap={4} maxW="800px">
               {/* Header Row */}
               <Flex justify="space-between" align="center" mb={2}>
                 <Box>
-                  <Heading size="md">Emergency Contacts</Heading>
+                  <Heading size="md">Emergency & Towing Contacts</Heading>
                   <Text fontSize="sm" color="gray.500">
-                    On-call team directory
+                    24/7 Roadside assistance & highway patrol directory
                   </Text>
                 </Box>
                 <Button
@@ -483,7 +511,7 @@ export default function SOPManagerPage() {
                           <Field.Root>
                             <Input
                               size="sm"
-                              placeholder="Contact Name"
+                              placeholder="Service / Contact Name"
                               value={contact.name}
                               onChange={(e) =>
                                 handleContactChange(
@@ -498,7 +526,7 @@ export default function SOPManagerPage() {
                           <Field.Root>
                             <Input
                               size="sm"
-                              placeholder="Phone Number"
+                              placeholder="Phone / Hotline Number"
                               value={contact.phone}
                               onChange={(e) =>
                                 handleContactChange(

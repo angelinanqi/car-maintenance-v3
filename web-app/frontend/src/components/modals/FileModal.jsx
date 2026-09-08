@@ -19,14 +19,11 @@ export default function FileModal({ isOpen, onClose, editData = null }) {
 
   // Preset tags available to click and choose from
   const [availableTags, setAvailableTags] = useState([
-    "Finance",
-    "Design",
-    "DevOps",
-    "Marketing",
-    "Legal",
+    "Manuals",
+    "Others",
   ]);
   // Active selected tags
-  const [selectedTags, setSelectedTags] = useState(["Finance"]);
+  const [selectedTags, setSelectedTags] = useState(["Manuals"]);
 
   const isEditMode = Boolean(editData);
 
@@ -34,10 +31,10 @@ export default function FileModal({ isOpen, onClose, editData = null }) {
   useEffect(() => {
     if (editData) {
       setFileName(editData.name || "");
-      setSelectedTags(editData.category ? [editData.category] : ["Finance"]);
+      setSelectedTags(editData.category ? [editData.category] : [""]);
     } else {
       setFileName("");
-      setSelectedTags(["Finance"]);
+      setSelectedTags([""]);
     }
   }, [editData, isOpen]);
 
@@ -145,7 +142,7 @@ export default function FileModal({ isOpen, onClose, editData = null }) {
                 <Field.Root required>
                   <Field.Label>File Name</Field.Label>
                   <Input
-                    placeholder="e.g. Q3 Marketing Report"
+                    placeholder="e.g. Mercedes Car Manual"
                     value={fileName}
                     onChange={(e) => setFileName(e.target.value)}
                   />

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from 'next/navigation';
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import {
   Flex,
@@ -22,42 +22,46 @@ import AdminLayout from "../../../components/layouts/AdminLayout";
 export default function ContentPage() {
   const router = useRouter();
   const [selectedTab, setSelectedTab] = useState("all");
-  const [isCreateOpen, setIsCreateOpen] = useState(false); // Modal trigger for later
 
-  // Sample Dataset
+  // Car Maintenance Sample Dataset
   const [cards, setCards] = useState([
     {
       id: 1,
-      title: "Getting Started with Next.js App Router",
-      category: "Tutorials",
+      title: "How to Check & Top Up Engine Oil",
+      category: "Engine & Fluids",
       status: "Published", // 'Published' or 'Unpublished'
       updatedAt: "1 January 2026",
     },
     {
       id: 2,
-      title: "Chakra UI v3 Migration Guidelines",
-      category: "Documentation",
+      title: "Inspecting Tire Pressure and Tread Depth",
+      category: "Tires & Brakes",
       status: "Unpublished",
       updatedAt: "14 February 2026",
     },
     {
       id: 3,
-      title: "Q3 Product Roadmap & Goals",
-      category: "Updates",
+      title: "Replacing Your Cabin Air Filter",
+      category: "General Maintenance",
       status: "Published",
       updatedAt: "28 August 2026",
     },
     {
       id: 4,
-      title: "Building Scalable API Endpoints",
-      category: "Tutorials",
+      title: "Signs Your Brake Pads Need Replacement",
+      category: "Tires & Brakes",
       status: "Unpublished",
       updatedAt: "1 September 2026",
     },
   ]);
 
   // Categories list for Tabs
-  const categories = ["all", "Tutorials", "Documentation", "Updates"];
+  const categories = [
+    "all",
+    "Engine & Fluids",
+    "Tires & Brakes",
+    "General Maintenance",
+  ];
 
   // Toggle Published / Unpublished status
   const handleTogglePublish = (id) => {
@@ -88,25 +92,36 @@ export default function ContentPage() {
 
   return (
     <AdminLayout
-      title="Content Manager"
-      description="Manage and publish category articles and records."
+      title="Learn Cards"
+      description="Manage and publish car maintenance guides and service records."
     >
       <Stack gap={6}>
         {/* HEADER ROW */}
         <Flex justify="space-between" align="center" wrap="wrap" gap={4}>
           <Box>
-            <Heading size="md">All Articles</Heading>
+            <Heading size="md">All Guides</Heading>
             <Text fontSize="sm" color="gray.500">
-              Manage items across categories
+              Manage maintenance items across categories
             </Text>
           </Box>
 
-          <Button
-            colorPalette="blue"
-            onClick={() => router.push("/user/learn-cards/create")}
-          >
-            Create
-          </Button>
+          <HStack gap={2}>
+            {/* Manage Categories Navigation Button */}
+            <Button
+              variant="outline"
+              onClick={() => router.push("/user/learn-cards/categories")}
+            >
+              Manage Categories
+            </Button>
+
+            {/* Create Button */}
+            <Button
+              colorPalette="blue"
+              onClick={() => router.push("/user/learn-cards/create")}
+            >
+              Create Guide
+            </Button>
+          </HStack>
         </Flex>
 
         {/* CHAKRA UI V3 TABS */}
@@ -202,7 +217,7 @@ export default function ContentPage() {
             {/* Empty state */}
             {filteredCards.length === 0 && (
               <Box py={10} textAlign="center">
-                <Text color="gray.500">No items found in this category.</Text>
+                <Text color="gray.500">No guides found in this category.</Text>
               </Box>
             )}
           </Tabs.Content>
