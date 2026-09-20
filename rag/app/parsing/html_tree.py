@@ -2,7 +2,7 @@ from pathlib import Path
 from bs4 import BeautifulSoup
 from bs4.element import Tag, NavigableString, Comment
 from rag.app.models.html_node import HTMLNode
-
+import json
 
 class HTMLParser:
     def __init__(self):
@@ -165,3 +165,15 @@ class HTMLParser:
         position = self.position
         self.position += 1
         return position
+    
+def save_tree(tree, output_file: Path):
+    with output_file.open(
+        "w",
+        encoding="utf-8",
+    ) as file:
+        json.dump(
+            tree.to_dict(),
+            file,
+            indent=4,
+            ensure_ascii=False,
+        )

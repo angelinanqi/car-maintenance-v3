@@ -1,4 +1,5 @@
 import re
+from pathlib import Path
 from rag.app.cleaning.cleaning_report import CleaningReport
 from rag.app.cleaning.language_detector import LanguageDetector
 
@@ -22,6 +23,17 @@ class MarkdownCleaner:
     ) -> None:
         self.language_detector = LanguageDetector(malay_threshold=malay_threshold)
 
+    def clean_file(self, input_path: Path, output_path: Path, report_path: Path):
+        """Clean one Markdown file and persist its audit report."""
+        cleaned, report = self.clean(
+            input_path.read_text(encoding="utf-8"), input_path.stem
+        )
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(cleaned, encoding="utf-8")
+        report.save(report_path)
+        return report
+
     def clean(
         self,
         markdown: str,
@@ -29,7 +41,8 @@ class MarkdownCleaner:
     ) -> tuple[str, CleaningReport]:
         report = CleaningReport(document_name=document_name)
 
-        # keep fenced/indented code byte-for-byte at the line level. Also avoids deleting repeated code lines or treating code pipes as table syntax.
+        # Keep fenced/indented code byte-for-byte at the line level. Also avoids
+        # deleting repeated code lines or treating code pipes as table syntax.
         original = markdown.splitlines()
         protected = self._code_lines(original)
         result = []
@@ -225,7 +238,7 @@ class MarkdownCleaner:
         if self._is_table_separator(line):
             return line
 
-        # escaped pipes and code spans are not safe to rewrite cell by cell
+        # Escaped pipes and code spans are not safe to rewrite cell-by-cell.
         if "\\|" in line or "`" in line:
             return line
         parts = line.split("|")

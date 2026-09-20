@@ -1,6 +1,8 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
 from uuid import UUID
+import json
+from pathlib import Path
 
 
 @dataclass
@@ -81,3 +83,15 @@ class DocumentNode:
         if data.get("type") != "Document" or not name:
             raise ValueError("Expected a Document root with a document name.")
         return load(data, None, name)
+
+
+def load_document(
+    path: Path,
+) -> DocumentNode:
+    with path.open(
+        "r",
+        encoding="utf-8",
+    ) as file:
+        data = json.load(file)
+
+    return DocumentNode.from_tree_dict(data)

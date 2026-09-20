@@ -1,3 +1,5 @@
+import json
+from pathlib import Path
 from uuid import NAMESPACE_URL, uuid5
 from rag.app.models.node import Document, Paragraph, Cell, ListItem, Section, Node
 from rag.app.normalization.converters import (
@@ -154,3 +156,35 @@ class SemanticBuilder:
                     ),
                 )
             )
+
+
+def normalize_file(
+    input_file: Path,
+    output_file: Path,
+) -> None:
+
+    with input_file.open(
+        "r",
+        encoding="utf-8",
+    ) as file:
+        html_tree = json.load(file)
+
+    document_name = input_file.stem.removesuffix("_html_tree")
+
+    builder = SemanticBuilder()
+
+    document = builder.build(
+        html_tree,
+        document_name,
+    )
+
+    with output_file.open(
+        "w",
+        encoding="utf-8",
+    ) as file:
+        json.dump(
+            document.to_dict(),
+            file,
+            indent=4,
+            ensure_ascii=False,
+        )

@@ -151,3 +151,4 @@ def process_document(
     )
 
     print(f"Stored {len(ids)} chunks " f"for {document_name}")
+    return len(ids)

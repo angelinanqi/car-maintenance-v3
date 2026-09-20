@@ -1,24 +1,11 @@
 from __future__ import annotations
-import json
 from pathlib import Path
-from rag.app.models.document_tree import DocumentNode
+from rag.app.models.document_tree import load_document
 from rag.app.chunking.chunker import chunk_document, save_chunks
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 INPUT_DIR = PROJECT_ROOT / "output" / "nodes"
 OUTPUT_DIR = PROJECT_ROOT / "output" / "chunks"
-
-
-def load_document(
-    path: Path,
-) -> DocumentNode:
-    with path.open(
-        "r",
-        encoding="utf-8",
-    ) as file:
-        data = json.load(file)
-
-    return DocumentNode.from_tree_dict(data)
 
 
 def main() -> None:
