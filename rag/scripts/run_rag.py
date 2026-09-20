@@ -32,6 +32,9 @@ def parse_args():
         help="Show the retrieved context before the answer.",
     )
 
+    parser.add_argument(
+        "--document-name", help="Restrict results to this exact manual filename stem."
+    )
     return parser.parse_args()
 
 
@@ -51,6 +54,7 @@ def main():
     results = searcher.search(
         query=args.query,
         top_k=args.top_k,
+        document_name=args.document_name,
     )
 
     context = build_context(results)

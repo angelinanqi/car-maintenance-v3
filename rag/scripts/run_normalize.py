@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 from rag.app.normalization.builder import SemanticBuilder
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 INPUT_DIR = PROJECT_ROOT / "output" / "parse"
 OUTPUT_DIR = PROJECT_ROOT / "output" / "nodes"

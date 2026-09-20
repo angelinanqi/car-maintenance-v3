@@ -35,11 +35,11 @@ def build_context(
         if node_type:
             header += f"\nContent type: {node_type}"
 
-        context_parts.append(f"""[{result.rank}]
-{header}
-
-Content:
-{result.text}""")
+        # current chunks already carry document/section/content labels. Keep a fallback for imported or older chunks without those prefixes.
+        text = result.text
+        if not text.startswith("Document: "):
+            text = f"{header}\n\nContent:\n{text}"
+        context_parts.append(f"[{result.rank}]\n{text}")
 
     return "\n\n---\n\n".join(context_parts)
 

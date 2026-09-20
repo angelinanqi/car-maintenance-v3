@@ -23,6 +23,9 @@ def parse_args():
         help=f"Number of results to return. Default: {DEFAULT_TOP_K}",
     )
 
+    parser.add_argument(
+        "--document-name", help="Restrict results to this exact manual filename stem."
+    )
     return parser.parse_args()
 
 
@@ -70,6 +73,7 @@ def main() -> None:
     results = searcher.search(
         query=query,
         top_k=args.top_k,
+        document_name=args.document_name,
     )
 
     print_results(

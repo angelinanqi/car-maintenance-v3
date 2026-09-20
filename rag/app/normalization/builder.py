@@ -1,14 +1,23 @@
-from rag.app.models.node import (
-    Document,
-    Paragraph,
-    Cell,
-    ListItem,
-)
-
+from uuid import NAMESPACE_URL, uuid5
+from rag.app.models.node import Document, Paragraph, Cell, ListItem, Section, Node
 from rag.app.normalization.converters import (
     build_metadata,
     convert_node,
 )
+
+
+def assign_node_ids(document: Document) -> None:
+    namespace = uuid5(
+        NAMESPACE_URL, f"vehicle-manual:{document.metadata.document_name}"
+    )
+
+    def visit(node: Node, path: str, parent_id=None) -> None:
+        node.metadata.id = uuid5(namespace, f"{path}:{type(node).__name__}")
+        node.metadata.parent_id = parent_id
+        for index, child in enumerate(node.children):
+            visit(child, f"{path}/{index}", node.metadata.id)
+
+    visit(document, "0")
 
 
 class SemanticBuilder:
@@ -34,6 +43,7 @@ class SemanticBuilder:
             document_name,
         )
 
+        assign_node_ids(document)
         return document
 
     def _build_children(
@@ -42,6 +52,39 @@ class SemanticBuilder:
         semantic_parent,
         document_name: str,
     ) -> None:
+
+        if "content" in html_node:
+            if isinstance(semantic_parent, Paragraph) and html_node.get("tag") == "p":
+                semantic_parent.text = ""
+            children = html_node.get("children", [])
+            visited = set()
+            for part in html_node["content"]:
+                if isinstance(part, str):
+                    if isinstance(semantic_parent, Section) and html_node.get(
+                        "tag"
+                    ) in {"h1", "h2", "h3", "h4", "h5", "h6"}:
+                        continue
+                    if not part.strip():
+                        continue
+                    if (
+                        isinstance(semantic_parent, Paragraph)
+                        and not semantic_parent.children
+                    ):
+                        semantic_parent.text += part
+                    else:
+                        semantic_parent.add_child(
+                            Paragraph(
+                                text=part.strip(),
+                                metadata=build_metadata(html_node, document_name),
+                            )
+                        )
+                else:
+                    self._build_child(children[part], semantic_parent, document_name)
+                    visited.add(part)
+            for index, child in enumerate(children):
+                if index not in visited:
+                    self._build_child(child, semantic_parent, document_name)
+            return
 
         self._add_direct_text(
             html_node,
@@ -73,6 +116,12 @@ class SemanticBuilder:
                     semantic_parent,
                     document_name,
                 )
+
+    def _build_child(self, child, semantic_parent, document_name):
+        semantic_child = convert_node(child, document_name)
+        if semantic_child is not None:
+            semantic_parent.add_child(semantic_child)
+        self._build_children(child, semantic_child or semantic_parent, document_name)
 
     def _add_direct_text(
         self,

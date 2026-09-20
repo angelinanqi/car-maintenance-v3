@@ -27,6 +27,7 @@ class Searcher:
         self,
         query: str,
         top_k: int = 5,
+        document_name: str | None = None,
     ) -> list[RetrievalResult]:
 
         if not query.strip():
@@ -34,12 +35,15 @@ class Searcher:
 
         if top_k <= 0:
             raise ValueError("top_k must be greater than 0.")
+        if document_name is not None and not document_name.strip():
+            raise ValueError("document_name cannot be blank")
 
         query_embedding = self.embedder.embed_query(query)
 
         results = self.vector_store.search(
             query_embedding=query_embedding,
             top_k=top_k,
+            document_name=document_name,
         )
 
         return self._build_results(results)
