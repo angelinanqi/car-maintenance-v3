@@ -87,6 +87,7 @@ def run_pipeline(
         if embedder is None:
             embedder = Embedder()
             store = VectorStore(chroma_path)
+        assert store is not None
         count = process_document(chunks_path, embedder, store)
         documents.append(
             {

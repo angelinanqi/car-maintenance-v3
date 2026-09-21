@@ -9,12 +9,15 @@ COLLECTION_NAME = "rag_chunks"
 
 
 class VectorStore:
-    def __init__(self, database_path: Path = CHROMA_PATH):
+    def __init__(
+        self, database_path: Path = CHROMA_PATH, collection_name: str = COLLECTION_NAME
+    ):
+
         database_path.mkdir(parents=True, exist_ok=True)
 
         self.client = chromadb.PersistentClient(path=str(database_path))
         self.collection = self.client.get_or_create_collection(
-            name=COLLECTION_NAME,
+            name=collection_name,
             metadata={
                 "embedding_model": "nomic-ai/nomic-embed-text-v1.5",
                 "embedding_dimension": 768,

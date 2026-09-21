@@ -7,3 +7,4 @@ einops>=0.7,<1
 chromadb>=1,<2
 ollama>=0.4,<1
 python-dotenv>=1,<2
+youtube-transcript-api>=1.2,<2
