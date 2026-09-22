@@ -46,7 +46,8 @@ def chunk_transcript(
             # todo: include prefix and special tokens in the actual runtime limit
             length = len(
                 tokenizer.encode(
-                    "search_document: " + candidate, add_special_tokens=True
+                    f"search_document: Title: {video['title']}\nTranscript: {candidate}",
+                    add_special_tokens=True,
                 )
             )
             if length > max_tokens:
@@ -61,6 +62,7 @@ def chunk_transcript(
                 break
         metadata = {
             "source_type": "youtube",
+            "retrieval_content": "transcript",
             "video_id": video["video_id"],
             "video_title": video["title"],
             "channel_id": video["channel_id"],
@@ -69,7 +71,10 @@ def chunk_transcript(
             "language": transcript["language"],
             "is_generated": transcript["is_generated"],
         }
-        chunk = {"text": " ".join(texts), "metadata": metadata}
+        chunk = {
+            "text": f"Title: {video['title']}\nTranscript: {' '.join(texts)}",
+            "metadata": metadata,
+        }
         digest = sha256(
             json.dumps(chunk, sort_keys=True, ensure_ascii=False).encode()
         ).hexdigest()
@@ -86,3 +91,39 @@ def chunk_transcript(
             next_first -= 1
         first = next_first
     return chunks
+
+
+def build_metadata_record(video):
+    title = (video.get("title") or "").strip()
+    description = (video.get("description") or "").strip()
+
+    if not title and not description:
+        raise ValueError("No usable title or description for metadata fallback.")
+
+    text = "\n".join(
+        part
+        for part in (
+            f"Title: {title}" if title else "",
+            f"Description: {description}" if description else "",
+        )
+        if part
+    )
+
+    record = {
+        "text": text,
+        "metadata": {
+            "source_type": "youtube",
+            "video_id": video["video_id"],
+            "video_title": title,
+            "channel_id": video["channel_id"],
+            "retrieval_content": "metadata_only",
+        },
+    }
+
+    digest = sha256(
+        json.dumps(record, sort_keys=True, ensure_ascii=False).encode()
+    ).hexdigest()
+
+    record["id"] = f"youtube_{video['video_id']}_metadata_{digest}"
+
+    return record

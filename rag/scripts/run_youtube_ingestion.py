@@ -7,6 +7,7 @@ from rag.app.youtube.transcripts import save_json
 from rag.app.youtube.ingestion import ingest_videos
 from rag.app.youtube.retrieval import open_store
 
+# python -m rag.scripts.run_youtube_ingestion
 
 def main():
     parser = argparse.ArgumentParser(
@@ -19,8 +20,9 @@ def main():
     parser.add_argument(
         "--rebuild",
         action="store_true",
-        help="Rechunk/re-embed using cached transcripts.",
+        help="Regenerate text records and embeddings, reusing saved transcripts. Does not purge data.",
     )
+
     args = parser.parse_args()
     try:
         channel = read_channel(CHANNEL_FILE)

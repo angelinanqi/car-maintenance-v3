@@ -102,7 +102,7 @@ def discover_videos(channel_filter, api_key):
             thumbnails = snippet.get("thumbnails", {})
             videos[video_id] = {
                 "video_id": video_id,
-                "title": snippet.get("title", video_id),
+                "title": snippet.get("title", ""),
                 "description": snippet.get("description", ""),
                 "published_at": details.get("videoPublishedAt", ""),
                 "thumbnail_url": thumbnails.get(

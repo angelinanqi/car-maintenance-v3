@@ -35,7 +35,8 @@ def replace_video(store, video_id, chunks, embedder):
 
 
 def timestamp_url(video_id, start_seconds):
-    return f"https://www.youtube.com/watch?v={video_id}&t={max(0, int(start_seconds))}s"
+    url = f"https://www.youtube.com/watch?v={video_id}"
+    return url if start_seconds is None else f"{url}&t={max(0, int(start_seconds))}s"
 
 
 def group_by_video(results):

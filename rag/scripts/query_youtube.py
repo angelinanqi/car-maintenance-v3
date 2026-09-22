@@ -23,6 +23,7 @@ def main():
 
     try:
         results = retrieve_youtube(args.query, args.top_k, args.chroma_path)
+
     except Exception as error:
         parser.exit(1, f"YouTube query failed: {error}\n")
 
@@ -37,11 +38,17 @@ def main():
         print(
             f"\n{rank}. {metadata['video_title']} | distance={result['distance']:.4f}"
         )
-        print(
-            f"{metadata['language']} | {metadata['start_seconds']:.1f}-{metadata['end_seconds']:.1f}s"
-        )
+
+        if metadata.get("retrieval_content") == "metadata_only":
+            print("metadata_only | title + description")
+
+        else:
+            print(
+                f"transcript | {metadata['language']} | {metadata['start_seconds']:.1f}-{metadata['end_seconds']:.1f}s"
+            )
+
         print(result["text"][:500])
-        print(timestamp_url(metadata["video_id"], metadata["start_seconds"]))
+        print(timestamp_url(metadata["video_id"], metadata.get("start_seconds")))
 
 
 if __name__ == "__main__":

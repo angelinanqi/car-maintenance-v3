@@ -6,4 +6,3 @@ COLLECTION_NAME = "youtube_chunks"
 # overlap always consist of whole snippets
 CHUNK_TOKENS = 400
 OVERLAP_TOKENS = 60
-CHUNK_VERSION = 1
