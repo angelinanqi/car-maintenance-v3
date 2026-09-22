@@ -1,30 +1,18 @@
 from __future__ import annotations
-import json
 from pathlib import Path
-from rag.app.database.models import DocumentNode
+from rag.app.models.document_tree import load_document
 from rag.app.chunking.chunker import chunk_document, save_chunks
 
-INPUT_DIR = Path("output/retrieval")
-OUTPUT_DIR = Path("output/chunks")
-
-
-def load_document(
-    path: Path,
-) -> DocumentNode:
-    with path.open(
-        "r",
-        encoding="utf-8",
-    ) as file:
-        data = json.load(file)
-
-    return DocumentNode.from_tree_dict(data)
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+INPUT_DIR = PROJECT_ROOT / "output" / "nodes"
+OUTPUT_DIR = PROJECT_ROOT / "output" / "chunks"
 
 
 def main() -> None:
-    INPUT_DIR.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
+    if not INPUT_DIR.exists():
+        raise FileNotFoundError(
+            f"Normalized trees not found: {INPUT_DIR}. Run rag.scripts.run_normalize first."
+        )
 
     OUTPUT_DIR.mkdir(
         parents=True,
@@ -34,7 +22,7 @@ def main() -> None:
     files = sorted(INPUT_DIR.glob("*.json"))
 
     if not files:
-        print(f"No retrieval files found in {INPUT_DIR}")
+        print(f"No normalized trees found in {INPUT_DIR}")
         return
 
     print(f"Found {len(files)} document(s).")

@@ -146,16 +146,7 @@ class Image(Node):
 
 @dataclass
 class Table(Node):
-    def get_text(self) -> str:
-        texts = []
-
-        for child in self.children:
-            text = child.get_text().strip()
-
-            if text:
-                texts.append(text)
-
-        return "\n".join(texts)
+    pass
 
 
 @dataclass
@@ -175,16 +166,7 @@ class Row(Node):
 
 @dataclass
 class Cell(Node):
-    def get_text(self) -> str:
-        texts = []
-
-        for child in self.children:
-            text = child.get_text().strip()
-
-            if text:
-                texts.append(text)
-
-        return "\n".join(texts)
+    pass
 
 
 @dataclass
@@ -219,13 +201,4 @@ class List(Node):
 
 @dataclass
 class ListItem(Node):
-    def get_text(self) -> str:
-        texts = []
-
-        for child in self.children:
-            text = child.get_text().strip()
-
-            if text:
-                texts.append(text)
-
-        return "\n".join(texts)
+    pass

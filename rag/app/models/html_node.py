@@ -12,11 +12,17 @@ class HTMLNode:
     parent: Optional["HTMLNode"] = None
     depth: int = 0
     position: int = 0
+    content: list = field(default_factory=list)
 
     def add_child(self, child: "HTMLNode"):
         child.parent = self
         child.depth = self.depth + 1
         self.children.append(child)
+
+    def set_depth(self, depth: int = 0):
+        self.depth = depth
+        for child in self.children:
+            child.set_depth(depth + 1)
 
     def to_dict(self):
         return {
@@ -26,5 +32,6 @@ class HTMLNode:
             "depth": self.depth,
             "position": self.position,
             "text": self.text,
+            "content": self.content,
             "children": [child.to_dict() for child in self.children],
         }

@@ -2,7 +2,7 @@ from __future__ import annotations
 from pathlib import Path
 from uuid import UUID
 import json
-from rag.app.database.models import DocumentNode
+from rag.app.models.document_tree import DocumentNode
 from rag.app.models.chunk import Chunk, ChunkMetadata
 from rag.app.chunking.table_formatter import format_table
 
@@ -25,6 +25,25 @@ def split_text(
     if len(text) <= chunk_size:
         return [text]
 
+    if chunk_size <= 0:
+        raise ValueError("chunk_size must be positive")
+    # preserve complete lines whenever possible; only wrap an oversized line.
+    if "\n" in text:
+        chunks = []
+        current = ""
+        for line in text.splitlines():
+            pieces = split_text(line, chunk_size) if len(line) > chunk_size else [line]
+            for piece in pieces:
+                candidate = current + "\n" + piece if current else piece
+                if current and len(candidate) > chunk_size:
+                    chunks.append(current.rstrip())
+                    current = piece
+                else:
+                    current = candidate
+        if current.strip():
+            chunks.append(current.rstrip())
+        return chunks
+
     words = text.split()
 
     chunks: list[str] = []
@@ -39,7 +58,6 @@ def split_text(
 
         if current_words and current_length + extra_length > chunk_size:
             chunks.append(" ".join(current_words))
-
             current_words = [word]
             current_length = len(word)
 
@@ -69,16 +87,10 @@ def collect_text(
     node: DocumentNode,
 ) -> str:
     """
-    Recursively collect text from a node.
-
-    Used for lists and cells where meaningful text
-    may be stored in descendants.
+    recursively collect text from a node. Used for lists and cells where meaningful text may be stored in descendants.
     """
 
-    if node.text and node.text.strip():
-        return node.text.strip()
-
-    parts: list[str] = []
+    parts: list[str] = [node.text.strip()] if node.text and node.text.strip() else []
 
     for child in node.children:
         child_text = collect_text(child)
@@ -93,9 +105,7 @@ def format_image_reference(
     node: DocumentNode,
 ) -> str:
     """
-    Represent an image inside the surrounding semantic
-    chunk rather than creating a standalone meaningless
-    embedding.
+    Represent an image inside the surrounding semantic chunk rather than creating a standalone meaningless embedding
     """
 
     parts: list[str] = []
@@ -119,31 +129,35 @@ def format_list(
     node: DocumentNode,
 ) -> str:
     items: list[str] = []
-
-    for child in node.children:
+    for index, child in enumerate(node.children, start=1):
         if child.doctype != "ListItem":
             continue
 
-        text = collect_text(child)
-
+        marker = f"{index}. " if node.ordered else "- "
+        parts = [render_content_node(part) for part in child.children]
+        if child.text:
+            parts.insert(0, child.text)
+        text = "\n".join(part for part in parts if part.strip())
         if text:
-            items.append(text)
+            lines = text.splitlines()
+            items.append(
+                marker
+                + lines[0]
+                + "".join("\n" + " " * len(marker) + line for line in lines[1:])
+            )
 
     if not items:
         return ""
 
-    return "\n".join(f"- {item}" for item in items)
+    return "\n".join(items)
 
 
 def render_content_node(
     node: DocumentNode,
 ) -> str:
     """
-    Convert a semantic content node into text suitable
-    for an LLM.
-
-    This function does not decide chunk boundaries.
-    It only renders the node.
+    Convert a semantic content node into text suitable for an LLM.
+    This function does not decide chunk boundaries, only renders the node.
     """
 
     if node.doctype == "Paragraph":
@@ -153,8 +167,7 @@ def render_content_node(
             parts.append(node.text.strip())
 
         for child in node.children:
-            if child.doctype == "Image":
-                parts.append(format_image_reference(child))
+            parts.append(render_content_node(child))
 
         return "\n".join(parts)
 
@@ -186,9 +199,7 @@ def collect_section_content(
 ) -> tuple[list[str], list[DocumentNode]]:
     """
     Collect content that directly belongs to this section.
-
-    Nested Sections are intentionally not included because
-    each subsection gets its own semantic chunk group.
+    Nested Sections are intentionally not included because each subsection gets its own semantic chunk group.
     """
 
     content_parts: list[str] = []
@@ -233,14 +244,18 @@ def get_metadata_source(
     source_nodes: list[DocumentNode],
 ) -> DocumentNode:
     """
-    Select the first contributing node as the primary
-    source metadata owner.
-
-    The complete list of contributing node IDs is also
-    stored in ChunkMetadata.
+    Select the first contributing node as the primary metadata owner.
+    The complete list of contributing node IDs is also stored in ChunkMetadata.
     """
 
     return source_nodes[0]
+
+
+def collect_image_sources(node: DocumentNode) -> list[str]:
+    sources = [node.src] if node.src else []
+    for child in node.children:
+        sources.extend(collect_image_sources(child))
+    return sources
 
 
 def create_chunk(
@@ -260,7 +275,11 @@ def create_chunk(
         source_tag=primary_node.source_tag,
         source_depth=primary_node.source_depth,
         source_position=primary_node.source_position,
-        src=[node.src for node in source_nodes if node.src],
+        src=list(
+            dict.fromkeys(
+                src for node in source_nodes for src in collect_image_sources(node)
+            )
+        ),
     )
 
     text = build_context_text(
@@ -282,13 +301,7 @@ def split_section_content(
 ) -> list[tuple[str, list[DocumentNode]]]:
     """
     Build chunks from section content.
-
-    Content is accumulated in semantic order.
-    When the combined text becomes too large,
-    a new chunk begins.
-
-    Individual oversized content nodes are split
-    by words.
+    Content is accumulated in semantic order. When the combined text becomes too large, a new chunk begins. Individual oversized content nodes are split by words.
     """
 
     groups: list[tuple[str, list[DocumentNode]]] = []
@@ -404,9 +417,7 @@ def chunk_non_section_content(
 ) -> list[Chunk]:
     """
     Handle content outside a Section.
-
-    This is important for unstructured documents where
-    headings may be missing.
+    This is important for unstructured documents where headings may be missing.
     """
 
     if not is_content_node(node):
@@ -542,9 +553,7 @@ def save_chunks(
     )
 
     json_path = output_dir / f"{document_name}.json"
-
     text_path = output_dir / f"{document_name}.txt"
-
     json_data = [chunk_to_dict(chunk) for chunk in chunks]
 
     with json_path.open(

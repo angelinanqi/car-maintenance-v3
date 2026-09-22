@@ -29,21 +29,7 @@ def main() -> None:
 
         print(f"\nCleaning: {input_path.name}")
 
-        markdown = input_path.read_text(encoding="utf-8")
-
-        cleaned_markdown, report = cleaner.clean(
-            markdown=markdown,
-            document_name=document_name,
-        )
-
-        # Keep the cleaned document as Markdown.
-        output_path.write_text(
-            cleaned_markdown,
-            encoding="utf-8",
-        )
-
-        # Save the audit report separately.
-        report.save(report_path)
+        report = cleaner.clean_file(input_path, output_path, report_path)
 
         print(f"  Output: {output_path}")
         print(f"  Report: {report_path}")

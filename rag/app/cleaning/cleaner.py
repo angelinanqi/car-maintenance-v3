@@ -1,6 +1,7 @@
 import re
-from app.cleaning.cleaning_report import CleaningReport
-from app.cleaning.language_detector import LanguageDetector
+from pathlib import Path
+from rag.app.cleaning.cleaning_report import CleaningReport
+from rag.app.cleaning.language_detector import LanguageDetector
 
 
 class MarkdownCleaner:
@@ -22,6 +23,17 @@ class MarkdownCleaner:
     ) -> None:
         self.language_detector = LanguageDetector(malay_threshold=malay_threshold)
 
+    def clean_file(self, input_path: Path, output_path: Path, report_path: Path):
+        """Clean one Markdown file and persist its audit report."""
+        cleaned, report = self.clean(
+            input_path.read_text(encoding="utf-8"), input_path.stem
+        )
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(cleaned, encoding="utf-8")
+        report.save(report_path)
+        return report
+
     def clean(
         self,
         markdown: str,
@@ -29,6 +41,25 @@ class MarkdownCleaner:
     ) -> tuple[str, CleaningReport]:
         report = CleaningReport(document_name=document_name)
 
+        # Keep fenced/indented code byte-for-byte at the line level. Also avoids
+        # deleting repeated code lines or treating code pipes as table syntax.
+        original = markdown.splitlines()
+        protected = self._code_lines(original)
+        result = []
+        pending = []
+        for index, line in enumerate(original):
+            if index in protected:
+                if pending:
+                    result.append(self._clean_prose("\n".join(pending), report))
+                    pending = []
+                result.append(line + "\n")
+            else:
+                pending.append(line)
+        if pending:
+            result.append(self._clean_prose("\n".join(pending), report))
+        return "".join(result), report
+
+    def _clean_prose(self, markdown: str, report: CleaningReport) -> str:
         text = self._normalize_unicode(markdown)
         text = self._normalize_whitespace(text)
 
@@ -51,7 +82,31 @@ class MarkdownCleaner:
 
         cleaned = self._final_whitespace_cleanup(lines)
 
-        return cleaned, report
+        return cleaned
+
+    @staticmethod
+    def _code_lines(lines: list[str]) -> set[int]:
+        protected = set()
+        fence = None
+        for index, line in enumerate(lines):
+            match = re.match(r"^ {0,3}(`{3,}|~{3,})", line)
+            if fence:
+                protected.add(index)
+                if (
+                    match
+                    and match[1][0] == fence[0]
+                    and len(match[1]) >= len(fence)
+                    and not line[match.end() :].strip()
+                ):
+                    fence = None
+            elif match:
+                fence = match[1]
+                protected.add(index)
+            elif line.startswith(("    ", "\t")) and not re.match(
+                r"^\s*(?:[-*+]\s+|\d+[.)]\s+)", line
+            ):
+                protected.add(index)
+        return protected
 
     def _normalize_unicode(self, text: str) -> str:
         """
@@ -82,15 +137,10 @@ class MarkdownCleaner:
         cleaned_lines = []
 
         for line in lines:
-            line = line.rstrip()
-            line = re.sub(r"[ \t]+", " ", line)
-
-            # Remove spaces before common punctuation.
-            line = re.sub(
-                r"\s+([,.;:!?])",
-                r"\1",
-                line,
-            )
+            # Leading indentation and inline spacing can be Markdown syntax.
+            # Two trailing spaces are a meaningful Markdown hard line break.
+            hard_break = line.endswith("  ") and bool(line.strip())
+            line = line.rstrip() + ("  " if hard_break else "")
 
             cleaned_lines.append(line)
 
@@ -125,7 +175,8 @@ class MarkdownCleaner:
 
             paragraph.clear()
 
-        for line in lines:
+        table_lines = self._table_lines(lines)
+        for index, line in enumerate(lines):
             stripped = line.strip()
 
             # Code fences are completely untouched.
@@ -147,7 +198,7 @@ class MarkdownCleaner:
                 continue
 
             # Markdown table.
-            if self._is_table_line(line):
+            if index in table_lines:
                 flush_paragraph()
 
                 cleaned_line = self._clean_table_line(
@@ -161,7 +212,12 @@ class MarkdownCleaner:
             # Markdown structural elements are kept conservative.
             if self._is_markdown_structure(line):
                 flush_paragraph()
-                result.append(line)
+                natural = re.sub(r"^\s*(?:>\s*)+", "", line)
+                natural = re.sub(r"^\s*(?:#{1,6}\s+|[-*+]\s+|\d+[.)]\s+)", "", natural)
+                if self._should_remove_malay(natural):
+                    report.malay_blocks_removed.append(natural)
+                else:
+                    result.append(line)
                 continue
 
             paragraph.append(line)
@@ -182,6 +238,9 @@ class MarkdownCleaner:
         if self._is_table_separator(line):
             return line
 
+        # Escaped pipes and code spans are not safe to rewrite cell-by-cell.
+        if "\\|" in line or "`" in line:
+            return line
         parts = line.split("|")
         cleaned_parts: list[str] = []
 
@@ -192,7 +251,7 @@ class MarkdownCleaner:
                 report.malay_blocks_removed.append(cell)
                 cleaned_parts.append("")
             else:
-                cleaned_parts.append(cell)
+                cleaned_parts.append(part)
 
         return "|".join(cleaned_parts)
 
@@ -231,11 +290,30 @@ class MarkdownCleaner:
 
         return self.language_detector.is_confident_malay(text)
 
-    def _is_table_line(self, line: str) -> bool:
-        """
-        Basic Markdown table detection.
-        """
-        return "|" in line
+    def _table_lines(self, lines: list[str]) -> set[int]:
+        """Require a header followed by a matching Markdown delimiter row."""
+        rows = set()
+        for index in range(1, len(lines)):
+            if not self._is_table_separator(lines[index]):
+                continue
+            header = lines[index - 1].strip().strip("|").split("|")
+            separator = lines[index].strip().strip("|").split("|")
+            if "|" not in lines[index - 1] or len(header) != len(separator):
+                continue
+            rows.update((index - 1, index))
+            following = index + 1
+            while (
+                following < len(lines)
+                and lines[following].strip()
+                and "|" in lines[following]
+            ):
+                if len(lines[following].strip().strip("|").split("|")) != len(
+                    separator
+                ):
+                    break
+                rows.add(following)
+                following += 1
+        return rows
 
     def _is_table_separator(self, line: str) -> bool:
         """
@@ -245,7 +323,7 @@ class MarkdownCleaner:
         """
         stripped = line.strip()
 
-        if not stripped:
+        if not stripped or "|" not in stripped:
             return False
 
         parts = stripped.split("|")
@@ -255,7 +333,7 @@ class MarkdownCleaner:
         if not meaningful_parts:
             return False
 
-        return all(re.fullmatch(r":?-+:?", part) for part in meaningful_parts)
+        return all(re.fullmatch(r":?-{3,}:?", part) for part in meaningful_parts)
 
     def _is_markdown_structure(self, line: str) -> bool:
         stripped = line.lstrip()
@@ -266,7 +344,7 @@ class MarkdownCleaner:
         if stripped.startswith(("- ", "* ", "+ ")):
             return True
 
-        if re.match(r"^\d+\.\s", stripped):
+        if re.match(r"^\d+[.)]\s", stripped):
             return True
 
         if stripped.startswith(">"):
@@ -283,17 +361,23 @@ class MarkdownCleaner:
 
         previous: str | None = None
 
-        for line in lines:
+        table_lines = self._table_lines(lines)
+        for index, line in enumerate(lines):
             stripped = line.strip()
 
-            if stripped and stripped == previous:
+            if (
+                stripped
+                and line == previous
+                and index not in table_lines
+                and not self._is_markdown_structure(line)
+            ):
                 report.duplicate_lines_removed.append(stripped)
                 continue
 
             result.append(line)
 
             if stripped:
-                previous = stripped
+                previous = line
             else:
                 previous = None
 
@@ -335,7 +419,8 @@ class MarkdownCleaner:
         previous_blank = False
 
         for line in lines:
-            line = line.rstrip()
+            hard_break = line.endswith("  ") and bool(line.strip())
+            line = line.rstrip() + ("  " if hard_break else "")
 
             if not line.strip():
                 if previous_blank:
@@ -348,4 +433,4 @@ class MarkdownCleaner:
             previous_blank = False
             result.append(line)
 
-        return "\n".join(result).strip() + "\n"
+        return "\n".join(result) + "\n"

@@ -1,21 +1,7 @@
-import json
 from pathlib import Path
-from rag.app.parsing.html_tree import HTMLParser
+from rag.app.parsing.html_tree import HTMLParser, save_tree
 
 INPUT_DIR = Path("output/parse")
-
-
-def save_tree(tree, output_file: Path):
-    with output_file.open(
-        "w",
-        encoding="utf-8",
-    ) as file:
-        json.dump(
-            tree.to_dict(),
-            file,
-            indent=4,
-            ensure_ascii=False,
-        )
 
 
 def parse_html_files():
