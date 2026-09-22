@@ -7,19 +7,31 @@ from chromadb.api.types import Metadata, QueryResult, Where
 CHROMA_PATH = Path("output/embeddings/chroma")
 COLLECTION_NAME = "rag_chunks"
 # Chroma publishes its shared backend before its Rust bindings finish starting.
-# Serialize construction only; collection searches can still run in parallel.
+# Serialize construction only, collection searches can still run in parallel.
 _CHROMA_INIT_LOCK = Lock()
 
 
 class VectorStore:
     def __init__(
-        self, database_path: Path = CHROMA_PATH, collection_name: str = COLLECTION_NAME
+        self,
+        database_path: Path = CHROMA_PATH,
+        collection_name: str = COLLECTION_NAME,
+        *,
+        create=True
     ):
-
-        database_path.mkdir(parents=True, exist_ok=True)
+        database_path = Path(database_path)
+        if create:
+            database_path.mkdir(parents=True, exist_ok=True)
+        elif not (database_path / "chroma.sqlite3").is_file():
+            raise FileNotFoundError(
+                "No prepared Chroma index. Run python -m rag.scripts.run_ingestion first."
+            )
 
         with _CHROMA_INIT_LOCK:
             self.client = chromadb.PersistentClient(path=str(database_path))
+            if not create:
+                self.collection = self.client.get_collection(name=collection_name)
+                return
             self.collection = self.client.get_or_create_collection(
                 name=collection_name,
                 metadata={
@@ -36,10 +48,10 @@ class VectorStore:
         embeddings: Any,
         metadatas: list[Metadata],
     ) -> None:
-        """Replace one manual, including empty replacements; other manuals stay.
-
-        Embed/validate before calling. Chroma delete + upsert is not atomic;
-        rerun this replacement if a write fails. Do not run concurrent writers.
+        """
+        Replace one manual, including empty replacements. other manuals stay
+        embed before calling. Chroma delete n upsert not atomic
+        rerun this replacement if a write fails.
         """
         if not document_name or not (
             len(ids) == len(documents) == len(embeddings) == len(metadatas)

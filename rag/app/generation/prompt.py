@@ -42,32 +42,3 @@ def build_context(
         context_parts.append(f"[{result.rank}]\n{text}")
 
     return "\n\n---\n\n".join(context_parts)
-
-
-def build_prompt(
-    query: str,
-    context: str,
-) -> str:
-    if not query.strip():
-        raise ValueError("Query cannot be empty.")
-
-    if not context.strip():
-        raise ValueError("Context cannot be empty.")
-
-    return f"""You are answering questions about a vehicle owner's manual.
-
-Use the provided manual context to answer the user's question.
-
-Rules:
-- Use the manual context as the source of truth.
-- Do not invent information that is not supported by the context.
-- If the context does not contain enough information to answer the question, say so clearly.
-- Answer directly and clearly.
-- Do not mention the retrieval process unless necessary.
-
-User question:
-{query}
-
-Manual context:
-{context}
-"""
