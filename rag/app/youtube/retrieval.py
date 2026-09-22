@@ -1,23 +1,15 @@
-"""YouTube's embedding/storage boundary: reuse the current shared embedder."""
-
 from .config import COLLECTION_NAME
-
 
 def open_store(database_path):
     from rag.app.embedding.vector_store import VectorStore
-
     return VectorStore(database_path, collection_name=COLLECTION_NAME)
-
 
 def create_embedder():
     from rag.app.embedding.embedder import Embedder
-
     return Embedder()
 
-
 def replace_video(store, video_id, chunks, embedder):
-    # Compute everything before deleting old records. A failed write is repaired
-    # on rerun by comparing the complete expected ID set. No concurrent writers.
+    # compute everything before deleting old records. A failed write is repaired on rerun by comparing the complete expected ID set. No concurrent writers.
     texts = [chunk["text"] for chunk in chunks]
     embeddings = embedder.embed_documents(texts)
     if len(embeddings) != len(chunks):
@@ -40,35 +32,100 @@ def timestamp_url(video_id, start_seconds):
 
 
 def group_by_video(results):
-    """Lowest distance chunk supplies each video's primary timestamp."""
     best = {}
     for result in sorted(results, key=lambda result: result["distance"]):
         best.setdefault(result["metadata"]["video_id"], result)
     return list(best.values())
 
 
-def retrieve_youtube(query, top_k=5, database_path=None):
+def retrieve_youtube(
+    query, top_k=5, database_path=None, *, query_embedding=None, best_only=False
+):
     from rag.app.embedding.vector_store import CHROMA_PATH
 
     if not query.strip() or top_k < 1:
         raise ValueError("Provide a nonempty query and positive top_k.")
+    
     store = open_store(database_path or CHROMA_PATH)
     count = store.collection.count()
+    
     if not count:
         return []
-    embedding = create_embedder().embed_query(query)
-    response = store.search(embedding, top_k=min(top_k, count))
-    documents = response.get("documents") or [[]]
-    metadatas = response.get("metadatas") or [[]]
-    distances = response.get("distances")
-    if distances is None:
-        distances = [[]]
-    return [
+    
+    embedding = query_embedding
+    
+    if embedding is None:
+        embedding = create_embedder().embed_query(query)
+        
+    limit = min(top_k, count)
+    response = store.search(embedding, top_k=limit)
+    distances = (response or {}).get("distances") or []
+    
+    if not distances or not distances[0]:
+        return []
+    
+    if best_only:
+        # Expand a tied boundary so top_k cannot silently discard tied videos.
+        while limit < count and distances[0][-1] == min(distances[0]):
+            limit = min(limit * 2, count)
+            response = store.search(embedding, top_k=limit)
+            distances = (response or {}).get("distances") or []
+            if not distances or not distances[0]:
+                return []
+            
+    distance_row = distances[0]
+    
+    if distance_row is None:
+        return []
+    
+    documents = (response or {}).get("documents") or []
+    metadatas = (response or {}).get("metadatas") or []
+    ids = (response or {}).get("ids") or []
+    
+    if not documents or not metadatas or not ids:
+        return []
+    
+    results = [
         {
             "id": chunk_id,
             "text": documents[0][i],
             "metadata": metadatas[0][i],
-            "distance": distances[0][i],
+            "distance": distance_row[i],
         }
-        for i, chunk_id in enumerate(response["ids"][0])
+        for i, chunk_id in enumerate(ids[0])
+    ]
+    
+    if best_only:
+        hnsw_configuration = store.collection.configuration.get("hnsw") or {}
+        metric = hnsw_configuration.get("space", "l2")
+        return select_best_videos(results, metric)
+    
+    return results
+
+
+def select_best_videos(results, metric="l2", threshold=None):
+    # keep every best scoring video that passes the cosine similarity cutoff
+    from rag.config.settings import VIDEO_RELEVANCE_THRESHOLD
+
+    if threshold is None:
+        threshold = VIDEO_RELEVANCE_THRESHOLD
+        
+    if metric not in {"l2", "cosine", "ip"}:
+        raise ValueError(f"Unsupported video distance metric: {metric}")
+    
+    grouped = group_by_video(results)
+    
+    if not grouped:
+        return []
+    
+    best_distance = grouped[0]["distance"]
+    score = 1 - best_distance / 2 if metric == "l2" else 1 - best_distance
+    
+    if score < threshold:
+        return []
+    
+    return [
+        dict(result, score=score)
+        for result in grouped
+        if result["distance"] == best_distance
     ]

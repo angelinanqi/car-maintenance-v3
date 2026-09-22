@@ -14,19 +14,25 @@ class OllamaClient:
 
         self.model: str = model
 
-    def generate(self, prompt: str) -> str:
+    def generate(self, prompt: str, *, schema: dict | None = None) -> str:
         if not prompt.strip():
             raise ValueError("Prompt cannot be empty.")
 
-        response = chat(
-            model=self.model,
-            messages=[
-                {
-                    "role": "user",
-                    "content": prompt,
-                }
-            ],
-        )
+        messages = [
+            {
+                "role": "user",
+                "content": prompt,
+            }
+        ]
+
+        if schema is None:
+            response = chat(model=self.model, messages=messages)
+        else:
+            response = chat(
+                model=self.model,
+                format=schema,
+                messages=messages,
+            )
 
         content = response.message.content
 

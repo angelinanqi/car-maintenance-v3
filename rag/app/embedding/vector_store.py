@@ -1,11 +1,14 @@
 from pathlib import Path
 from typing import Any
-
+from threading import Lock
 import chromadb
 from chromadb.api.types import Metadata, QueryResult, Where
 
 CHROMA_PATH = Path("output/embeddings/chroma")
 COLLECTION_NAME = "rag_chunks"
+# Chroma publishes its shared backend before its Rust bindings finish starting.
+# Serialize construction only; collection searches can still run in parallel.
+_CHROMA_INIT_LOCK = Lock()
 
 
 class VectorStore:
@@ -15,14 +18,15 @@ class VectorStore:
 
         database_path.mkdir(parents=True, exist_ok=True)
 
-        self.client = chromadb.PersistentClient(path=str(database_path))
-        self.collection = self.client.get_or_create_collection(
-            name=collection_name,
-            metadata={
-                "embedding_model": "nomic-ai/nomic-embed-text-v1.5",
-                "embedding_dimension": 768,
-            },
-        )
+        with _CHROMA_INIT_LOCK:
+            self.client = chromadb.PersistentClient(path=str(database_path))
+            self.collection = self.client.get_or_create_collection(
+                name=collection_name,
+                metadata={
+                    "embedding_model": "nomic-ai/nomic-embed-text-v1.5",
+                    "embedding_dimension": 768,
+                },
+            )
 
     def replace_document(
         self,

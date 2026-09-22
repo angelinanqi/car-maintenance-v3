@@ -48,8 +48,8 @@ class Searcher:
 
         return self._build_results(results)
 
+    @staticmethod
     def _build_results(
-        self,
         results: QueryResult,
     ) -> list[RetrievalResult]:
 

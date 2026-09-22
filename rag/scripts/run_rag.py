@@ -1,9 +1,8 @@
 import argparse
-from rag.app.embedding.embedder import Embedder
-from rag.app.embedding.vector_store import VectorStore
-from rag.app.generation.ollama import OllamaClient
-from rag.app.generation.prompt import build_context, build_prompt
-from rag.app.retrieval.search import Searcher
+import asyncio
+import json
+from pathlib import Path
+from rag.app.query import handle_query
 
 DEFAULT_QUERY = "How do I start the engine?"
 DEFAULT_TOP_K = 5
@@ -35,34 +34,33 @@ def parse_args():
     parser.add_argument(
         "--document-name", help="Restrict results to this exact manual filename stem."
     )
+
+    parser.add_argument(
+        "--history", type=Path, help="JSON list of prior {role, content} messages."
+    )
+
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
 
-    embedder = Embedder()
-    vector_store = VectorStore()
-
-    searcher = Searcher(
-        embedder=embedder,
-        vector_store=vector_store,
+    history = (
+        json.loads(args.history.read_text(encoding="utf-8")) if args.history else None
     )
 
-    ollama = OllamaClient()
-
-    results = searcher.search(
-        query=args.query,
-        top_k=args.top_k,
-        document_name=args.document_name,
+    result = asyncio.run(
+        handle_query(
+            args.query, history, top_k=args.top_k, document_name=args.document_name
+        )
     )
 
-    context = build_context(results)
-
-    prompt = build_prompt(
-        query=args.query,
-        context=context,
-    )
+    if result["route"] in {"rag", "rag_with_external_warning"}:
+        if not result["context"]:
+            print("[Retrieval] No manual content retrieved.")
+            
+        if not result["videos"]:
+            print("[Retrieval] No relevant videos retrieved.")
 
     if args.show_context:
         print()
@@ -70,10 +68,9 @@ def main():
         print("RETRIEVED CONTEXT")
         print("=" * 70)
         print()
-        print(context)
+        print(f"Route: {result['route']}")
+        print(result["context"] or "No manual context for this route/query.")
         print()
-
-    answer = ollama.generate(prompt)
 
     print()
     print("=" * 70)
@@ -87,7 +84,7 @@ def main():
     print("ANSWER")
     print("=" * 70)
     print()
-    print(answer)
+    print(result["answer"])
     print()
 
 
