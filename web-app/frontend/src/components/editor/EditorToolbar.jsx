@@ -19,6 +19,7 @@ export default function EditorToolbar({ editor }) {
   const [isImageOpen, setIsImageOpen] = useState(false);
 
   const [youtubeUrl, setYoutubeUrl] = useState("");
+  const [mediaError, setMediaError] = useState("");
   const [selectedImageFile, setSelectedImageFile] = useState(null);
 
   if (!editor) {
@@ -44,7 +45,9 @@ export default function EditorToolbar({ editor }) {
       })
       .run();
 
+    if (!success) setMediaError("Enter a valid YouTube video URL.");
     if (success) {
+      setMediaError("");
       setYoutubeUrl("");
       setIsYoutubeOpen(false);
     }
@@ -74,12 +77,15 @@ export default function EditorToolbar({ editor }) {
         })
         .run();
 
+      if (!success) setMediaError("Could not insert this image.");
       if (success) {
+        setMediaError("");
         setSelectedImageFile(null);
         setIsImageOpen(false);
       }
     };
 
+    reader.onerror = () => setMediaError("Could not read this image. Try another file.");
     reader.readAsDataURL(selectedImageFile);
   };
 
@@ -223,9 +229,9 @@ export default function EditorToolbar({ editor }) {
             size="xs"
             variant="outline"
             colorPalette="teal"
-            onClick={() => setIsImageOpen(true)}
+            onClick={() => { setMediaError(""); setIsImageOpen(true); }}
           >
-            📷 Upload Image
+            📷 Insert Image
           </Button>
 
           <Button
@@ -233,7 +239,7 @@ export default function EditorToolbar({ editor }) {
             size="xs"
             variant="outline"
             colorPalette="red"
-            onClick={() => setIsYoutubeOpen(true)}
+            onClick={() => { setMediaError(""); setIsYoutubeOpen(true); }}
           >
             ▶ Add YouTube
           </Button>
@@ -244,7 +250,7 @@ export default function EditorToolbar({ editor }) {
       {/* YouTube Dialog                    */}
       {/* ================================= */}
 
-      <Dialog.Root
+      <Dialog.Root lazyMount unmountOnExit
         open={isYoutubeOpen}
         onOpenChange={(e) => {
           setIsYoutubeOpen(e.open);
@@ -277,6 +283,7 @@ export default function EditorToolbar({ editor }) {
               </Dialog.Header>
 
               <Dialog.Body>
+                {mediaError && <Text role="alert" color="red.600" mb={3}>{mediaError}</Text>}
                 <Field.Root required>
                   <Field.Label>YouTube Link</Field.Label>
 
@@ -314,7 +321,7 @@ export default function EditorToolbar({ editor }) {
       {/* Image Dialog (Pure Chakra)        */}
       {/* ================================= */}
 
-      <Dialog.Root
+      <Dialog.Root lazyMount unmountOnExit
         open={isImageOpen}
         onOpenChange={(e) => {
           setIsImageOpen(e.open);
@@ -334,7 +341,7 @@ export default function EditorToolbar({ editor }) {
                 justifyContent="space-between"
                 alignItems="center"
               >
-                <Dialog.Title>Upload Photo</Dialog.Title>
+                <Dialog.Title>Insert Local Image</Dialog.Title>
 
                 <Button
                   type="button"
@@ -347,6 +354,7 @@ export default function EditorToolbar({ editor }) {
               </Dialog.Header>
 
               <Dialog.Body>
+                {mediaError && <Text role="alert" color="red.600" mb={3}>{mediaError}</Text>}
                 <Stack gap={4}>
                   <FileUpload.Root
                     accept={["image/*"]}
@@ -378,8 +386,7 @@ export default function EditorToolbar({ editor }) {
                   </FileUpload.Root>
 
                   <Text fontSize="xs" color="gray.500">
-                    Tip: You can also copy any image to your clipboard and paste
-                    it directly into the editor body with Ctrl+V / Cmd+V!
+                    Images are embedded in the local guide; nothing is uploaded.
                   </Text>
                 </Stack>
               </Dialog.Body>
@@ -398,7 +405,7 @@ export default function EditorToolbar({ editor }) {
                   colorPalette="teal"
                   disabled={!selectedImageFile}
                 >
-                  Upload & Insert
+                  Insert Image
                 </Button>
               </Dialog.Footer>
             </form>

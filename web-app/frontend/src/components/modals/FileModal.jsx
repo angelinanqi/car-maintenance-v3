@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import {
   Dialog,
   Button,
@@ -8,35 +8,20 @@ import {
   Input,
   Field,
   HStack,
-  Tag,
   FileUpload,
   Text,
 } from "@chakra-ui/react";
 
-export default function FileModal({ isOpen, onClose, editData = null }) {
-  const [fileName, setFileName] = useState("");
+export default function FileModal({ isOpen, onClose, onSave, editData = null }) {
+  const [fileName, setFileName] = useState(editData?.name || "");
   const [tagInput, setTagInput] = useState("");
+  const [file, setFile] = useState(null);
+  const [error, setError] = useState("");
 
   // Preset tags available to click and choose from
-  const [availableTags, setAvailableTags] = useState([
-    "Manuals",
-    "Others",
-  ]);
-  // Active selected tags
-  const [selectedTags, setSelectedTags] = useState(["Manuals"]);
-
+  const [availableTags, setAvailableTags] = useState([...new Set(["Manuals", "Other", ...(editData?.tags || [])])]);
+  const [selectedTags, setSelectedTags] = useState(editData?.tags || []);
   const isEditMode = Boolean(editData);
-
-  // Populate data when editing, or reset when opening fresh
-  useEffect(() => {
-    if (editData) {
-      setFileName(editData.name || "");
-      setSelectedTags(editData.category ? [editData.category] : [""]);
-    } else {
-      setFileName("");
-      setSelectedTags([""]);
-    }
-  }, [editData, isOpen]);
 
   // Click handler to toggle tag selection ON/OFF
   const handleToggleTag = (tag) => {
@@ -49,9 +34,10 @@ export default function FileModal({ isOpen, onClose, editData = null }) {
 
   // Add a brand new tag on pressing 'Enter' inside input
   const handleAddCustomTag = (e) => {
-    if (e.key === "Enter" && tagInput.trim()) {
+    if (e.key === "Enter") {
       e.preventDefault();
-      const newTag = tagInput.trim();
+      if (!tagInput.trim()) return;
+      const newTag = availableTags.find((tag) => tag.toLowerCase() === tagInput.trim().toLowerCase()) || tagInput.trim();
 
       // Add to available tags if not present
       if (!availableTags.includes(newTag)) {
@@ -69,19 +55,11 @@ export default function FileModal({ isOpen, onClose, editData = null }) {
   const handleSubmit = (e) => {
     e.preventDefault();
 
-    const payload = {
-      fileName,
-      tags: selectedTags,
-    };
-
-    if (isEditMode) {
-      // BACKEND UPDATE API CALL HERE
-      console.log("Saving Edits for ID:", editData.id, payload);
-    } else {
-      // BACKEND UPLOAD API CALL HERE
-      console.log("Uploading New File:", payload);
+    if (!fileName.trim() || (!isEditMode && !file)) {
+      setError("Enter a name and choose a file before adding the document.");
+      return;
     }
-
+    onSave({ name: fileName.trim(), tags: selectedTags, file: isEditMode ? editData.file : file });
     onClose();
   };
 
@@ -98,9 +76,10 @@ export default function FileModal({ isOpen, onClose, editData = null }) {
               alignItems="center"
             >
               <Dialog.Title>
-                {isEditMode ? "Edit Document" : "Upload New File"}
+                {isEditMode ? "Edit Document" : "Add Local Document"}
               </Dialog.Title>
               <Button
+                type="button"
                 variant="ghost"
                 size="xs"
                 onClick={onClose}
@@ -113,11 +92,17 @@ export default function FileModal({ isOpen, onClose, editData = null }) {
             {/* BODY */}
             <Dialog.Body>
               <Stack gap={4}>
+                <Text fontSize="sm" color="gray.600">Files stay in memory for this prototype session. Nothing is uploaded or processed.</Text>
+                {error && <Text role="alert" color="red.600">{error}</Text>}
                 {/* 1. File Upload Component (Upload Mode Only) */}
                 {!isEditMode && (
                   <Field.Root required>
                     <Field.Label>Attachment</Field.Label>
-                    <FileUpload.Root maxFiles={1}>
+                    <FileUpload.Root maxFiles={1} onFileReject={() => setError("Choose one file at a time.")} onFileChange={(details) => {
+                      const selected = details.acceptedFiles[0] || null;
+                      setFile(selected);
+                      if (selected && !fileName.trim()) setFileName(selected.name);
+                    }}>
                       <FileUpload.Dropzone
                         w="100%"
                         p={6}
@@ -134,6 +119,15 @@ export default function FileModal({ isOpen, onClose, editData = null }) {
                         </FileUpload.DropzoneContent>
                       </FileUpload.Dropzone>
                       <FileUpload.HiddenInput />
+                      {file && (
+                        <FileUpload.ItemGroup>
+                          <FileUpload.Item file={file}>
+                            <FileUpload.ItemName />
+                            <FileUpload.ItemSizeText />
+                            <FileUpload.ItemDeleteTrigger />
+                          </FileUpload.Item>
+                        </FileUpload.ItemGroup>
+                      )}
                     </FileUpload.Root>
                   </Field.Root>
                 )}
@@ -157,23 +151,24 @@ export default function FileModal({ isOpen, onClose, editData = null }) {
                     {availableTags.map((tag) => {
                       const isSelected = selectedTags.includes(tag);
                       return (
-                        <Tag.Root
+                        <Button type="button" aria-pressed={isSelected}
                           key={tag}
-                          size="lg"
+                          size="sm"
                           variant={isSelected ? "solid" : "outline"}
                           colorPalette={isSelected ? "blue" : "gray"}
                           cursor="pointer"
                           onClick={() => handleToggleTag(tag)}
                           userSelect="none"
                         >
-                          <Tag.Label>{tag}</Tag.Label>
-                        </Tag.Root>
+                          {tag}
+                        </Button>
                       );
                     })}
                   </HStack>
 
                   {/* Input to create a custom tag */}
                   <Input
+                    aria-label="New tag"
                     placeholder="Type custom tag & press Enter to add"
                     value={tagInput}
                     onChange={(e) => setTagInput(e.target.value)}
@@ -190,11 +185,11 @@ export default function FileModal({ isOpen, onClose, editData = null }) {
 
             {/* FOOTER */}
             <Dialog.Footer>
-              <Button variant="outline" onClick={onClose}>
+              <Button type="button" variant="outline" onClick={onClose}>
                 Cancel
               </Button>
               <Button type="submit" colorPalette="blue">
-                {isEditMode ? "Save Changes" : "Upload File"}
+                {isEditMode ? "Save Changes" : "Add Document"}
               </Button>
             </Dialog.Footer>
           </form>

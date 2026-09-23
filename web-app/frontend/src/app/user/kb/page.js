@@ -1,6 +1,8 @@
 'use client';
 
 import { useState } from 'react';
+import { usePrototype } from '@/components/PrototypeProvider';
+import { toaster } from '@/components/ui/toaster';
 import {
     Flex,
     Heading,
@@ -24,12 +26,16 @@ export default function ProjectsPage() {
     const [editItem, setEditItem] = useState(null);       // Controls Edit Modal
     const [deleteItem, setDeleteItem] = useState(null);   // Controls Delete Modal
 
-    // Sample Dataset
-    const [items, setItems] = useState([
-        { id: 1, name: 'Myvi Car Manual', category: 'Manuals', status: 'Active', date: '2026-08-15' },
-        { id: 2, name: 'Perodua Bezza Warranty Booklet', category: 'Manuals', status: 'Pending', date: '2026-08-20' },
-        { id: 3, name: 'Emergency SOPs Proton Saga', category: 'Other', status: 'Active', date: '2026-08-28' },
-    ]);
+    const { documents: items, setDocuments: setItems } = usePrototype();
+
+    const handleSave = (data) => {
+        if (editItem) {
+            setItems((previous) => previous.map((item) => item.id === editItem.id ? { ...item, ...data } : item));
+        } else {
+            setItems((previous) => [...previous, { ...data, id: crypto.randomUUID(), status: "Local only", date: new Date().toLocaleDateString("en-CA") }]);
+        }
+        toaster.create({ title: editItem ? "Document updated locally" : "Document added locally", type: "success" });
+    };
 
     // Open Edit Modal with selected row data
     const handleOpenEdit = (item) => {
@@ -44,7 +50,7 @@ export default function ProjectsPage() {
     // Execute Delete
     const handleConfirmDelete = () => {
         if (deleteItem) {
-            // BACKEND DELETE CALL HERE
+            toaster.create({ title: "Document removed locally", type: "success" });
             setItems((prev) => prev.filter((i) => i.id !== deleteItem.id));
             setDeleteItem(null);
         }
@@ -65,17 +71,17 @@ export default function ProjectsPage() {
 
                     {/* Upload Trigger */}
                     <Button colorPalette="blue" onClick={() => setIsUploadOpen(true)}>
-                        Upload File
+                        Add Document
                     </Button>
                 </Flex>
 
                 {/* TABLE VIEW */}
                 <Table.ScrollArea border="1px solid" borderColor="gray.200" borderRadius="md">
-                    <Table.Root size="sm" variant="outline">
+                    <Table.Root size="sm" variant="outline" minW="650px">
                         <Table.Header>
                             <Table.Row bg="gray.50">
                                 <Table.ColumnHeader>Name</Table.ColumnHeader>
-                                <Table.ColumnHeader>Category</Table.ColumnHeader>
+                                <Table.ColumnHeader>Tags</Table.ColumnHeader>
                                 <Table.ColumnHeader>Status</Table.ColumnHeader>
                                 <Table.ColumnHeader>Date Added</Table.ColumnHeader>
                                 <Table.ColumnHeader textAlign="right">Actions</Table.ColumnHeader>
@@ -85,9 +91,9 @@ export default function ProjectsPage() {
                             {items.map((item) => (
                                 <Table.Row key={item.id}>
                                     <Table.Cell fontWeight="medium">{item.name}</Table.Cell>
-                                    <Table.Cell>{item.category}</Table.Cell>
+                                    <Table.Cell>{item.tags.length ? item.tags.join(", ") : "No tags"}</Table.Cell>
                                     <Table.Cell>
-                                        <Badge colorPalette={item.status === 'Active' ? 'green' : 'orange'}>
+                                        <Badge colorPalette="gray">
                                             {item.status}
                                         </Badge>
                                     </Table.Cell>
@@ -119,22 +125,20 @@ export default function ProjectsPage() {
                     </Table.Root>
                 </Table.ScrollArea>
 
+                {items.length === 0 && <Text color="gray.600">No documents yet. Add a document to try the local library.</Text>}
                 {/* MODALS */}
                 
-                {/* 1. Upload Modal */}
-                <FileModal 
-                    isOpen={isUploadOpen} 
-                    onClose={() => setIsUploadOpen(false)} 
-                />
+                {(isUploadOpen || editItem) && (
+                    <FileModal
+                        key={editItem?.id || "new"}
+                        isOpen
+                        editData={editItem}
+                        onSave={handleSave}
+                        onClose={() => { setIsUploadOpen(false); setEditItem(null); }}
+                    />
+                )}
 
-                {/* 2. Edit Modal (Reuses FileModal in edit mode) */}
-                <FileModal 
-                    isOpen={Boolean(editItem)} 
-                    editData={editItem} 
-                    onClose={() => setEditItem(null)} 
-                />
-
-                {/* 3. Delete Confirmation Modal */}
+                {/* Delete Confirmation Modal */}
                 <DeleteConfirmModal
                     isOpen={Boolean(deleteItem)} 
                     itemName={deleteItem?.name} 

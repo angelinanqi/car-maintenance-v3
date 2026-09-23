@@ -1,51 +1,18 @@
-import { Flex, Box, Heading, Text, VStack } from '@chakra-ui/react';
-import NavBar from '../NavBar'; // Your previously built component
+﻿import { Flex, Box, Heading, Text, Stack } from "@chakra-ui/react";
+import NavBar from "../NavBar";
 
 export default function AdminLayout({ title, description, children }) {
-    return (
-        // Outer Container: Locks layout to 100vh
-        <Flex h="100vh" w="100vw" overflow="hidden">
-
-            {/* 1. Left Sidebar */}
-            <Box w="250px" flexShrink={0} h="100%">
-                <NavBar />
-            </Box>
-
-            {/* 2. Main Scrollable Content Area */}
-            <Flex
-                direction="column"
-                flex={1}
-                h="100%"
-                overflowY="auto"
-            >
-                {/* Content Wrapper: Aligned left, capped width */}
-                <Box
-                    w="100%"
-                    maxW="1200px"
-                    /* Removed mx="auto" so it doesn't float into the center when zooming out */
-                    pt="30px"
-                    px="30px"
-                    pb="30px"
-                >
-                    {/* Header Area */}
-                    <VStack align="start" gap={1} mb={6}>
-                        <Heading as="h1" size="lg">
-                            {title}
-                        </Heading>
-                        {description && (
-                            <Text color="gray.600" fontSize="sm">
-                                {description}
-                            </Text>
-                        )}
-                    </VStack>
-
-                    {/* Dynamic Inner Page Content */}
-                    <Box as="main">
-                        {children}
-                    </Box>
-                </Box>
-            </Flex>
-
-        </Flex>
-    );
+  return (
+    <Flex minH="100vh" direction={{ base: "column", md: "row" }} bg="gray.50" color="gray.900">
+      <Box flexShrink={0}><NavBar /></Box>
+      <Box as="main" flex={1} minW={0} w="100%" maxW="1200px" p={{ base: 4, md: 8 }}>
+        <Stack align="start" gap={2} mb={6}>
+          <Text fontSize="xs" color="gray.600">LOCAL PROTOTYPE · Changes last until you reload this tab.</Text>
+          <Heading as="h1" size="xl">{title}</Heading>
+          {description && <Text color="gray.600" fontSize="sm">{description}</Text>}
+        </Stack>
+        {children}
+      </Box>
+    </Flex>
+  );
 }

@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { usePrototype } from "@/components/PrototypeProvider";
+import { toaster } from "@/components/ui/toaster";
 import {
   Grid,
   Box,
@@ -25,96 +27,16 @@ import AdminLayout from "../../../components/layouts/AdminLayout";
 export default function SOPManagerPage() {
   const [mode, setMode] = useState("edit");
 
-  // Roadside Emergency SOP List State
-  const [sops, setSops] = useState([
-    {
-      id: 1,
-      title: "Highway Engine Breakdown SOP",
-      stepsCount: 4,
-      status: "Active",
-      updatedAt: "1 Sep 2026",
-    },
-    {
-      id: 2,
-      title: "Flat Tire on Active Roadway",
-      stepsCount: 3,
-      status: "Active",
-      updatedAt: "28 Aug 2026",
-    },
-    {
-      id: 3,
-      title: "Overheating Engine Protocol",
-      stepsCount: 3,
-      status: "Active",
-      updatedAt: "15 Aug 2026",
-    },
-  ]);
-
+  const { sops, setSops, contacts, setContacts } = usePrototype();
   const [selectedSopId, setSelectedSopId] = useState(1);
-
-  // Roadside Emergency Steps State
-  const [steps, setSteps] = useState([
-    {
-      id: 101,
-      stepNumber: 1,
-      title: "Safely Pull Over & Signal Danger",
-      description:
-        "Turn on hazard lights immediately. Guide the vehicle onto the hard shoulder or off the main traffic lane as far right/left as safely possible.",
-      imageUrl: "",
-      completed: false,
-    },
-    {
-      id: 102,
-      stepNumber: 2,
-      title: "Evacuate Passengers & Set Warning Triangle",
-      description:
-        "All occupants should exit from the non-traffic side and stand behind safety barriers. Set your reflective warning triangle 45 meters (150 feet) behind the vehicle.",
-      imageUrl: "",
-      completed: false,
-    },
-    {
-      id: 103,
-      stepNumber: 3,
-      title: "Contact Emergency Roadside Assistance",
-      description:
-        "Call the highway patrol hotline or your insurance towing service. Provide your exact GPS location, nearest kilometer marker, and vehicle status.",
-      imageUrl: "",
-      completed: false,
-    },
-    {
-      id: 104,
-      stepNumber: 4,
-      title: "Stay Clear of Traffic Until Help Arrives",
-      description:
-        "Do not stay inside the vehicle if pulled over on a high-speed shoulder. Wait safely behind the barrier facing oncoming traffic.",
-      imageUrl: "",
-      completed: false,
-    },
-  ]);
-
-  // Roadside Emergency Contacts (Towing, Highway Patrol, Insurance)
-  const [contacts, setContacts] = useState([
-    {
-      id: 1,
-      name: "Highway Patrol Hotline (PLUS)",
-      phone: "1-800-88-0000",
-      isEditing: false,
-    },
-    {
-      id: 2,
-      name: "24/7 Towing & Recovery Service",
-      phone: "+60 12-345 6789",
-      isEditing: false,
-    },
-    {
-      id: 3,
-      name: "Insurance Roadside Dispatch",
-      phone: "1-300-88-9999",
-      isEditing: false,
-    },
-  ]);
-
   const selectedSop = sops.find((s) => s.id === selectedSopId);
+
+  const steps = selectedSop.steps;
+  const setSteps = (update) => {
+    setSops((previous) => previous.map((sop) => sop.id === selectedSopId
+      ? { ...sop, steps: typeof update === "function" ? update(sop.steps) : update }
+      : sop));
+  };
 
   const handleToggleStepComplete = (id) => {
     setSteps((prev) =>
@@ -136,18 +58,23 @@ export default function SOPManagerPage() {
 
   const handleAddStep = () => {
     const newStep = {
-      id: Date.now(),
-      stepNumber: steps.length + 1,
-      title: `Step ${steps.length + 1}: `,
+      id: crypto.randomUUID(),
+      title: "",
       description: "",
       imageUrl: "",
       completed: false,
     };
-    setSteps([...steps, newStep]);
+    setSteps((previous) => [...previous, newStep]);
   };
 
   // Contact Edit Handlers
   const handleToggleEditContact = (id) => {
+    const contact = contacts.find((item) => item.id === id);
+    if (contact.isEditing && (!contact.name.trim() || !contact.phone.trim())) {
+      toaster.create({ title: "Enter a contact name and phone number", type: "error" });
+      return;
+    }
+    if (contact.isEditing) toaster.create({ title: "Contact saved locally", type: "success" });
     setContacts((prev) =>
       prev.map((c) => (c.id === id ? { ...c, isEditing: !c.isEditing } : c)),
     );
@@ -163,9 +90,9 @@ export default function SOPManagerPage() {
     setContacts([
       ...contacts,
       {
-        id: Date.now(),
+        id: crypto.randomUUID(),
         name: "New Emergency Contact",
-        phone: "+60 10-000 0000",
+        phone: "",
         isEditing: true,
       },
     ]);
@@ -174,12 +101,12 @@ export default function SOPManagerPage() {
   return (
     <AdminLayout
       title="Roadside Emergency SOPs"
-      description="Breakdown Safety Runbooks & Emergency Dispatch Contacts"
+      description="Sample playbooks and contacts for UI demonstration; not verified emergency guidance."
     >
       <Stack gap={6}>
         {/* TOP MAIN TABS */}
         <Tabs.Root defaultValue="steps" variant="line">
-          <Tabs.List mb={6}>
+          <Tabs.List mb={6} overflowX="auto">
             <Tabs.Trigger value="steps">
               Roadside Playbooks & Steps
             </Tabs.Trigger>
@@ -191,7 +118,7 @@ export default function SOPManagerPage() {
           {/* TAB 1: Playbooks & Steps Split Interface */}
           <Tabs.Content value="steps">
             <Grid
-              templateColumns={{ base: "1fr", lg: "30% 70%" }}
+              templateColumns={{ base: "1fr", lg: "minmax(0, 3fr) minmax(0, 7fr)" }}
               gap={6}
               alignContent="start"
             >
@@ -199,11 +126,7 @@ export default function SOPManagerPage() {
               <Stack gap={4}>
                 <Flex justify="space-between" align="center">
                   <Heading size="md">Playbooks</Heading>
-                  {mode === "edit" && (
-                    <Button size="xs" colorPalette="blue">
-                      + New SOP
-                    </Button>
-                  )}
+
                 </Flex>
 
                 <Stack gap={3}>
@@ -228,6 +151,15 @@ export default function SOPManagerPage() {
                               : "blue.50/30"
                             : "white"
                         }
+                        role="button"
+                        tabIndex={0}
+                        aria-pressed={isSelected}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            setSelectedSopId(sop.id);
+                          }
+                        }}
                         onClick={() => setSelectedSopId(sop.id)}
                       >
                         <Card.Body p={4}>
@@ -241,9 +173,7 @@ export default function SOPManagerPage() {
                                 {sop.title}
                               </Text>
                               <Badge
-                                colorPalette={
-                                  sop.status === "Active" ? "green" : "gray"
-                                }
+                                colorPalette="gray"
                                 variant="subtle"
                                 size="xs"
                               >
@@ -251,7 +181,7 @@ export default function SOPManagerPage() {
                               </Badge>
                             </Flex>
                             <Text fontSize="xs" color="gray.500">
-                              {sop.stepsCount} Sequential Steps
+                              {sop.steps.length} steps
                             </Text>
                           </Stack>
                         </Card.Body>
@@ -272,6 +202,8 @@ export default function SOPManagerPage() {
                   borderRadius="md"
                   border="1px solid"
                   borderColor={mode === "incident" ? "red.600" : "gray.200"}
+                  wrap="wrap"
+                  gap={4}
                   transition="all 0.2s"
                 >
                   <Box>
@@ -279,7 +211,7 @@ export default function SOPManagerPage() {
                       <Heading size="md">{selectedSop?.title}</Heading>
                       {mode === "incident" && (
                         <Badge colorPalette="red" variant="solid" size="sm">
-                          LIVE BREAKDOWN MODE
+                          CHECKLIST PREVIEW
                         </Badge>
                       )}
                     </HStack>
@@ -299,16 +231,17 @@ export default function SOPManagerPage() {
                         colorPalette="red"
                         onClick={() => setMode("incident")}
                       >
-                        🚨 Run Emergency Mode
+                        Preview Checklist
                       </Button>
                     ) : (
                       <Button
                         size="sm"
                         variant="outline"
-                        colorPalette="whiteAlpha"
+                        color="white"
+                        borderColor="white"
                         onClick={() => setMode("edit")}
                       >
-                        Exit Emergency Mode
+                        Back to Editing
                       </Button>
                     )}
                   </HStack>
@@ -342,6 +275,7 @@ export default function SOPManagerPage() {
                 )}
 
                 <Stack gap={4}>
+                  {steps.length === 0 && <Text color="gray.600" p={4}>No steps yet. Add steps in editing mode.</Text>}
                   {steps.map((step, index) => {
                     if (mode === "incident") {
                       return (
@@ -364,7 +298,7 @@ export default function SOPManagerPage() {
                                 colorPalette="green"
                                 mt={1}
                               >
-                                <Checkbox.HiddenInput />
+                                <Checkbox.HiddenInput aria-label={"Complete step " + (index + 1)} />
                                 <Checkbox.Control />
                               </Checkbox.Root>
 
@@ -380,7 +314,7 @@ export default function SOPManagerPage() {
                                       step.completed ? "gray.500" : "black"
                                     }
                                   >
-                                    Step {index + 1}: {step.title}
+                                    Step {index + 1}: {step.title || "Untitled step"}
                                   </Text>
                                   {step.completed && (
                                     <Badge colorPalette="green" variant="solid">
@@ -433,6 +367,8 @@ export default function SOPManagerPage() {
                               <Input
                                 size="sm"
                                 fontWeight="semibold"
+                                aria-label={"Step " + (index + 1) + " title"}
+                                placeholder="Step title"
                                 value={step.title}
                                 onChange={(e) =>
                                   handleStepChange(
@@ -448,6 +384,7 @@ export default function SOPManagerPage() {
                               <Textarea
                                 size="sm"
                                 rows={3}
+                                aria-label={"Step " + (index + 1) + " description"}
                                 value={step.description}
                                 onChange={(e) =>
                                   handleStepChange(
@@ -466,7 +403,7 @@ export default function SOPManagerPage() {
 
                   {mode === "edit" && (
                     <Button
-                      variant="dashed"
+                      variant="outline"
                       border="2px dashed"
                       borderColor="gray.300"
                       onClick={handleAddStep}
@@ -484,11 +421,11 @@ export default function SOPManagerPage() {
           <Tabs.Content value="contacts">
             <Stack gap={4} maxW="800px">
               {/* Header Row */}
-              <Flex justify="space-between" align="center" mb={2}>
+              <Flex justify="space-between" align="center" mb={2} wrap="wrap" gap={3}>
                 <Box>
                   <Heading size="md">Emergency & Towing Contacts</Heading>
                   <Text fontSize="sm" color="gray.500">
-                    24/7 Roadside assistance & highway patrol directory
+                    Sample contact details. Replace these with your own verified contacts.
                   </Text>
                 </Box>
                 <Button
@@ -504,13 +441,14 @@ export default function SOPManagerPage() {
               {contacts.map((contact) => (
                 <Card.Root key={contact.id} variant="outline" bg="white">
                   <Card.Body p={4}>
-                    <Flex justify="space-between" align="center" gap={4}>
+                    <Flex justify="space-between" align="center" gap={4} wrap="wrap">
                       {/* Left Info: Name & Phone */}
                       {contact.isEditing ? (
-                        <HStack gap={4} flex={1}>
+                        <Stack direction={{ base: "column", md: "row" }} gap={4} flex={1}>
                           <Field.Root>
                             <Input
                               size="sm"
+                              aria-label="Contact name"
                               placeholder="Service / Contact Name"
                               value={contact.name}
                               onChange={(e) =>
@@ -526,6 +464,7 @@ export default function SOPManagerPage() {
                           <Field.Root>
                             <Input
                               size="sm"
+                              aria-label="Contact phone number"
                               placeholder="Phone / Hotline Number"
                               value={contact.phone}
                               onChange={(e) =>
@@ -537,7 +476,7 @@ export default function SOPManagerPage() {
                               }
                             />
                           </Field.Root>
-                        </HStack>
+                        </Stack>
                       ) : (
                         <Box flex={1}>
                           <Text fontWeight="bold" fontSize="md">
