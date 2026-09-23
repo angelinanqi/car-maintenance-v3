@@ -34,7 +34,7 @@ export default function TiptapEditor({ content, onChange }) {
       }),
     ],
 
-    content: content || "<h2>Article Title</h2><p>Start typing here...</p>",
+    content: content || "<p></p>",
 
     immediatelyRender: false,
 

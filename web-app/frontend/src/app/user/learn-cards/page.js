@@ -2,6 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { usePrototype, guideCategories } from "@/components/PrototypeProvider";
+import { toaster } from "@/components/ui/toaster";
 import {
   Flex,
   Box,
@@ -23,45 +25,8 @@ export default function ContentPage() {
   const router = useRouter();
   const [selectedTab, setSelectedTab] = useState("all");
 
-  // Car Maintenance Sample Dataset
-  const [cards, setCards] = useState([
-    {
-      id: 1,
-      title: "How to Check & Top Up Engine Oil",
-      category: "Engine & Fluids",
-      status: "Published", // 'Published' or 'Unpublished'
-      updatedAt: "1 January 2026",
-    },
-    {
-      id: 2,
-      title: "Inspecting Tire Pressure and Tread Depth",
-      category: "Tires & Brakes",
-      status: "Unpublished",
-      updatedAt: "14 February 2026",
-    },
-    {
-      id: 3,
-      title: "Replacing Your Cabin Air Filter",
-      category: "General Maintenance",
-      status: "Published",
-      updatedAt: "28 August 2026",
-    },
-    {
-      id: 4,
-      title: "Signs Your Brake Pads Need Replacement",
-      category: "Tires & Brakes",
-      status: "Unpublished",
-      updatedAt: "1 September 2026",
-    },
-  ]);
-
-  // Categories list for Tabs
-  const categories = [
-    "all",
-    "Engine & Fluids",
-    "Tires & Brakes",
-    "General Maintenance",
-  ];
+  const { cards, setCards } = usePrototype();
+  const categories = ["all", ...guideCategories];
 
   // Toggle Published / Unpublished status
   const handleTogglePublish = (id) => {
@@ -69,17 +34,17 @@ export default function ContentPage() {
       prev.map((card) => {
         if (card.id === id) {
           const newStatus =
-            card.status === "Published" ? "Unpublished" : "Published";
-          console.log(`Updated ID ${id} status to ${newStatus}`);
-          return { ...card, status: newStatus };
+            card.status === "Published" ? "Draft" : "Published";
+          return { ...card, status: newStatus, updatedAt: new Date().toLocaleDateString("en-GB") };
         }
         return card;
       }),
     );
+    toaster.create({ title: "Guide status updated locally", type: "success" });
   };
 
   const handleEdit = (card) => {
-    console.log("Edit clicked for:", card);
+    router.push("/user/learn-cards/create?edit=" + card.id);
   };
 
   // Filter cards based on active tab selection
@@ -101,19 +66,11 @@ export default function ContentPage() {
           <Box>
             <Heading size="md">All Guides</Heading>
             <Text fontSize="sm" color="gray.500">
-              Manage maintenance items across categories
+              Sample titles start as empty drafts. Publishing only changes local status.
             </Text>
           </Box>
 
           <HStack gap={2}>
-            {/* Manage Categories Navigation Button */}
-            <Button
-              variant="outline"
-              onClick={() => router.push("/user/learn-cards/categories")}
-            >
-              Manage Categories
-            </Button>
-
             {/* Create Button */}
             <Button
               colorPalette="blue"
@@ -131,7 +88,7 @@ export default function ContentPage() {
           onValueChange={(e) => setSelectedTab(e.value)}
           variant="line"
         >
-          <Tabs.List>
+          <Tabs.List overflowX="auto">
             {categories.map((cat) => (
               <Tabs.Trigger key={cat} value={cat} textTransform="capitalize">
                 {cat}

@@ -19,8 +19,8 @@ export default function DeleteConfirmModal({
 
           <Dialog.Body>
             <Text fontSize="sm" color="gray.600">
-              Are you sure you want to delete <strong>"{itemName}"</strong>?
-              This action cannot be undone.
+              Are you sure you want to delete <strong>{itemName}</strong>?
+              This removes it from the current prototype session. No stored files are deleted.
             </Text>
           </Dialog.Body>
 

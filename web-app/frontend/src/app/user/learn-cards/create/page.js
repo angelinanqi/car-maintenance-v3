@@ -1,12 +1,11 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import {
   Flex,
-  Box,
-  Heading,
+  Text,
   Button,
   Input,
   Stack,
@@ -16,38 +15,59 @@ import {
 import AdminLayout from "../../../../components/layouts/AdminLayout";
 import TiptapEditor from "../../../../components/editor/TipTapEditor";
 
+import { usePrototype, guideCategories } from "@/components/PrototypeProvider";
+import { toaster } from "@/components/ui/toaster";
+
 export default function CreateArticlePage() {
+  return <Suspense fallback={<AdminLayout title="Learn Cards"><Text>Loading editor...</Text></AdminLayout>}><GuideEditorRoute /></Suspense>;
+}
+
+function GuideEditorRoute() {
+  const searchParams = useSearchParams();
+  const { cards } = usePrototype();
+  const editId = searchParams.get("edit");
+  const guide = cards.find((card) => card.id === editId);
+  if (editId && !guide) {
+    return <MissingGuide />;
+  }
+  return <GuideForm key={editId || "new"} guide={guide} />;
+}
+
+function MissingGuide() {
+  const router = useRouter();
+  return <AdminLayout title="Guide unavailable"><Text mb={4}>This local guide is no longer available. Reloading resets prototype data.</Text><Button onClick={() => router.push("/user/learn-cards")}>Back to Learn Cards</Button></AdminLayout>;
+}
+
+function GuideForm({ guide }) {
   const router = useRouter();
 
-  const [title, setTitle] = useState("");
-  const [category, setCategory] = useState("Tutorials");
-  const [editorHTML, setEditorHTML] = useState("");
-  const [isSaving, setIsSaving] = useState(false);
+  const { setCards } = usePrototype();
+  const [title, setTitle] = useState(guide?.title || "");
+  const [category, setCategory] = useState(guide?.category || guideCategories[0]);
+  const [editorHTML, setEditorHTML] = useState(guide?.content || "<p></p>");
+  const [error, setError] = useState("");
 
-  const handleSave = async (status = "Published") => {
+  const handleSave = (status) => {
     if (!title.trim()) {
-      alert("Please enter an article title.");
+      setError("Enter a guide title before saving.");
       return;
     }
-
-    setIsSaving(true);
-
-    console.log("Saved Article:", {
-      title,
-      category,
-      content: editorHTML,
-      status,
-    });
-
-    setIsSaving(false);
-
-    router.push("/admin/content");
+    const saved = {
+      id: guide?.id || crypto.randomUUID(),
+      title: title.trim(), category, content: editorHTML, status,
+      updatedAt: new Date().toLocaleDateString("en-GB"),
+    };
+    setCards((previous) => guide
+      ? previous.map((card) => card.id === guide.id ? saved : card)
+      : [...previous, saved]);
+    toaster.create({ title: status === "Draft" ? "Draft saved locally" : "Guide marked published locally", type: "success" });
+    router.push("/user/learn-cards");
   };
 
   return (
     <AdminLayout
-      title="Create Article"
-      description="Write and format a short article for your readers."
+      title={guide ? "Edit Guide" : "Create Guide"}
+      description="Write a maintenance guide. Drafts and publish status are saved only for this session."
     >
       <Stack gap={6} w="100%" h="100%">
         {/* ========================= */}
@@ -59,6 +79,7 @@ export default function CreateArticlePage() {
             <Field.Label fontStyle="normal">Category</Field.Label>
 
             <select
+              aria-label="Category"
               value={category}
               onChange={(e) => setCategory(e.target.value)}
               style={{
@@ -69,20 +90,15 @@ export default function CreateArticlePage() {
                 backgroundColor: "#fff",
               }}
             >
-              <option value="Tutorials">Tutorials</option>
-
-              <option value="Documentation">Documentation</option>
-
-              <option value="Updates">Updates</option>
+              {guideCategories.map((item) => <option key={item} value={item}>{item}</option>)}
             </select>
           </Field.Root>
 
-          <Flex gap={2} align="flex-end">
+          <Flex gap={2} align="flex-end" wrap="wrap">
             <Button
               type="button"
               variant="outline"
-              disabled={isSaving}
-              onClick={() => router.back()}
+              onClick={() => router.push("/user/learn-cards")}
             >
               Cancel
             </Button>
@@ -91,7 +107,6 @@ export default function CreateArticlePage() {
               type="button"
               variant="outline"
               colorPalette="gray"
-              loading={isSaving}
               onClick={() => handleSave("Draft")}
             >
               Save Draft
@@ -100,7 +115,6 @@ export default function CreateArticlePage() {
             <Button
               type="button"
               colorPalette="blue"
-              loading={isSaving}
               onClick={() => handleSave("Published")}
             >
               Publish
@@ -112,8 +126,9 @@ export default function CreateArticlePage() {
         {/* Article Title              */}
         {/* ========================= */}
 
-        <Field.Root required>
-          <Field.Label fontWeight="semibold">Article Title</Field.Label>
+        {error && <Text role="alert" color="red.600">{error}</Text>}
+        <Field.Root required invalid={Boolean(error)}>
+          <Field.Label fontWeight="semibold">Guide Title</Field.Label>
 
           <Input
             placeholder="e.g. 5 Quick Tips for Long Trips"
