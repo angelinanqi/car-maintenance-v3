@@ -3,23 +3,27 @@
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
-import {
-  Flex,
-  Text,
-  Button,
-  Input,
-  Stack,
-  Field,
-} from "@chakra-ui/react";
+import { Flex, Text, Button, Input, Stack, Field } from "@chakra-ui/react";
 
 import AdminLayout from "../../../../components/layouts/AdminLayout";
 import TiptapEditor from "../../../../components/editor/TipTapEditor";
 
 import { usePrototype, guideCategories } from "@/components/PrototypeProvider";
 import { toaster } from "@/components/ui/toaster";
+import { hasGuideContent } from "@/lib/guideContent.mjs";
 
 export default function CreateArticlePage() {
-  return <Suspense fallback={<AdminLayout title="Learn Cards"><Text>Loading editor...</Text></AdminLayout>}><GuideEditorRoute /></Suspense>;
+  return (
+    <Suspense
+      fallback={
+        <AdminLayout title="Learn Cards">
+          <Text>Loading editor...</Text>
+        </AdminLayout>
+      }
+    >
+      <GuideEditorRoute />
+    </Suspense>
+  );
 }
 
 function GuideEditorRoute() {
@@ -35,7 +39,17 @@ function GuideEditorRoute() {
 
 function MissingGuide() {
   const router = useRouter();
-  return <AdminLayout title="Guide unavailable"><Text mb={4}>This local guide is no longer available. Reloading resets prototype data.</Text><Button onClick={() => router.push("/user/learn-cards")}>Back to Learn Cards</Button></AdminLayout>;
+  return (
+    <AdminLayout title="Guide unavailable">
+      <Text mb={4}>
+        This local guide is no longer available. Reloading resets prototype
+        data.
+      </Text>
+      <Button onClick={() => router.push("/user/learn-cards")}>
+        Back to Learn Cards
+      </Button>
+    </AdminLayout>
+  );
 }
 
 function GuideForm({ guide }) {
@@ -43,7 +57,9 @@ function GuideForm({ guide }) {
 
   const { setCards } = usePrototype();
   const [title, setTitle] = useState(guide?.title || "");
-  const [category, setCategory] = useState(guide?.category || guideCategories[0]);
+  const [category, setCategory] = useState(
+    guide?.category || guideCategories[0],
+  );
   const [editorHTML, setEditorHTML] = useState(guide?.content || "<p></p>");
   const [error, setError] = useState("");
 
@@ -52,15 +68,32 @@ function GuideForm({ guide }) {
       setError("Enter a guide title before saving.");
       return;
     }
+    if (status === "Published" && !hasGuideContent(editorHTML)) {
+      setError(
+        "Add guide content before publishing. You can save an empty draft.",
+      );
+      return;
+    }
     const saved = {
       id: guide?.id || crypto.randomUUID(),
-      title: title.trim(), category, content: editorHTML, status,
+      title: title.trim(),
+      category,
+      content: editorHTML,
+      status,
       updatedAt: new Date().toLocaleDateString("en-GB"),
     };
-    setCards((previous) => guide
-      ? previous.map((card) => card.id === guide.id ? saved : card)
-      : [...previous, saved]);
-    toaster.create({ title: status === "Draft" ? "Draft saved locally" : "Guide marked published locally", type: "success" });
+    setCards((previous) =>
+      guide
+        ? previous.map((card) => (card.id === guide.id ? saved : card))
+        : [...previous, saved],
+    );
+    toaster.create({
+      title:
+        status === "Draft"
+          ? "Draft saved locally"
+          : "Guide marked published locally",
+      type: "success",
+    });
     router.push("/user/learn-cards");
   };
 
@@ -90,7 +123,11 @@ function GuideForm({ guide }) {
                 backgroundColor: "#fff",
               }}
             >
-              {guideCategories.map((item) => <option key={item} value={item}>{item}</option>)}
+              {guideCategories.map((item) => (
+                <option key={item} value={item}>
+                  {item}
+                </option>
+              ))}
             </select>
           </Field.Root>
 
@@ -98,7 +135,17 @@ function GuideForm({ guide }) {
             <Button
               type="button"
               variant="outline"
-              onClick={() => router.push("/user/learn-cards")}
+              onClick={() => {
+                const changed =
+                  title !== (guide?.title || "") ||
+                  category !== (guide?.category || guideCategories[0]) ||
+                  editorHTML !== (guide?.content || "<p></p>");
+                if (
+                  !changed ||
+                  window.confirm("Discard unsaved guide changes?")
+                )
+                  router.push("/user/learn-cards");
+              }}
             >
               Cancel
             </Button>
@@ -126,7 +173,11 @@ function GuideForm({ guide }) {
         {/* Article Title              */}
         {/* ========================= */}
 
-        {error && <Text role="alert" color="red.600">{error}</Text>}
+        {error && (
+          <Text role="alert" color="red.600">
+            {error}
+          </Text>
+        )}
         <Field.Root required invalid={Boolean(error)}>
           <Field.Label fontWeight="semibold">Guide Title</Field.Label>
 

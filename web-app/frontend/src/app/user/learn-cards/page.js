@@ -4,6 +4,9 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { usePrototype, guideCategories } from "@/components/PrototypeProvider";
 import { toaster } from "@/components/ui/toaster";
+import TiptapEditor from "@/components/editor/TipTapEditor";
+import DeleteConfirmModal from "@/components/modals/DeleteConfirmModal";
+import { hasGuideContent } from "@/lib/guideContent.mjs";
 import {
   Flex,
   Box,
@@ -16,6 +19,7 @@ import {
   Tag,
   HStack,
   Stack,
+  Dialog,
 } from "@chakra-ui/react";
 
 // Adjust path based on your folder structure
@@ -24,18 +28,34 @@ import AdminLayout from "../../../components/layouts/AdminLayout";
 export default function ContentPage() {
   const router = useRouter();
   const [selectedTab, setSelectedTab] = useState("all");
+  const [preview, setPreview] = useState(null);
+  const [deleteCard, setDeleteCard] = useState(null);
 
   const { cards, setCards } = usePrototype();
   const categories = ["all", ...guideCategories];
 
   // Toggle Published / Unpublished status
   const handleTogglePublish = (id) => {
+    const card = cards.find((item) => item.id === id);
+    if (
+      card.status !== "Published" &&
+      (!card.title.trim() || !hasGuideContent(card.content))
+    ) {
+      toaster.create({
+        title: "Add a title and content in Edit before publishing",
+        type: "error",
+      });
+      return;
+    }
     setCards((prev) =>
       prev.map((card) => {
         if (card.id === id) {
-          const newStatus =
-            card.status === "Published" ? "Draft" : "Published";
-          return { ...card, status: newStatus, updatedAt: new Date().toLocaleDateString("en-GB") };
+          const newStatus = card.status === "Published" ? "Draft" : "Published";
+          return {
+            ...card,
+            status: newStatus,
+            updatedAt: new Date().toLocaleDateString("en-GB"),
+          };
         }
         return card;
       }),
@@ -58,7 +78,7 @@ export default function ContentPage() {
   return (
     <AdminLayout
       title="Learn Cards"
-      description="Manage and publish car maintenance guides and service records."
+      description="Write, preview, and manage local maintenance guides."
     >
       <Stack gap={6}>
         {/* HEADER ROW */}
@@ -66,7 +86,8 @@ export default function ContentPage() {
           <Box>
             <Heading size="md">All Guides</Heading>
             <Text fontSize="sm" color="gray.500">
-              Sample titles start as empty drafts. Publishing only changes local status.
+              Sample titles start as empty drafts. Publishing only changes local
+              status.
             </Text>
           </Box>
 
@@ -144,6 +165,7 @@ export default function ContentPage() {
                         <HStack
                           gap={2}
                           shrink={0}
+                          wrap="wrap"
                           w={{ base: "100%", md: "auto" }}
                           justify="flex-end"
                         >
@@ -163,6 +185,21 @@ export default function ContentPage() {
                           >
                             Edit
                           </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setPreview(card)}
+                          >
+                            Preview
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            colorPalette="red"
+                            onClick={() => setDeleteCard(card)}
+                          >
+                            Remove
+                          </Button>
                         </HStack>
                       </Flex>
                     </Card.Body>
@@ -180,6 +217,52 @@ export default function ContentPage() {
           </Tabs.Content>
         </Tabs.Root>
       </Stack>
+      <DeleteConfirmModal
+        isOpen={Boolean(deleteCard)}
+        itemName={deleteCard?.title}
+        onClose={() => setDeleteCard(null)}
+        onConfirm={() => {
+          setCards((previous) =>
+            previous.filter((card) => card.id !== deleteCard.id),
+          );
+          setDeleteCard(null);
+          toaster.create({ title: "Guide removed locally", type: "success" });
+        }}
+      />
+      <Dialog.Root
+        open={Boolean(preview)}
+        onOpenChange={({ open }) => !open && setPreview(null)}
+        size="xl"
+        scrollBehavior="inside"
+      >
+        <Dialog.Backdrop />
+        <Dialog.Positioner>
+          <Dialog.Content>
+            <Dialog.Header>
+              <Dialog.Title>{preview?.title}</Dialog.Title>
+            </Dialog.Header>
+            <Dialog.Body>
+              <Text mb={3} fontSize="sm">
+                {preview?.status} · {preview?.category} · Local preview; not
+                delivered to mobile users.
+              </Text>
+              {preview &&
+                (hasGuideContent(preview.content) ? (
+                  <TiptapEditor
+                    key={preview.id}
+                    content={preview.content}
+                    readOnly
+                  />
+                ) : (
+                  <Text>This draft has no content yet.</Text>
+                ))}
+            </Dialog.Body>
+            <Dialog.Footer>
+              <Button onClick={() => setPreview(null)}>Close preview</Button>
+            </Dialog.Footer>
+          </Dialog.Content>
+        </Dialog.Positioner>
+      </Dialog.Root>
     </AdminLayout>
   );
 }

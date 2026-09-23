@@ -8,8 +8,9 @@ import { Box } from "@chakra-ui/react";
 
 import EditorToolbar from "./EditorToolbar";
 
-export default function TiptapEditor({ content, onChange }) {
+export default function TiptapEditor({ content, onChange, readOnly = false }) {
   const editor = useEditor({
+    editable: !readOnly,
     extensions: [
       StarterKit.configure({
         heading: {
@@ -39,7 +40,7 @@ export default function TiptapEditor({ content, onChange }) {
     immediatelyRender: false,
 
     onUpdate: ({ editor }) => {
-      onChange(editor.getHTML());
+      onChange?.(editor.getHTML());
     },
   });
 
@@ -56,7 +57,7 @@ export default function TiptapEditor({ content, onChange }) {
       display="flex"
       flexDirection="column"
     >
-      <EditorToolbar editor={editor} />
+      {!readOnly && <EditorToolbar editor={editor} />}
 
       <Box
         p={6}
