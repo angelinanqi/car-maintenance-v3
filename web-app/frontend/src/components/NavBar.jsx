@@ -2,14 +2,21 @@
 
 import NextLink from "next/link";
 import { usePathname } from "next/navigation";
+import { useState } from "react";
+import { useSession } from "./SessionProvider";
 import { Stack, Box, Text, Button } from "@chakra-ui/react";
 
 export default function NavBar() {
   const pathname = usePathname();
+  const session = useSession();
+  const [error, setError] = useState("");
   const navItems = [
     { label: "Home", href: "/user/home" },
-    { label: "Knowledge Base", href: "/user/kb" },
-    { label: "Chatbot Preview", href: "/user/chatbot" },
+    { label: "Vehicles", href: "/user/vehicles" },
+    { label: "Maintenance Items", href: "/user/maintenance-items" },
+    { label: "Schedules", href: "/user/schedules" },
+    { label: "Documents", href: "/user/kb" },
+    { label: "Chatbot Testing", href: "/user/chatbot" },
     { label: "Learn Cards", href: "/user/learn-cards" },
     { label: "Emergency", href: "/user/emergency" },
   ];
@@ -24,6 +31,8 @@ export default function NavBar() {
       top={0}
       p={4}
       bg="white"
+      display="flex"
+      flexDirection="column"
       borderRightWidth={{ md: "1px" }}
       borderBottomWidth={{ base: "1px", md: "0" }}
       borderColor="gray.200"
@@ -54,6 +63,14 @@ export default function NavBar() {
           );
         })}
       </Stack>
+      <Box mt={{ base: 5, md: "auto" }} pt={4} borderTopWidth="1px" borderColor="gray.200">
+        <Text fontSize="sm" fontWeight="semibold" px={2}>Account</Text>
+        <Text fontSize="xs" color="gray.600" px={2} mt={1} mb={3}>
+          {session.user?.email}
+        </Text>
+        {error && <Text role="alert" color="red.600" fontSize="sm">{error}</Text>}
+        <Button variant="outline" onClick={async () => { try { await session.logout(); } catch (cause) { setError(cause.message); } }}>Sign out</Button>
+      </Box>
     </Box>
   );
 }

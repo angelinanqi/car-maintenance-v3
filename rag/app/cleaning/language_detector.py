@@ -1,3 +1,4 @@
+from rag.config.settings import MALAY_CONFIDENCE_THRESHOLD
 from lingua import Language, LanguageDetectorBuilder
 
 
@@ -7,7 +8,7 @@ class LanguageDetector:
     Only confident Malay text is considered removable.
     """
 
-    def __init__(self, malay_threshold: float = 0.97) -> None:
+    def __init__(self, malay_threshold: float = MALAY_CONFIDENCE_THRESHOLD) -> None:
         self.malay_threshold = malay_threshold
 
         self.detector = LanguageDetectorBuilder.from_languages(

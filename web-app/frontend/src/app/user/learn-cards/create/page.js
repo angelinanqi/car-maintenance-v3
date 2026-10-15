@@ -1,16 +1,18 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
-import { Flex, Text, Button, Input, Stack, Field } from "@chakra-ui/react";
+import { Flex, Text, Button, Input, Stack, Field, Textarea } from "@chakra-ui/react";
 
 import AdminLayout from "../../../../components/layouts/AdminLayout";
 import TiptapEditor from "../../../../components/editor/TipTapEditor";
 
-import { usePrototype, guideCategories } from "@/components/PrototypeProvider";
+import { useContent } from "@/components/ContentProvider";
 import { toaster } from "@/components/ui/toaster";
+import { uploadGuideImage } from "@/api/guides.mjs";
 import { hasGuideContent } from "@/lib/guideContent.mjs";
+import { listAll } from "@/api/client.mjs";
 
 export default function CreateArticlePage() {
   return (
@@ -28,11 +30,12 @@ export default function CreateArticlePage() {
 
 function GuideEditorRoute() {
   const searchParams = useSearchParams();
-  const { cards } = usePrototype();
+  const { cards, loading, error } = useContent();
   const editId = searchParams.get("edit");
+  if (loading) return <AdminLayout title="Learn Cards" />;
   const guide = cards.find((card) => card.id === editId);
   if (editId && !guide) {
-    return <MissingGuide />;
+    return error ? <AdminLayout title="Learn Cards" /> : <MissingGuide />;
   }
   return <GuideForm key={editId || "new"} guide={guide} />;
 }
@@ -42,8 +45,7 @@ function MissingGuide() {
   return (
     <AdminLayout title="Guide unavailable">
       <Text mb={4}>
-        This local guide is no longer available. Reloading resets prototype
-        data.
+        This guide is no longer available.
       </Text>
       <Button onClick={() => router.push("/user/learn-cards")}>
         Back to Learn Cards
@@ -55,52 +57,67 @@ function MissingGuide() {
 function GuideForm({ guide }) {
   const router = useRouter();
 
-  const { setCards } = usePrototype();
+  const { saveGuide, categories, cards } = useContent();
+  const [guideId, setGuideId] = useState(guide?.id || null);
+  const [saving, setSaving] = useState(false);
+  const busy = useRef(false);
   const [title, setTitle] = useState(guide?.title || "");
   const [category, setCategory] = useState(
-    guide?.category || guideCategories[0],
+    guide?.category_id || "",
   );
   const [editorHTML, setEditorHTML] = useState(guide?.content || "<p></p>");
   const [error, setError] = useState("");
+  const [description, setDescription] = useState(guide?.description || "");
+  const [readingMinutes, setReadingMinutes] = useState(guide?.reading_minutes || "");
+  const [relatedLessons, setRelatedLessons] = useState(guide?.related_lesson_ids || []);
+  const [relatedItems, setRelatedItems] = useState(guide?.maintenance_item_ids || []);
+  const [items, setItems] = useState([]);
+  useEffect(() => {
+    let active = true;
+    listAll("/admin/maintenance-items").then((rows) => { if (active) setItems(rows); }).catch((e) => { if (active) setError(e.message); });
+    return () => { active = false; };
+  }, []);
 
-  const handleSave = (status) => {
-    if (!title.trim()) {
-      setError("Enter a guide title before saving.");
-      return;
+  async function persist(status) {
+    if (!title.trim()) throw new Error("Enter a guide title before saving or uploading an image.");
+    if (status === "published" && !hasGuideContent(editorHTML)) {
+      throw new Error("Add content before publishing. You can save an empty draft.");
     }
-    if (status === "Published" && !hasGuideContent(editorHTML)) {
-      setError(
-        "Add guide content before publishing. You can save an empty draft.",
-      );
-      return;
-    }
-    const saved = {
-      id: guide?.id || crypto.randomUUID(),
-      title: title.trim(),
-      category,
-      content: editorHTML,
-      status,
-      updatedAt: new Date().toLocaleDateString("en-GB"),
-    };
-    setCards((previous) =>
-      guide
-        ? previous.map((card) => (card.id === guide.id ? saved : card))
-        : [...previous, saved],
-    );
-    toaster.create({
-      title:
-        status === "Draft"
-          ? "Draft saved locally"
-          : "Guide marked published locally",
-      type: "success",
-    });
-    router.push("/user/learn-cards");
-  };
+    if (readingMinutes && (!Number.isInteger(Number(readingMinutes)) || Number(readingMinutes) <= 0)) throw new Error("Reading time must be a positive whole number of minutes.");
+    const saved = await saveGuide(guideId, { title: title.trim(), category_id: category || null, content: editorHTML, status,
+      description, reading_minutes: readingMinutes ? Number(readingMinutes) : null,
+      related_lesson_ids: relatedLessons, maintenance_item_ids: relatedItems });
+    setGuideId(saved.id);
+    return saved.id;
+  }
+
+  async function handleSave(status) {
+    if (busy.current) return;
+    busy.current = true;
+    setSaving(true);
+    setError("");
+    try {
+      await persist(status);
+      toaster.create({ title: status === "draft" ? "Draft saved" : "Guide published", type: "success" });
+      router.push("/user/learn-cards");
+    } catch (error) { setError(error.message); }
+    finally { busy.current = false; setSaving(false); }
+  }
+
+  async function uploadImage(file) {
+    if (busy.current) throw new Error("Wait for the current save or upload to finish.");
+    busy.current = true;
+    setSaving(true);
+    try {
+      const id = guideId || await persist("draft");
+      return (await uploadGuideImage(id, file)).url;
+    } finally { busy.current = false; setSaving(false); }
+  }
 
   return (
     <AdminLayout
       title={guide ? "Edit Guide" : "Create Guide"}
-      description="Write a maintenance guide. Drafts and publish status are saved only for this session."
+      description="Write a maintenance guide. Images are uploaded to persistent storage; the first image upload creates a draft."
     >
       <Stack gap={6} w="100%" h="100%">
         {/* ========================= */}
@@ -123,9 +140,10 @@ function GuideForm({ guide }) {
                 backgroundColor: "#fff",
               }}
             >
-              {guideCategories.map((item) => (
-                <option key={item} value={item}>
-                  {item}
+              <option value="">Uncategorized</option>
+              {categories.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}
                 </option>
               ))}
             </select>
@@ -135,11 +153,15 @@ function GuideForm({ guide }) {
             <Button
               type="button"
               variant="outline"
+              disabled={saving}
               onClick={() => {
                 const changed =
                   title !== (guide?.title || "") ||
-                  category !== (guide?.category || guideCategories[0]) ||
-                  editorHTML !== (guide?.content || "<p></p>");
+                  category !== (guide?.category_id || "") ||
+                  editorHTML !== (guide?.content || "<p></p>") || description !== (guide?.description || "") ||
+                  String(readingMinutes) !== String(guide?.reading_minutes || "") ||
+                  JSON.stringify(relatedLessons) !== JSON.stringify(guide?.related_lesson_ids || []) ||
+                  JSON.stringify(relatedItems) !== JSON.stringify(guide?.maintenance_item_ids || []);
                 if (
                   !changed ||
                   window.confirm("Discard unsaved guide changes?")
@@ -154,7 +176,8 @@ function GuideForm({ guide }) {
               type="button"
               variant="outline"
               colorPalette="gray"
-              onClick={() => handleSave("Draft")}
+              onClick={() => handleSave("draft")}
+              loading={saving}
             >
               Save Draft
             </Button>
@@ -162,7 +185,8 @@ function GuideForm({ guide }) {
             <Button
               type="button"
               colorPalette="blue"
-              onClick={() => handleSave("Published")}
+              onClick={() => handleSave("published")}
+              loading={saving}
             >
               Publish
             </Button>
@@ -190,6 +214,16 @@ function GuideForm({ guide }) {
           />
         </Field.Root>
 
+        <label>Introduction / description<Textarea value={description} onChange={(e) => setDescription(e.target.value)} /></label>
+        <label>Optional reading time (minutes)<Input type="number" min={1} maxW="180px" value={readingMinutes} onChange={(e) => setReadingMinutes(e.target.value)} /></label>
+        <fieldset disabled={saving}><Stack gap={2}>
+          <Text fontWeight="semibold">Related learning cards</Text>
+          {cards.filter((card) => card.id !== guideId).map((card) => <label key={card.id}><input type="checkbox" checked={relatedLessons.includes(card.id)} onChange={(e) => setRelatedLessons(e.target.checked ? [...relatedLessons, card.id] : relatedLessons.filter((id) => id !== card.id))} /> {card.title} ({card.status})</label>)}
+          <Text fontWeight="semibold" mt={2}>Related standard maintenance items</Text>
+          {items.map((item) => <label key={item.id}><input type="checkbox" checked={relatedItems.includes(item.id)} onChange={(e) => setRelatedItems(e.target.checked ? [...relatedItems, item.id] : relatedItems.filter((id) => id !== item.id))} /> {item.title} ({item.action}){!item.active ? " · inactive" : ""}</label>)}
+          {!items.length && <Text fontSize="sm">Create standard maintenance items to add relationships. Existing relationship IDs are retained.</Text>}
+        </Stack></fieldset>
+
         {/* ========================= */}
         {/* Content Editor             */}
         {/* ========================= */}
@@ -198,6 +232,7 @@ function GuideForm({ guide }) {
           <Field.Label fontWeight="semibold">Content</Field.Label>
 
           <TiptapEditor
+            uploadImage={uploadImage}
             content={editorHTML}
             onChange={(html) => setEditorHTML(html)}
           />

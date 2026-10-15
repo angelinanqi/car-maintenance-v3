@@ -84,8 +84,15 @@ def convert_node(
         )
 
     if tag in {"td", "th"}:
+        attributes = html_node.get("attributes", {})
+        rowspan = int(attributes.get("rowspan", 1))
+        colspan = int(attributes.get("colspan", 1))
+        if rowspan < 1 or colspan < 1:
+            raise ValueError("Table cell spans must be positive")
         return Cell(
             metadata=metadata,
+            rowspan=rowspan,
+            colspan=colspan,
         )
 
     if tag == "ul":

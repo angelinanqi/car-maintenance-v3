@@ -1,19 +1,16 @@
+from rag.config.settings import YOUTUBE_API_TIMEOUT, YOUTUBE_PAGE_SIZE
 import json
 import re
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlparse, unquote
 from urllib.request import Request, urlopen
-from .config import CHANNEL_FILE
+from rag.config.settings import YOUTUBE_API_URL, YOUTUBE_CHANNEL_URL
 
 
-def read_channel(path=CHANNEL_FILE):
-    try:
-        value = path.read_text(encoding="utf-8-sig").strip()
-    except FileNotFoundError:
-        raise ValueError(
-            f"Create {path} and paste your public YouTube channel URL."
-        ) from None
-    url = urlparse(value)
+def read_channel():
+    if not YOUTUBE_CHANNEL_URL:
+        raise ValueError("Set YOUTUBE_CHANNEL_URL in the root .env file.")
+    url = urlparse(YOUTUBE_CHANNEL_URL)
     parts = unquote(url.path).strip("/").split("/")
     if url.scheme not in ("https", "http") or url.netloc not in (
         "youtube.com",
@@ -21,7 +18,7 @@ def read_channel(path=CHANNEL_FILE):
         "m.youtube.com",
     ):
         raise ValueError(
-            f"{path} must contain one YouTube channel URL (for example https://www.youtube.com/@handle)."
+            "YOUTUBE_CHANNEL_URL must be a YouTube channel URL (for example https://www.youtube.com/@handle)."
         )
     # Channel subpages such as /videos are harmless.
     if parts[0].startswith("@") and len(parts[0]) > 1:
@@ -51,7 +48,7 @@ def read_channel(path=CHANNEL_FILE):
 
 def api_get(resource, api_key, **parameters):
     url = (
-        "https://www.googleapis.com/youtube/v3/"
+        YOUTUBE_API_URL.rstrip("/") + "/"
         + resource
         + "?"
         + urlencode(parameters)
@@ -59,7 +56,7 @@ def api_get(resource, api_key, **parameters):
     # Keep the key out of URLs and exception messages.
     request = Request(url, headers={"X-Goog-Api-Key": api_key})
     try:
-        with urlopen(request, timeout=30) as response:
+        with urlopen(request, timeout=YOUTUBE_API_TIMEOUT) as response:
             return json.load(response)
     except HTTPError as error:
         raise RuntimeError(
@@ -78,7 +75,7 @@ def discover_videos(channel_filter, api_key):
         "channels", api_key, part="snippet,contentDetails", **channel_filter
     ).get("items", [])
     if not channels:
-        raise ValueError("YouTube channel not found. Check youtube_channel.txt.")
+        raise ValueError("YouTube channel not found. Check YOUTUBE_CHANNEL_URL in .env.")
     channel = channels[0]
     playlist = channel["contentDetails"]["relatedPlaylists"]["uploads"]
     videos = {}
@@ -89,7 +86,7 @@ def discover_videos(channel_filter, api_key):
             api_key,
             part="snippet,contentDetails",
             playlistId=playlist,
-            maxResults=50,
+            maxResults=YOUTUBE_PAGE_SIZE,
             pageToken=page,
         )
         for item in response.get("items", []):

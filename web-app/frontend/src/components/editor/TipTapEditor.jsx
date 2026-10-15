@@ -8,7 +8,7 @@ import { Box } from "@chakra-ui/react";
 
 import EditorToolbar from "./EditorToolbar";
 
-export default function TiptapEditor({ content, onChange, readOnly = false }) {
+export default function TiptapEditor({ content, onChange, readOnly = false, uploadImage }) {
   const editor = useEditor({
     editable: !readOnly,
     extensions: [
@@ -20,7 +20,7 @@ export default function TiptapEditor({ content, onChange, readOnly = false }) {
 
       Image.configure({
         inline: false,
-        allowBase64: true,
+        allowBase64: false,
         HTMLAttributes: {
           class: "editor-image",
         },
@@ -57,7 +57,7 @@ export default function TiptapEditor({ content, onChange, readOnly = false }) {
       display="flex"
       flexDirection="column"
     >
-      {!readOnly && <EditorToolbar editor={editor} />}
+      {!readOnly && <EditorToolbar editor={editor} uploadImage={uploadImage} />}
 
       <Box
         p={6}

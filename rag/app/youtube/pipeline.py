@@ -1,24 +1,23 @@
-import os
+import argparse
 from pathlib import Path
-from rag.app.youtube.config import CHANNEL_FILE, OUTPUT_DIR
+from rag.app.youtube.config import OUTPUT_DIR
 from rag.app.youtube.discovery import read_channel, discover_videos
 from rag.app.youtube.transcripts import save_json
 from rag.app.youtube.ingestion import ingest_videos
 from rag.app.youtube.retrieval import open_store
-from dotenv import load_dotenv
+from rag.config.settings import CHROMA_PATH, YOUTUBE_API_KEY
 
 # Reusable YouTube ingestion orchestration, separate from user queries
 
 
 def run_youtube_ingestion(
-    output_dir=OUTPUT_DIR, chroma_path=Path("output/embeddings/chroma"), rebuild=False
+    output_dir=OUTPUT_DIR, chroma_path=CHROMA_PATH, rebuild=False
 ):
     # discover, cache transcripts, chunk and index the configured channel
     output_dir = Path(output_dir)
-    channel = read_channel(CHANNEL_FILE)
+    channel = read_channel()
 
-    load_dotenv(Path(".env"))
-    discovered = discover_videos(channel, os.getenv("YOUTUBE_API_KEY", ""))
+    discovered = discover_videos(channel, YOUTUBE_API_KEY)
     metadata_path = (
         output_dir / "videos.json"
     )  # one predefined channel per cache, prevent accidental mixing
@@ -53,3 +52,19 @@ def run_youtube_ingestion(
         )
 
     return summary
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Ingest the YouTube channel configured in .env.")
+    parser.add_argument("--output-dir", type=Path, default=OUTPUT_DIR)
+    parser.add_argument("--chroma-path", type=Path, default=CHROMA_PATH)
+    parser.add_argument("--rebuild", action="store_true", help="Re-embed videos using cached transcripts")
+    args = parser.parse_args()
+    try:
+        run_youtube_ingestion(args.output_dir, args.chroma_path, args.rebuild)
+    except Exception as error:
+        parser.exit(1, f"YouTube ingestion failed: {error}\n")
+
+
+if __name__ == "__main__":
+    main()

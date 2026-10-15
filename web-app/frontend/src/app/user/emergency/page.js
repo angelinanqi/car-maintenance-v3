@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { usePrototype } from "@/components/PrototypeProvider";
+import { useContent } from "@/components/ContentProvider";
 import { toaster } from "@/components/ui/toaster";
 import EmergencyContact from "@/components/EmergencyContact";
 import DeleteConfirmModal from "@/components/modals/DeleteConfirmModal";
@@ -32,28 +32,56 @@ export default function SOPManagerPage() {
   const [newContact, setNewContact] = useState(null);
   const [deleteItem, setDeleteItem] = useState(null);
 
-  const { sops, setSops, contacts, setContacts } = usePrototype();
-  const [selectedSopId, setSelectedSopId] = useState(1);
-  const selectedSop = sops.find((s) => s.id === selectedSopId);
+  const { sops, contacts, savePlaybook, publishPlaybook, deletePlaybook, saveContact, deleteContact } = useContent();
+  const [draft, setDraft] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [selectedSopId, setSelectedSopId] = useState(null);
+  const selectedSop = draft || sops.find((s) => s.id === selectedSopId) || sops[0];
 
-  const steps = selectedSop.steps.map((step) => ({
+  const steps = (selectedSop?.steps || []).map((step) => ({
     ...step,
     completed: completedIds.includes(step.id),
   }));
   const setSteps = (update) => {
-    setSops((previous) =>
-      previous.map((sop) =>
-        sop.id === selectedSopId
-          ? {
-              ...sop,
-              status: "Edited locally",
-              updatedAt: new Date().toLocaleDateString("en-GB"),
-              steps: typeof update === "function" ? update(sop.steps) : update,
-            }
-          : sop,
-      ),
-    );
+    if (!selectedSop) return;
+    setDraft({ ...selectedSop, steps: typeof update === "function" ? update(selectedSop.steps) : update });
   };
+
+  function selectPlaybook(sop) {
+    if (draft && !window.confirm("Discard unsaved playbook changes?")) return;
+    setDraft(null); setSelectedSopId(sop.id); setMode("edit");
+  }
+
+  async function persistPlaybook(unpublish = false) {
+    if (!selectedSop) return;
+    setSaving(true);
+    try {
+      const saved = await savePlaybook(selectedSop.id, {
+        title: selectedSop.title,
+        scenario_key: selectedSop.scenario_key?.trim() || null,
+        source: selectedSop.source || "",
+        category: selectedSop.category || "",
+        description: selectedSop.description || "",
+        safety_warnings: selectedSop.safety_warnings || "",
+        ...(unpublish === true ? { status: "draft" } : {}),
+        steps: selectedSop.steps.map(({ id, title, description, imageUrl }) => ({ id, title, description, imageUrl })),
+      });
+      setSelectedSopId(saved.id); setDraft(null);
+      toaster.create({ title: "Playbook saved", type: "success" });
+    } catch (error) { toaster.create({ title: error.message, type: "error" }); }
+    finally { setSaving(false); }
+  }
+
+  async function reviewAndPublish() {
+    if (!selectedSop?.id || draft) return;
+    if (!window.confirm("Confirm that these instructions and their source have been reviewed and are ready for public use?")) return;
+    setSaving(true);
+    try {
+      await publishPlaybook(selectedSop.id);
+      toaster.create({ title: "Reviewed playbook published", type: "success" });
+    } catch (error) { toaster.create({ title: error.message, type: "error" }); }
+    finally { setSaving(false); }
+  }
 
   const handleToggleStepComplete = (id) => {
     setCompletedIds((previous) =>
@@ -121,12 +149,11 @@ export default function SOPManagerPage() {
   return (
     <AdminLayout
       title="Roadside Emergency SOPs"
-      description="Sample playbooks and contacts for UI demonstration; not verified emergency guidance."
+      description="Manage published playbooks, ordered steps, and shared contacts."
     >
       <Stack gap={6}>
         <Text fontSize="sm" color="gray.600">
-          Instruction edits are saved immediately in this tab. Checklist
-          progress is a separate preview and resets when you leave this page.
+          Use Save Playbook to persist instruction edits. Checklist progress is a separate preview and resets when you leave this page.
         </Text>
         {/* TOP MAIN TABS */}
         <Tabs.Root defaultValue="steps" variant="line">
@@ -153,11 +180,12 @@ export default function SOPManagerPage() {
               <Stack gap={4}>
                 <Flex justify="space-between" align="center">
                   <Heading size="md">Playbooks</Heading>
+                  <Button size="sm" onClick={() => { if (draft && !window.confirm("Discard unsaved changes?")) return; setDraft({ title: "", steps: [] }); setMode("edit"); }}>New playbook</Button>
                 </Flex>
 
                 <Stack gap={3}>
                   {sops.map((sop) => {
-                    const isSelected = sop.id === selectedSopId;
+                    const isSelected = sop.id === selectedSop?.id;
                     return (
                       <Card.Root
                         key={sop.id}
@@ -183,13 +211,11 @@ export default function SOPManagerPage() {
                         onKeyDown={(event) => {
                           if (event.key === "Enter" || event.key === " ") {
                             event.preventDefault();
-                            setSelectedSopId(sop.id);
-                            setMode("edit");
+                            selectPlaybook(sop);
                           }
                         }}
                         onClick={() => {
-                          setSelectedSopId(sop.id);
-                          setMode("edit");
+                          selectPlaybook(sop);
                         }}
                       >
                         <Card.Body p={4}>
@@ -238,7 +264,7 @@ export default function SOPManagerPage() {
                 >
                   <Box>
                     <HStack gap={2}>
-                      <Heading size="md">{selectedSop?.title}</Heading>
+                      {mode === "edit" && selectedSop ? <Input aria-label="Playbook title" placeholder="Playbook title" value={selectedSop.title} onChange={(event) => setDraft({ ...selectedSop, title: event.target.value })} /> : <Heading size="md">{selectedSop?.title || "Create a playbook to begin"}</Heading>}
                       {mode === "incident" && (
                         <Badge colorPalette="red" variant="solid" size="sm">
                           CHECKLIST PREVIEW
@@ -255,6 +281,12 @@ export default function SOPManagerPage() {
                   </Box>
 
                   <HStack gap={2}>
+                    {mode === "edit" && selectedSop && <>
+                      <Button size="sm" loading={saving} onClick={() => persistPlaybook()}>Save Playbook</Button>
+                      {selectedSop.id && selectedSop.status !== "published" && <Button size="sm" disabled={saving || Boolean(draft)} onClick={reviewAndPublish}>Review and publish</Button>}
+                      {selectedSop.status === "published" && <Button size="sm" disabled={saving} onClick={() => persistPlaybook(true)}>Unpublish</Button>}
+                      {selectedSop.id && <Button size="sm" colorPalette="red" variant="outline" onClick={() => setDeleteItem({ type: "playbook", id: selectedSop.id, name: selectedSop.title })}>Remove playbook</Button>}
+                    </>}
                     {mode === "edit" ? (
                       <Button
                         size="sm"
@@ -291,6 +323,15 @@ export default function SOPManagerPage() {
                   </HStack>
                 </Flex>
 
+                {mode === "edit" && selectedSop && <Stack gap={3}>
+                  <Field.Root><Field.Label>Emergency category</Field.Label><Input list="emergency-categories" value={selectedSop.category || ""} onChange={(event) => setDraft({ ...selectedSop, category: event.target.value })} /><datalist id="emergency-categories">{[...new Set(sops.map((sop) => sop.category).filter(Boolean))].map((category) => <option key={category} value={category} />)}</datalist></Field.Root>
+                  <Field.Root><Field.Label>Situation description</Field.Label><Textarea value={selectedSop.description || ""} onChange={(event) => setDraft({ ...selectedSop, description: event.target.value })} /></Field.Root>
+                  <Field.Root><Field.Label>Safety warnings</Field.Label><Textarea value={selectedSop.safety_warnings || ""} onChange={(event) => setDraft({ ...selectedSop, safety_warnings: event.target.value })} /></Field.Root>
+                  <Field.Root><Field.Label>Scenario key</Field.Label><Input placeholder="minor-accident" value={selectedSop.scenario_key || ""} onChange={(event) => setDraft({ ...selectedSop, scenario_key: event.target.value })} /></Field.Root>
+                  <Field.Root><Field.Label>Source / review reference</Field.Label><Textarea value={selectedSop.source || ""} onChange={(event) => setDraft({ ...selectedSop, source: event.target.value })} /></Field.Root>
+                  <Text fontSize="sm">{selectedSop.reviewed_at ? `Reviewed ${new Date(selectedSop.reviewed_at).toLocaleString()}` : "Review required before publication."} Editing published instructions returns them to draft when saved.</Text>
+                </Stack>}
+                {mode !== "edit" && selectedSop && <Stack gap={2}><Text fontWeight="semibold">{selectedSop.category}</Text><Text>{selectedSop.description}</Text>{selectedSop.safety_warnings && <Box bg="orange.50" p={3}><Text fontWeight="semibold">Safety warnings</Text><Text whiteSpace="pre-wrap">{selectedSop.safety_warnings}</Text></Box>}</Stack>}
                 {mode === "incident" && (
                   <Card.Root variant="outline" bg="white" borderColor="red.200">
                     <Card.Body p={4}>
@@ -508,6 +549,7 @@ export default function SOPManagerPage() {
                       border="2px dashed"
                       borderColor="gray.300"
                       onClick={handleAddStep}
+                      disabled={!selectedSop}
                       w="100%"
                     >
                       + Add Step {steps.length + 1}
@@ -532,8 +574,7 @@ export default function SOPManagerPage() {
                 <Box>
                   <Heading size="md">Emergency & Towing Contacts</Heading>
                   <Text fontSize="sm" color="gray.500">
-                    Sample contact details. Replace these with your own verified
-                    contacts.
+                    Manage shared emergency and roadside contacts.
                   </Text>
                 </Box>
                 <Button
@@ -548,22 +589,15 @@ export default function SOPManagerPage() {
 
               {/* Contact Cards List */}
               {contacts.length === 0 && !newContact && (
-                <Text>No contacts yet. Add a verified contact.</Text>
+                <Text>No contacts yet. Add a shared contact.</Text>
               )}
               {contacts.map((contact) => (
                 <EmergencyContact
                   key={contact.id}
                   contact={contact}
-                  onSave={(saved) => {
-                    setContacts((previous) =>
-                      previous.map((item) =>
-                        item.id === saved.id ? saved : item,
-                      ),
-                    );
-                    toaster.create({
-                      title: "Contact saved locally",
-                      type: "success",
-                    });
+                  onSave={async (saved) => {
+                    await saveContact(saved.id, { name: saved.name, phone: saved.phone });
+                    toaster.create({ title: "Contact saved", type: "success" });
                   }}
                   onDelete={() =>
                     setDeleteItem({
@@ -575,57 +609,31 @@ export default function SOPManagerPage() {
                 />
               ))}
               {newContact && (
-                <EmergencyContact
-                  key={newContact.id}
-                  contact={newContact}
-                  isNew
+                <EmergencyContact key={newContact.id} contact={newContact} isNew
                   onCancel={() => setNewContact(null)}
-                  onSave={(saved) => {
-                    setContacts((previous) => [...previous, saved]);
+                  onSave={async (saved) => {
+                    await saveContact(null, { name: saved.name, phone: saved.phone });
                     setNewContact(null);
-                    toaster.create({
-                      title: "Contact added locally",
-                      type: "success",
-                    });
-                  }}
-                />
+                    toaster.create({ title: "Contact added", type: "success" });
+                  }} />
               )}
             </Stack>
           </Tabs.Content>
         </Tabs.Root>
       </Stack>
-      <DeleteConfirmModal
-        isOpen={Boolean(deleteItem)}
-        itemName={deleteItem?.name}
+      <DeleteConfirmModal isOpen={Boolean(deleteItem)} itemName={deleteItem?.name}
         onClose={() => setDeleteItem(null)}
-        onConfirm={() => {
-          if (deleteItem.type === "contact")
-            setContacts((previous) =>
-              previous.filter((contact) => contact.id !== deleteItem.id),
-            );
-          else {
-            setSops((previous) =>
-              previous.map((sop) =>
-                sop.id === deleteItem.sopId
-                  ? {
-                      ...sop,
-                      status: "Edited locally",
-                      updatedAt: new Date().toLocaleDateString("en-GB"),
-                      steps: sop.steps.filter(
-                        (step) => step.id !== deleteItem.id,
-                      ),
-                    }
-                  : sop,
-              ),
-            );
-            setCompletedIds((previous) =>
-              previous.filter((id) => id !== deleteItem.id),
-            );
-          }
-          setDeleteItem(null);
-          toaster.create({ title: "Removed locally", type: "success" });
-        }}
-      />
+        onConfirm={async () => {
+          try {
+            if (deleteItem.type === "playbook") {
+              await deletePlaybook(deleteItem.id); setDraft(null); setSelectedSopId(null);
+            } else if (deleteItem.type === "step") {
+              setSteps((previous) => previous.filter((step) => step.id !== deleteItem.id));
+            } else { await deleteContact(deleteItem.id); }
+            setDeleteItem(null);
+            toaster.create({ title: deleteItem.type === "step" ? "Step removed from draft; save the playbook to persist" : "Record removed", type: "success" });
+          } catch (error) { toaster.create({ title: error.message, type: "error" }); }
+        }} />
     </AdminLayout>
   );
 }

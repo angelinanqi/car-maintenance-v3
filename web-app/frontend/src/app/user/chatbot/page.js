@@ -17,14 +17,18 @@ import {
 } from "@chakra-ui/react";
 import AdminLayout from "@/components/layouts/AdminLayout";
 import ChatMessage from "@/components/chatbot/ChatMessage";
-import { chatOption } from "@/components/chatbot/chatScopes";
+import { CHAT_MAX_MESSAGE_LENGTH as DEFAULT_MESSAGE_LIMIT } from "@/lib/config.mjs";
 import { sendChatMessage } from "@/lib/chatApi.mjs";
-import { usePrototype } from "@/components/PrototypeProvider";
+import { useContent } from "@/components/ContentProvider";
 import NextLink from "next/link";
 
 export default function ChatbotPage() {
-  const { documents } = usePrototype();
-  const [selectedScope, setSelectedScope] = useState("general");
+  const { documents, configuration, loading, refresh } = useContent();
+  const chatOption = (configuration?.knowledge_scopes || []).map((scope) => ({
+    ...scope, value: `${scope.scope_type}:${scope.scope_id}`, disabled: !scope.available,
+  }));
+  const CHAT_MAX_MESSAGE_LENGTH = configuration?.chat_max_message_length || DEFAULT_MESSAGE_LIMIT;
+  const [selectedScope, setSelectedScope] = useState("");
   const [session, setSession] = useState(null);
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState(false);
@@ -36,7 +40,7 @@ export default function ChatbotPage() {
   const input = useRef(null);
   const cancelButton = useRef(null);
   const option = session ? session.option : selectedScope;
-  const optionLabel = chatOption.find((item) => item.value === option).label;
+  const optionLabel = chatOption.find((item) => item.value === option)?.label || option;
 
   useEffect(() => () => activeRequest.current?.abort(), []);
 
@@ -47,6 +51,7 @@ export default function ChatbotPage() {
   }, [session, pending]);
 
   function startChat(nextScope) {
+    if (!chatOption.some((item) => item.value === nextScope && !item.disabled)) return;
     activeRequest.current?.abort();
     activeRequest.current = null;
     setError("");
@@ -72,7 +77,7 @@ export default function ChatbotPage() {
     if (
       !session ||
       !answer ||
-      answer.length > 4000 ||
+      answer.length > CHAT_MAX_MESSAGE_LENGTH ||
       pending ||
       activeRequest.current !== null
     )
@@ -84,11 +89,9 @@ export default function ChatbotPage() {
     setError("");
     const payload = retry || {
       message: answer,
-      car_model: session.option,
-      conversation: session.messages
-        .filter((message) => !message.failed)
-        .slice(-6)
-        .map((message) => ({ role: message.role, content: message.answer })),
+      scope_type: session.option.split(":")[0],
+      scope_id: session.option.split(":")[1],
+      ...(session.serverId ? { session_id: session.serverId, session_token: session.token } : {}),
     };
     const messageId = retry ? failedRequest.messageId : crypto.randomUUID();
     setFailedRequest(null);
@@ -112,6 +115,8 @@ export default function ChatbotPage() {
         current?.id === sessionId
           ? {
               ...current,
+              serverId: result.session_id,
+              token: result.session_token,
               messages: [
                 ...current.messages.map((message) =>
                   message.id === messageId
@@ -154,7 +159,7 @@ export default function ChatbotPage() {
 
   const optionSelector = (
     <Field.Root maxW={{ base: "100%", md: "260px" }}>
-      <Field.Label htmlFor="chat-option">Vehicle / Chat Scope</Field.Label>
+      <Field.Label htmlFor="chat-option">Vehicle / Category</Field.Label>
       <NativeSelect.Root bg="white">
         <NativeSelect.Field
           id="chat-option"
@@ -166,13 +171,14 @@ export default function ChatbotPage() {
             else setSelectedScope(nextScope);
           }}
         >
+          <option value="" disabled>Select a published knowledge scope</option>
           {chatOption.map((item) => (
             <option
               key={item.value}
               value={item.value}
               disabled={item.disabled}
             >
-              {item.label}
+              {item.label}{item.disabled ? " (no indexed documents)" : ""}
             </option>
           ))}
         </NativeSelect.Field>
@@ -183,7 +189,7 @@ export default function ChatbotPage() {
 
   return (
     <AdminLayout
-      title="Chatbot Preview"
+      title="Chatbot Testing"
       description="Ask questions using the existing manuals and related videos."
     >
       <Flex
@@ -194,20 +200,25 @@ export default function ChatbotPage() {
         fontSize="xs"
         color="gray.600"
       >
-        <Text>Vehicle: {optionLabel}</Text>
+        <Text>Scope: {optionLabel || "Select a vehicle or category"}</Text>
         <Badge variant="outline">RAG chat preview</Badge>
       </Flex>
       <Text fontSize="sm" color="gray.600" mb={4}>
         {
-          documents.filter((document) => document.status === "Processed (demo)")
+          documents.filter((document) => document.status === "processed" && document.indexed_revision)
             .length
         }{" "}
-        documents processed in the local demo. They are not in this chat’s real
-        index.{" "}
+        documents have confirmed indexing.{" "}
         <NextLink href="/user/kb" style={{ textDecoration: "underline" }}>
           Manage documents
         </NextLink>
       </Text>
+
+      {configuration?.rag_configured === false && <Text role="status" mb={4} color="orange.700">
+        This backend has no RAG service connection configured. Test requests use the real backend and report its response. Check RAG_SERVICE_URL and RAG_SERVICE_TOKEN on the backend.
+      </Text>}
+      <Button mb={4} variant="outline" onClick={() => refresh({ documentsOnly: true })}>Refresh scopes and processing status</Button>
+      {!loading && !chatOption.some((item) => !item.disabled) && <Text role="status" mb={4}>No supported scope is currently available. Process and publish an associated document and its vehicle or category scope, then refresh.</Text>}
 
       {!session ? (
         <Box
@@ -226,20 +237,20 @@ export default function ChatbotPage() {
           >
             <Heading size="lg">Try a conversation</Heading>
             <Text color="gray.600" fontSize="sm">
-              Choose a vehicle model to preview its chat experience, or select
-              General for a chat without a specific vehicle.
+              Choose a published vehicle or category. The chatbot searches only
+              documents and supplementary videos assigned to that scope.
             </Text>
             {optionSelector}
             <Button
               colorPalette="blue"
+              disabled={!chatOption.some((item) => item.value === selectedScope && !item.disabled)}
               onClick={() => startChat(selectedScope)}
             >
               Start Chat
             </Button>
             <Text fontSize="xs" color="gray.500">
-              Conversations stay in this page and are cleared when you leave or
-              reload. Vehicle selection scopes the owner manual; related videos
-              use the existing shared collection.
+              Changing the knowledge scope starts a new conversation. Refresh
+              this page to load newly published scopes.
             </Text>
           </Stack>
         </Box>
@@ -344,7 +355,7 @@ export default function ChatbotPage() {
                   placeholder="Ask a vehicle question…"
                   rows={2}
                   resize="none"
-                  maxLength={4000}
+                  maxLength={CHAT_MAX_MESSAGE_LENGTH}
                   onKeyDown={(event) => {
                     if (
                       event.key === "Enter" &&

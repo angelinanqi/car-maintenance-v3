@@ -1,0 +1,33 @@
+import { request, listAll } from "./client.mjs";
+import { API_URL } from "../lib/config.mjs";
+
+export const listDocuments = () => listAll("/documents");
+export function uploadDocument(file, metadata) {
+  const body = new FormData();
+  body.append("file", file);
+  body.append("name", metadata.name);
+  body.append("car_model", metadata.carModel);
+  body.append("tags", JSON.stringify(metadata.tags));
+  body.append("document_type", metadata.documentType || "other_reference");
+  return request("/documents", { method: "POST", body });
+}
+export const editDocument = (id, data) => request(`/documents/${id}`, {
+  method: "PATCH", body: { name: data.name, car_model: data.carModel, tags: data.tags, document_type: data.documentType },
+});
+export function replaceDocument(id, file) {
+  const body = new FormData();
+  body.append("file", file);
+  return request(`/documents/${id}/replace`, { method: "POST", body });
+}
+export const deleteDocument = (id) => request(`/documents/${id}`, { method: "DELETE" });
+export const processDocuments = (ids, force = false) => request("/documents/process-batch", { method: "POST", body: { ids, force } });
+export const downloadDocumentUrl = (id) => `${API_URL}/documents/${id}/download`;
+export const downloadExtractionUrl = (id) => `${API_URL}/documents/${id}/extraction`;
+export const originalDocumentUrl = (id) => `${API_URL}/documents/${id}/original`;
+export const publishDocument = (id) => request(`/documents/${id}/publish`, { method: "POST", body: { confirm_review: true } });
+export const unpublishDocument = (id) => request(`/documents/${id}`, { method: "PATCH", body: { published: false } });
+export function stageReplacement(id, file) {
+  const body = new FormData();
+  body.append("file", file);
+  return request(`/documents/${id}/stage-replacement`, { method: "POST", body });
+}

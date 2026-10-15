@@ -1,42 +1,34 @@
-﻿# Car App frontend
+# Admin dashboard
 
-A Next.js App Router / React / Chakra UI local prototype.
+Next.js/React dashboard with Chakra UI and TipTap. Administrators manage vehicles,
+maintenance schedules, learning guides, emergency content, reference documents,
+and chatbot previews through the FastAPI backend.
 
-## Run locally
+## Run
 
-From this directory, with dependencies installed:
+Use Node.js 22/npm. Complete the [root setup](../../README.md) for Supabase,
+the backend, and administrator access. From this directory:
 
-    npm run dev
+```powershell
+npm.cmd ci
+npm.cmd run dev
+```
 
-Other commands: npm run lint, npm run build, npm start.
+Open http://localhost:3000/login. The launcher loads the root `.env`;
+`FRONTEND_PORT` defaults to `3000`. Set `NEXT_PUBLIC_API_URL` to a browser-reachable
+backend URL and allow the dashboard origin in backend `CORS_ORIGINS`.
 
-The root URL redirects to /user/home. The sidebar links to Knowledge Base,
-Learn Cards, and Emergency. The former manage-category route redirects to
-Learn Cards; categories currently use a fixed shared list.
+## Check and build
 
-## Prototype behavior
+```powershell
+npm.cmd run lint
+npm.cmd run typecheck
+npm.cmd run build
+npm.cmd start
+```
 
-- Documents can be added, renamed, tagged, and removed with confirmation.
-  Selected File objects stay in React memory; they are never uploaded.
-- Guides can be created, edited, saved as drafts, or marked published locally.
-  Tiptap supports formatting, embedded local images, and YouTube links.
-- Each emergency playbook has separate steps and checklist state.
-  Only the first sample contains authored steps. Contacts and instructions
-  are demonstration data.
-- Dashboard totals reflect the current local data.
-- PrototypeProvider holds this small shared state across client-side navigation.
-  Reloading or closing the tab resets everything. There is no browser persistence.
+`start` requires a production build. Rebuild after public configuration changes.
+On other operating systems, use `npm` in place of `npm.cmd`.
 
-No API, authentication, file storage, document processing, RAG connection, or
-chatbot is implemented. YouTube embeds can load external media.
-
-## Manual checks after installing dependencies
-
-1. Add a file, edit its name/tags, cancel another edit, and remove it with confirmation.
-2. Reopen the add dialog and confirm its fields and file selection are reset.
-3. Create a guide, save a draft, reopen Edit, and confirm the content remains.
-4. Publish/unpublish a guide and filter by its category.
-5. Edit/add a step and check it in preview; switch playbooks and confirm isolation.
-6. Add/edit a contact and verify empty name/phone validation.
-7. Navigate Home and check counts, then reload and verify sample data resets.
-8. Check sidebar/top navigation, tables, dialogs, and editor on narrow screens.
+Document upload, processing, indexing, and publication are separate stages.
+PDFs require MinerU; indexing and AI chat require the [RAG processes](../../rag/README.md).

@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { usePrototype, guideCategories } from "@/components/PrototypeProvider";
+import { useContent } from "@/components/ContentProvider";
 import { toaster } from "@/components/ui/toaster";
 import TiptapEditor from "@/components/editor/TipTapEditor";
 import DeleteConfirmModal from "@/components/modals/DeleteConfirmModal";
@@ -30,37 +30,23 @@ export default function ContentPage() {
   const [selectedTab, setSelectedTab] = useState("all");
   const [preview, setPreview] = useState(null);
   const [deleteCard, setDeleteCard] = useState(null);
+  const [publishingId, setPublishingId] = useState(null);
 
-  const { cards, setCards } = usePrototype();
-  const categories = ["all", ...guideCategories];
+  const { cards, categories: guideCategories, saveGuide, publishGuide, deleteGuide } = useContent();
+  const categories = [{ id: "all", name: "All" }, { id: "uncategorized", name: "Uncategorized" }, ...guideCategories];
 
   // Toggle Published / Unpublished status
-  const handleTogglePublish = (id) => {
+  const handleTogglePublish = async (id) => {
+    if (publishingId) return;
     const card = cards.find((item) => item.id === id);
-    if (
-      card.status !== "Published" &&
-      (!card.title.trim() || !hasGuideContent(card.content))
-    ) {
-      toaster.create({
-        title: "Add a title and content in Edit before publishing",
-        type: "error",
-      });
-      return;
-    }
-    setCards((prev) =>
-      prev.map((card) => {
-        if (card.id === id) {
-          const newStatus = card.status === "Published" ? "Draft" : "Published";
-          return {
-            ...card,
-            status: newStatus,
-            updatedAt: new Date().toLocaleDateString("en-GB"),
-          };
-        }
-        return card;
-      }),
-    );
-    toaster.create({ title: "Guide status updated locally", type: "success" });
+    setPublishingId(id);
+    try {
+      if (card.status === "published") {
+        await saveGuide(id, { status: "draft" });
+      } else { await publishGuide(id); }
+      toaster.create({ title: "Guide status saved", type: "success" });
+    } catch (error) { toaster.create({ title: error.message, type: "error" }); }
+    finally { setPublishingId(null); }
   };
 
   const handleEdit = (card) => {
@@ -72,13 +58,13 @@ export default function ContentPage() {
     selectedTab === "all"
       ? cards
       : cards.filter(
-          (card) => card.category.toLowerCase() === selectedTab.toLowerCase(),
+          (card) => (card.category_id || "uncategorized") === selectedTab,
         );
 
   return (
     <AdminLayout
       title="Learn Cards"
-      description="Write, preview, and manage local maintenance guides."
+      description="Write, preview, and manage maintenance guides."
     >
       <Stack gap={6}>
         {/* HEADER ROW */}
@@ -86,12 +72,12 @@ export default function ContentPage() {
           <Box>
             <Heading size="md">All Guides</Heading>
             <Text fontSize="sm" color="gray.500">
-              Sample titles start as empty drafts. Publishing only changes local
-              status.
+              Drafts and published guides are saved to the database.
             </Text>
           </Box>
 
           <HStack gap={2}>
+            <Button variant="outline" onClick={() => router.push("/user/learn-cards/manage-cat")}>Manage categories</Button>
             {/* Create Button */}
             <Button
               colorPalette="blue"
@@ -111,8 +97,8 @@ export default function ContentPage() {
         >
           <Tabs.List overflowX="auto">
             {categories.map((cat) => (
-              <Tabs.Trigger key={cat} value={cat} textTransform="capitalize">
-                {cat}
+              <Tabs.Trigger key={cat.id} value={cat.id} textTransform="capitalize">
+                {cat.name}
               </Tabs.Trigger>
             ))}
           </Tabs.List>
@@ -121,7 +107,7 @@ export default function ContentPage() {
           <Tabs.Content value={selectedTab} pt={4}>
             <Stack gap={3} w="100%">
               {filteredCards.map((card) => {
-                const isPublished = card.status === "Published";
+                const isPublished = card.status === "published";
                 return (
                   <Card.Root key={card.id} variant="outline" w="100%">
                     <Card.Body p={4}>
@@ -174,6 +160,8 @@ export default function ContentPage() {
                             variant={isPublished ? "outline" : "solid"}
                             colorPalette={isPublished ? "orange" : "green"}
                             onClick={() => handleTogglePublish(card.id)}
+                            disabled={Boolean(publishingId)}
+                            loading={publishingId === card.id}
                           >
                             {isPublished ? "Unpublish" : "Publish"}
                           </Button>
@@ -221,12 +209,12 @@ export default function ContentPage() {
         isOpen={Boolean(deleteCard)}
         itemName={deleteCard?.title}
         onClose={() => setDeleteCard(null)}
-        onConfirm={() => {
-          setCards((previous) =>
-            previous.filter((card) => card.id !== deleteCard.id),
-          );
-          setDeleteCard(null);
-          toaster.create({ title: "Guide removed locally", type: "success" });
+        onConfirm={async () => {
+          try {
+            await deleteGuide(deleteCard.id);
+            setDeleteCard(null);
+            toaster.create({ title: "Guide removed", type: "success" });
+          } catch (error) { toaster.create({ title: error.message, type: "error" }); }
         }}
       />
       <Dialog.Root
@@ -243,7 +231,7 @@ export default function ContentPage() {
             </Dialog.Header>
             <Dialog.Body>
               <Text mb={3} fontSize="sm">
-                {preview?.status} · {preview?.category} · Local preview; not
+                {preview?.status} · {preview?.category} · Admin preview; not
                 delivered to mobile users.
               </Text>
               {preview &&

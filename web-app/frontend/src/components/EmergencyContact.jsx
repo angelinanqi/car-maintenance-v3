@@ -23,8 +23,9 @@ export default function EmergencyContact({
   const [name, setName] = useState(contact.name);
   const [phone, setPhone] = useState(contact.phone);
   const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
 
-  function save(event) {
+  async function save(event) {
     event.preventDefault();
     if (
       !name.trim() ||
@@ -35,13 +36,17 @@ export default function EmergencyContact({
       setError("Enter a contact name and a valid phone number.");
       return;
     }
-    onSave({
+    setSaving(true);
+    try {
+      await onSave({
       ...contact,
       name: name.trim(),
       phone: phone.trim(),
       isEditing: false,
     });
     setEditing(false);
+    } catch (error) { setError(error.message); }
+    finally { setSaving(false); }
   }
 
   function cancel() {
@@ -79,7 +84,7 @@ export default function EmergencyContact({
                 </Text>
               )}
               <Flex gap={2}>
-                <Button type="submit" colorPalette="blue">
+                <Button type="submit" colorPalette="blue" loading={saving}>
                   Save contact
                 </Button>
                 <Button type="button" variant="outline" onClick={cancel}>

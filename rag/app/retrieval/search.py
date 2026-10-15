@@ -1,8 +1,11 @@
+from rag.config.settings import RAG_TOP_K
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TYPE_CHECKING
 from chromadb.api.types import QueryResult
-from rag.app.embedding.embedder import Embedder
-from rag.app.embedding.vector_store import VectorStore
+
+if TYPE_CHECKING:
+    from rag.app.embedding.embedder import Embedder
+    from rag.app.embedding.vector_store import VectorStore
 
 
 @dataclass
@@ -17,8 +20,8 @@ class RetrievalResult:
 class Searcher:
     def __init__(
         self,
-        embedder: Embedder,
-        vector_store: VectorStore,
+        embedder: "Embedder",
+        vector_store: "VectorStore",
     ):
         self.embedder = embedder
         self.vector_store = vector_store
@@ -26,7 +29,7 @@ class Searcher:
     def search(
         self,
         query: str,
-        top_k: int = 5,
+        top_k: int = RAG_TOP_K,
         document_name: str | None = None,
     ) -> list[RetrievalResult]:
 

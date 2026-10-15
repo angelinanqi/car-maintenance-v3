@@ -18,9 +18,11 @@ class ChunkMetadata:
     source_position: int
 
     src: list[str]
+    table_data: list[dict] | None = None
 
 
 @dataclass
 class Chunk:
     text: str
     metadata: ChunkMetadata
+    source_content: str = ""

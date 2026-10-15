@@ -1,9 +1,10 @@
 "use client";
+import KnowledgeScopes from "@/components/KnowledgeScopes";
 
 import { useState } from "react";
-import { usePrototype } from "@/components/PrototypeProvider";
+import { useContent } from "@/components/ContentProvider";
 import { toaster } from "@/components/ui/toaster";
-import { createLocalDocuments } from "@/lib/prototypeDocuments.mjs";
+import { downloadDocumentUrl, downloadExtractionUrl, originalDocumentUrl, publishDocument, unpublishDocument, stageReplacement } from "@/api/documents.mjs";
 import {
   Flex,
   Heading,
@@ -15,6 +16,7 @@ import {
   Stack,
   Box,
   Checkbox,
+  Input,
 } from "@chakra-ui/react";
 
 // Relative Imports
@@ -27,65 +29,52 @@ export default function ProjectsPage() {
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [editItem, setEditItem] = useState(null); // Controls Edit Modal
   const [deleteItem, setDeleteItem] = useState(null); // Controls Delete Modal
+  const [replacementItem, setReplacementItem] = useState(null);
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [publishingId, setPublishingId] = useState(null);
 
   const {
     documents: items,
-    setDocuments: setItems,
+    saveDocument, deleteDocument, refresh,
     processDocuments,
-  } = usePrototype();
+  } = useContent();
   const [selectedIds, setSelectedIds] = useState([]);
-  const selectable = items.filter((item) => item.status !== "Processing");
+  const [processingRequest, setProcessingRequest] = useState(false);
+  const visible = items.filter((item) => `${item.name} ${item.tags.join(" ")}`.toLowerCase().includes(query.toLowerCase()) && (!statusFilter || item.status === statusFilter));
+  const selectable = visible.filter((item) => item.status !== "processing" && !item.published);
   const selected = selectable.filter((item) => selectedIds.includes(item.id));
 
-  async function handleProcess(ids) {
-    const result = await processDocuments(ids);
-    toaster.create({
-      title: `${result.succeeded} processed in demo; ${result.failed} failed`,
-      type: result.failed ? "error" : "success",
-    });
+  async function handleProcess(ids, force = false) {
+    if (processingRequest) return;
+    setProcessingRequest(true);
+    try {
+      const results = await processDocuments(ids, force);
+      const failed = results.filter((item) => item.error);
+      toaster.create({ title: failed.length ? failed.map((item) => item.error).join("; ") : "Processing requested. Status updates automatically.", type: failed.length ? "error" : "success" });
+    } catch (error) { toaster.create({ title: error.message, type: "error" }); }
+    finally { setProcessingRequest(false); }
   }
 
   function downloadFile(item) {
-    const url = URL.createObjectURL(item.file);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = item.file.name;
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    window.open(downloadDocumentUrl(item.id), "_blank", "noopener,noreferrer");
   }
 
-  const handleSave = (data) => {
-    const { files, ...metadata } = data;
-    if (editItem) {
-      const file = files[0] || null;
-      const changed =
-        file !== editItem.file ||
-        metadata.carModel !== (editItem.carModel || "general");
-      setItems((previous) =>
-        previous.map((item) =>
-          item.id === editItem.id
-            ? {
-                ...item,
-                ...metadata,
-                file,
-                ...(changed
-                  ? { status: file ? "Ready" : "Needs file", error: "" }
-                  : {}),
-              }
-            : item,
-        ),
-      );
-    } else {
-      setItems((previous) => [
-        ...previous,
-        ...createLocalDocuments(files, metadata),
-      ]);
-    }
-    toaster.create({
-      title: editItem ? "Document updated locally" : "Document added locally",
-      type: "success",
-    });
-  };
+  async function handleSave(data) {
+    await saveDocument(editItem, data);
+    toaster.create({ title: editItem ? "Document updated" : "Documents uploaded", type: "success" });
+  }
+  async function changePublication(item) {
+    if (publishingId) return;
+    if (!window.confirm(item.published ? "Unpublish this document? It will no longer be retrieved or publicly downloadable." : "Confirm that the original and processed document have been reviewed and are ready to publish? Publishing a replacement retires the previous document.")) return;
+    setPublishingId(item.id);
+    try {
+      await (item.published ? unpublishDocument(item.id) : publishDocument(item.id));
+      await refresh();
+      toaster.create({ title: item.published ? "Document unpublished" : "Document published", type: "success" });
+    } catch (error) { toaster.create({ title: error.message, type: "error" }); }
+    finally { setPublishingId(null); }
+  }
 
   // Open Edit Modal with selected row data
   const handleOpenEdit = (item) => {
@@ -98,23 +87,23 @@ export default function ProjectsPage() {
   };
 
   // Execute Delete
-  const handleConfirmDelete = () => {
-    if (deleteItem) {
-      toaster.create({ title: "Document removed locally", type: "success" });
-      setItems((prev) => prev.filter((i) => i.id !== deleteItem.id));
-      setSelectedIds((previous) =>
-        previous.filter((id) => id !== deleteItem.id),
-      );
+  const handleConfirmDelete = async () => {
+    if (!deleteItem) return;
+    try {
+      await deleteDocument(deleteItem.id);
+      setSelectedIds((previous) => previous.filter((id) => id !== deleteItem.id));
       setDeleteItem(null);
-    }
+      toaster.create({ title: "Document and stored files removed; excluded from chat", type: "success" });
+    } catch (error) { toaster.create({ title: error.message, type: "error" }); }
   };
 
   return (
     <AdminLayout
-      title="Knowledge Base"
-      description="Manage your project documents and records."
+      title="Documents and Manuals"
+      description="Upload, associate, process, review and publish reference documents."
     >
       <Stack gap={6}>
+        <KnowledgeScopes documents={items} onChanged={refresh} />
         {/* HEADER ROW */}
         <Flex justify="space-between" align="center" wrap="wrap" gap={4}>
           <Box>
@@ -125,27 +114,27 @@ export default function ProjectsPage() {
           </Box>
 
           {/* Upload Trigger */}
+          <Button variant="outline" onClick={refresh}>Refresh</Button>
           <Button colorPalette="blue" onClick={() => setIsUploadOpen(true)}>
             Add Documents
           </Button>
         </Flex>
 
         <Text fontSize="sm" color="gray.600">
-          Processing is simulated. “Processed (demo)” means available to AI in
-          this prototype only; Chat Preview continues to use the backend’s
-          existing index.
+          Upload and associate sources, then process them. Review extraction and wait for confirmed indexing before publishing. Only indexed, published documents in published scopes are searchable.
         </Text>
+        <Flex gap={3} wrap="wrap"><Input maxW="400px" aria-label="Search documents" value={query} placeholder="Search title or tags" onChange={(e) => setQuery(e.target.value)} /><label>Processing status <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}><option value="">All statuses</option>{["uploaded", "processing", "awaiting_index", "processed", "failed"].map((value) => <option key={value} value={value}>{value.replaceAll("_", " ")}</option>)}</select></label></Flex>
         <Flex gap={3} align="center" wrap="wrap">
           <Text fontSize="sm">
             {selected.length} selected ·{" "}
-            {items.filter((item) => item.status === "Processed (demo)").length}{" "}
-            processed in demo
+            {items.filter((item) => item.status === "processed").length}{" "}
+            indexed · {items.filter((item) => item.status === "awaiting_index").length} awaiting indexing
           </Text>
           <Button
-            disabled={!selected.length}
+            disabled={!selected.length || processingRequest}
             onClick={() => handleProcess(selected.map((item) => item.id))}
           >
-            Process selected (demo)
+            Process selected
           </Button>
           <Button
             variant="ghost"
@@ -188,6 +177,7 @@ export default function ProjectsPage() {
                 <Table.ColumnHeader>Name</Table.ColumnHeader>
                 <Table.ColumnHeader>Tags</Table.ColumnHeader>
                 <Table.ColumnHeader>Status</Table.ColumnHeader>
+                <Table.ColumnHeader>Publication</Table.ColumnHeader>
                 <Table.ColumnHeader>Date Added</Table.ColumnHeader>
                 <Table.ColumnHeader textAlign="right">
                   Actions
@@ -195,11 +185,11 @@ export default function ProjectsPage() {
               </Table.Row>
             </Table.Header>
             <Table.Body>
-              {items.map((item) => (
+              {visible.map((item) => (
                 <Table.Row key={item.id}>
                   <Table.Cell>
                     <Checkbox.Root
-                      disabled={item.status === "Processing"}
+                      disabled={item.status === "processing" || item.published}
                       checked={selectedIds.includes(item.id)}
                       onCheckedChange={({ checked }) =>
                         setSelectedIds((previous) =>
@@ -220,9 +210,8 @@ export default function ProjectsPage() {
                     <Text fontSize="xs" color="gray.600">
                       Scope: {item.carModel || "general"}
                     </Text>
-                    {!item.file && (
-                      <Text fontSize="xs">Edit to attach a file.</Text>
-                    )}
+                    <Text fontSize="xs">{item.document_type?.replaceAll("_", " ") || "Other reference"}</Text>
+                    {item.replacement_for_id && <Text fontSize="xs">Replacement for {item.replacement_for_id}</Text>}
                   </Table.Cell>
                   <Table.Cell>
                     {item.tags.length ? item.tags.join(", ") : "No tags"}
@@ -230,16 +219,16 @@ export default function ProjectsPage() {
                   <Table.Cell>
                     <Badge
                       colorPalette={
-                        item.status === "Failed"
+                        item.status === "failed"
                           ? "red"
-                          : item.status === "Processed (demo)"
+                          : item.status === "processed"
                             ? "green"
-                            : item.status === "Processing"
+                            : item.status === "processing"
                               ? "blue"
                               : "gray"
                       }
                     >
-                      {item.status}
+                      {item.status === "awaiting_index" ? "Awaiting indexing" : item.status === "processed" ? (item.indexed_revision ? "Indexed" : "Reprocessing required") : item.status}
                     </Badge>
                     {item.error && (
                       <Text role="alert" fontSize="xs" color="red.600">
@@ -247,6 +236,7 @@ export default function ProjectsPage() {
                       </Text>
                     )}
                   </Table.Cell>
+                  <Table.Cell><Badge colorPalette={item.published ? "green" : "gray"}>{item.superseded_by_id ? "Superseded" : item.published ? "Published" : "Draft"}</Badge></Table.Cell>
                   <Table.Cell>{item.date}</Table.Cell>
 
                   {/* Action Buttons */}
@@ -254,18 +244,24 @@ export default function ProjectsPage() {
                     <Group attached={false} gap={2} justify="flex-end">
                       <Button
                         size="xs"
-                        loading={item.status === "Processing"}
-                        disabled={item.status === "Processing"}
-                        onClick={() => handleProcess([item.id])}
+                        loading={item.status === "processing"}
+                        disabled={item.status === "processing" || processingRequest || item.published}
+                        onClick={() => handleProcess([item.id], ["processed", "awaiting_index"].includes(item.status))}
                       >
-                        {item.status === "Failed"
-                          ? "Retry (demo)"
-                          : "Process (demo)"}
+                        {item.status === "failed"
+                          ? "Retry"
+                          : ["processed", "awaiting_index"].includes(item.status) ? "Reprocess" : "Process"}
                       </Button>
+                      <Button size="xs" variant="outline" disabled={Boolean(publishingId) || Boolean(item.superseded_by_id) || (!item.published && (item.status !== "processed" || !item.indexed_revision || item.indexed_revision !== item.source_revision))} onClick={() => changePublication(item)}>{item.published ? "Unpublish" : "Publish"}</Button>
+                      <Button size="xs" variant="outline" disabled={item.status === "processing" || Boolean(item.superseded_by_id)} onClick={() => setReplacementItem(item)}>Stage replacement</Button>
+                      {item.source_type === "pdf" && <Button size="xs" variant="outline" onClick={() => window.open(originalDocumentUrl(item.id), "_blank", "noopener,noreferrer")}>Open original PDF</Button>}
+                      {item.extraction_storage_path && ["awaiting_index", "processed"].includes(item.status) && <Button
+                        size="xs" variant="outline" onClick={() => window.open(downloadExtractionUrl(item.id), "_blank", "noopener,noreferrer")}
+                      >Review extraction</Button>}
                       <Button
                         size="xs"
                         variant="outline"
-                        disabled={!item.file}
+                        disabled={item.status === "processing"}
                         onClick={() => downloadFile(item)}
                       >
                         Download
@@ -274,7 +270,7 @@ export default function ProjectsPage() {
                         variant="outline"
                         size="xs"
                         onClick={() => handleOpenEdit(item)}
-                        disabled={item.status === "Processing"}
+                        disabled={item.status === "processing"}
                       >
                         Edit
                       </Button>
@@ -283,7 +279,7 @@ export default function ProjectsPage() {
                         colorPalette="red"
                         size="xs"
                         onClick={() => handleOpenDelete(item)}
-                        disabled={item.status === "Processing"}
+                        disabled={item.status === "processing"}
                       >
                         Remove
                       </Button>
@@ -297,7 +293,7 @@ export default function ProjectsPage() {
 
         {items.length === 0 && (
           <Text color="gray.600">
-            No documents yet. Add a document to try the local library.
+            No documents yet. Upload a PDF or Markdown document to get started.
           </Text>
         )}
         {/* MODALS */}
@@ -315,6 +311,11 @@ export default function ProjectsPage() {
             }}
           />
         )}
+        {replacementItem && <FileModal key={`replacement-${replacementItem.id}`} isOpen editData={replacementItem} replacementFor={replacementItem.id} onClose={() => setReplacementItem(null)} onSave={async ({ files }) => {
+          try { await stageReplacement(replacementItem.id, files[0]); }
+          finally { await refresh(); }
+          toaster.create({ title: "Replacement draft uploaded. Process and review it before publishing.", type: "success" });
+        }} />}
 
         {/* Delete Confirmation Modal */}
         <DeleteConfirmModal

@@ -1,5 +1,6 @@
 "use client";
 
+import { IMAGE_MAX_BYTES, IMAGE_CONTENT_TYPES } from "@/lib/config.mjs";
 import { useState } from "react";
 import {
   HStack,
@@ -14,12 +15,13 @@ import {
   FileUpload,
 } from "@chakra-ui/react";
 
-export default function EditorToolbar({ editor }) {
+export default function EditorToolbar({ editor, uploadImage }) {
   const [isYoutubeOpen, setIsYoutubeOpen] = useState(false);
   const [isImageOpen, setIsImageOpen] = useState(false);
 
   const [youtubeUrl, setYoutubeUrl] = useState("");
   const [mediaError, setMediaError] = useState("");
+  const [uploading, setUploading] = useState(false);
   const [selectedImageFile, setSelectedImageFile] = useState(null);
 
   if (!editor) {
@@ -53,40 +55,19 @@ export default function EditorToolbar({ editor }) {
     }
   };
 
-  const handleImageSubmit = (e) => {
+  const handleImageSubmit = async (e) => {
     e.preventDefault();
-
-    if (!selectedImageFile) {
-      return;
-    }
-
-    const reader = new FileReader();
-
-    reader.onload = () => {
-      const src = reader.result;
-
-      if (typeof src !== "string") {
-        return;
-      }
-
-      const success = editor
-        .chain()
-        .focus()
-        .setImage({
-          src,
-        })
-        .run();
-
-      if (!success) setMediaError("Could not insert this image.");
-      if (success) {
-        setMediaError("");
-        setSelectedImageFile(null);
-        setIsImageOpen(false);
-      }
-    };
-
-    reader.onerror = () => setMediaError("Could not read this image. Try another file.");
-    reader.readAsDataURL(selectedImageFile);
+    if (!selectedImageFile || uploading) return;
+    setUploading(true);
+    setMediaError("");
+    try {
+      if (selectedImageFile.size > IMAGE_MAX_BYTES) throw new Error("Image exceeds the upload size limit.");
+      const src = await uploadImage(selectedImageFile);
+      if (!editor.chain().focus().setImage({ src }).run()) throw new Error("Could not insert this image.");
+      setSelectedImageFile(null);
+      setIsImageOpen(false);
+    } catch (error) { setMediaError(error.message); }
+    finally { setUploading(false); }
   };
 
   const closeYoutubeDialog = () => {
@@ -341,7 +322,7 @@ export default function EditorToolbar({ editor }) {
                 justifyContent="space-between"
                 alignItems="center"
               >
-                <Dialog.Title>Insert Local Image</Dialog.Title>
+                <Dialog.Title>Upload Image</Dialog.Title>
 
                 <Button
                   type="button"
@@ -357,7 +338,8 @@ export default function EditorToolbar({ editor }) {
                 {mediaError && <Text role="alert" color="red.600" mb={3}>{mediaError}</Text>}
                 <Stack gap={4}>
                   <FileUpload.Root
-                    accept={["image/*"]}
+                    accept={IMAGE_CONTENT_TYPES}
+                    maxFileSize={IMAGE_MAX_BYTES}
                     maxFiles={1}
                     onFileChange={(details) => {
                       setSelectedImageFile(details.acceptedFiles[0] || null);
@@ -386,7 +368,7 @@ export default function EditorToolbar({ editor }) {
                   </FileUpload.Root>
 
                   <Text fontSize="xs" color="gray.500">
-                    Images are embedded in the local guide; nothing is uploaded.
+                    Images are stored persistently. Save the guide after inserting an image.
                   </Text>
                 </Stack>
               </Dialog.Body>
@@ -403,7 +385,8 @@ export default function EditorToolbar({ editor }) {
                 <Button
                   type="submit"
                   colorPalette="teal"
-                  disabled={!selectedImageFile}
+                  disabled={!selectedImageFile || uploading}
+                  loading={uploading}
                 >
                   Insert Image
                 </Button>

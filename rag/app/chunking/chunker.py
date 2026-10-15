@@ -1,12 +1,11 @@
 from __future__ import annotations
 from pathlib import Path
-from uuid import UUID
 import json
 from rag.app.models.document_tree import DocumentNode
 from rag.app.models.chunk import Chunk, ChunkMetadata
-from rag.app.chunking.table_formatter import format_table
+from rag.app.chunking.table_formatter import format_table, structured_table
 
-CHUNK_SIZE = 2000
+from rag.config.settings import CHUNK_SIZE, CHUNK_OVERLAP, EMBEDDING_MAX_TOKENS
 
 
 def split_text(
@@ -266,9 +265,15 @@ def create_chunk(
 ) -> Chunk:
     primary_node = get_metadata_source(source_nodes)
 
+    def node_ids(node):
+        values = [node.id]
+        for child in node.children:
+            values.extend(node_ids(child))
+        return values
+
     metadata = ChunkMetadata(
         document_name=document_name,
-        node_ids=[node.id for node in source_nodes],
+        node_ids=list(dict.fromkeys(identity for node in source_nodes for identity in node_ids(node))),
         parent_id=primary_node.parent_id,
         node_type=primary_node.doctype,
         section_path=section_path.copy(),
@@ -280,6 +285,7 @@ def create_chunk(
                 src for node in source_nodes for src in collect_image_sources(node)
             )
         ),
+        table_data=[structured_table(node) for node in source_nodes if node.doctype == "Table"] or None,
     )
 
     text = build_context_text(
@@ -291,6 +297,7 @@ def create_chunk(
     return Chunk(
         text=text,
         metadata=metadata,
+        source_content=content,
     )
 
 
@@ -317,6 +324,10 @@ def split_section_content(
         if not content.strip():
             continue
 
+        # Complete source tables must be classified before prose chunking.
+        if node.doctype == "Table":
+            raise ValueError('Table reached prose chunking; classify it as a source element first')
+
         content_length = len(content)
 
         # A single large node needs to be split.
@@ -333,10 +344,27 @@ def split_section_content(
                 current_nodes = []
                 current_length = 0
 
-            pieces = split_text(
-                content,
-                chunk_size,
-            )
+            # A numbered procedure remains intact or processing fails with
+            # an actionable message instead of indexing incomplete steps.
+            if node.doctype == "List":
+                if len(content) > EMBEDDING_MAX_TOKENS * 3:
+                    raise ValueError("Procedure exceeds embedding budget; split the source at a safe boundary")
+                groups.append((content, [node]))
+                continue
+            overlap = min(CHUNK_OVERLAP, chunk_size // 4)
+            pieces = split_text(content, chunk_size - overlap)
+            previous = ""
+            overlapping = []
+            for piece in pieces:
+                prefix_words = []
+                for word in reversed(previous.split()):
+                    if len(" ".join([word] + prefix_words)) > overlap:
+                        break
+                    prefix_words.insert(0, word)
+                prefix = " ".join(prefix_words)
+                overlapping.append(prefix + "\n" + piece if prefix else piece)
+                previous = piece
+            pieces = overlapping
 
             for piece in pieces:
                 groups.append(
@@ -399,6 +427,20 @@ def chunk_section(
         chunk_size=CHUNK_SIZE,
     )
 
+    # Repeat explicit precautions from the same section after a structural
+    # split. A warning remains source text, with its original node identity.
+    import re
+    warnings = [(text, node) for text, node in zip(content_parts, source_nodes)
+                if node.doctype in {"Paragraph", "List"} and re.search(r"\b(warning|caution|never|do not|before)\b|engine.*cold|park.*level", text, re.I)]
+    for i, (content, nodes) in enumerate(groups):
+        missing = [(text, node) for text, node in warnings if node not in nodes]
+        if missing:
+            content += "\n\nPrerequisites and warnings from this section:\n" + "\n\n".join(text for text, _ in missing)
+            nodes = nodes + [node for _, node in missing]
+            if len(content) > EMBEDDING_MAX_TOKENS * 3:
+                raise ValueError("Chunk and its source warnings exceed the embedding budget")
+            groups[i] = (content, nodes)
+
     return [
         create_chunk(
             document_name=document_name,
@@ -428,19 +470,16 @@ def chunk_non_section_content(
     if not content.strip():
         return []
 
-    pieces = split_text(
-        content,
-        CHUNK_SIZE,
-    )
+    groups = split_section_content([content], [node], CHUNK_SIZE)
 
     return [
         create_chunk(
             document_name=document_name,
             section_path=section_path,
             content=piece,
-            source_nodes=[node],
+            source_nodes=nodes,
         )
-        for piece in pieces
+        for piece, nodes in groups
     ]
 
 
@@ -524,7 +563,11 @@ def chunk_to_dict(
 ) -> dict:
     return {
         "text": chunk.text,
+        "retrieval_text": chunk.text,
+        "source_content": chunk.source_content,
         "metadata": {
+            "source_content": chunk.source_content,
+            "table_data": chunk.metadata.table_data,
             "document_name": (chunk.metadata.document_name),
             "node_ids": [str(node_id) for node_id in chunk.metadata.node_ids],
             "parent_id": (
@@ -553,7 +596,6 @@ def save_chunks(
     )
 
     json_path = output_dir / f"{document_name}.json"
-    text_path = output_dir / f"{document_name}.txt"
     json_data = [chunk_to_dict(chunk) for chunk in chunks]
 
     with json_path.open(
@@ -567,34 +609,5 @@ def save_chunks(
             ensure_ascii=False,
         )
 
-    with text_path.open(
-        "w",
-        encoding="utf-8",
-    ) as file:
-        for index, chunk in enumerate(
-            chunks,
-            start=1,
-        ):
-            file.write("=" * 70)
-            file.write("\n")
-            file.write(f"CHUNK {index:04d}\n")
-            file.write("=" * 70)
-            file.write("\n\n")
-
-            file.write("TEXT:\n")
-            file.write(chunk.text)
-            file.write("\n\n")
-
-            file.write("METADATA:\n")
-            file.write(
-                json.dumps(
-                    chunk_to_dict(chunk)["metadata"],
-                    indent=2,
-                    ensure_ascii=False,
-                )
-            )
-
-            file.write("\n\n")
 
     print(f"Chunk output saved: {json_path}")
-    print(f"Chunk inspection saved: {text_path}")

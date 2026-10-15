@@ -28,10 +28,22 @@ export default function ChatMessage({ message }) {
           </Text>
         )}
         {!isUser && message.response_type && (
-          <Text fontSize="xs" color="gray.600">
+          <Text role={["generation_error", "retrieval_error"].includes(message.response_type) ? "alert" : undefined} fontSize="xs" color={["generation_error", "retrieval_error"].includes(message.response_type) ? "red.700" : "gray.600"}>
             Response: {message.response_type.replaceAll("_", " ")}
           </Text>
         )}
+        {!isUser && message.route && <Text fontSize="xs" color="gray.600">Route: {message.route}</Text>}
+        {!isUser && <Box as="section" aria-label="Source references">
+          <Text fontSize="sm" fontWeight="semibold">Source references</Text>
+          {(Array.isArray(message.sources) ? message.sources : []).filter(Boolean).map((source, index) => (
+            <Box key={`${source.chunk_id || source.document_id || "source"}-${index}`} mt={2} pl={3} borderLeftWidth="2px">
+              <Text fontSize="sm" overflowWrap="anywhere">{source.label || `Source ${index + 1}`}: {source.document_title || source.document_id || "Document reference unavailable"}</Text>
+              {source.page != null && <Text fontSize="xs">Page: {source.page}</Text>}
+              {source.chunk_id && <Text fontSize="xs" overflowWrap="anywhere">Chunk: {source.chunk_id}</Text>}
+            </Box>
+          ))}
+          {!message.sources?.length && <Text fontSize="xs" color="gray.600">No source references returned for this answer.</Text>}
+        </Box>}
         {!isUser && message.external_warning && (
           <Box
             bg="orange.50"

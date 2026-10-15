@@ -166,7 +166,13 @@ class Row(Node):
 
 @dataclass
 class Cell(Node):
-    pass
+    rowspan: int = 1
+    colspan: int = 1
+
+    def to_dict(self) -> dict:
+        data = super().to_dict()
+        data.update(rowspan=self.rowspan, colspan=self.colspan)
+        return data
 
 
 @dataclass
