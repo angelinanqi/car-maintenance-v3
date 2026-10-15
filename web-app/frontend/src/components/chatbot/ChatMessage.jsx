@@ -1,5 +1,11 @@
 import { Box, Button, Stack, Text } from "@chakra-ui/react";
 
+const sourceTypes = {
+  learning_guide: "Learning guide",
+  emergency_protocol: "Reviewed emergency protocol",
+  manual: "Reference document",
+};
+
 // The RAG response uses timestamps in seconds and includes timestamped URLs.
 export default function ChatMessage({ message }) {
   const isUser = message.role === "user";
@@ -37,7 +43,9 @@ export default function ChatMessage({ message }) {
           <Text fontSize="sm" fontWeight="semibold">Source references</Text>
           {(Array.isArray(message.sources) ? message.sources : []).filter(Boolean).map((source, index) => (
             <Box key={`${source.chunk_id || source.document_id || "source"}-${index}`} mt={2} pl={3} borderLeftWidth="2px">
-              <Text fontSize="sm" overflowWrap="anywhere">{source.label || `Source ${index + 1}`}: {source.document_title || source.document_id || "Document reference unavailable"}</Text>
+              <Text fontSize="sm" overflowWrap="anywhere">{source.label || `Source ${index + 1}`}: {sourceTypes[source.source_type] || "Reference document"} — {source.title || source.document_title || source.document_id || "Reference unavailable"}</Text>
+              {source.reviewed_at && <Text fontSize="xs">Reviewed: {source.reviewed_at}</Text>}
+              {source.source_reference && <Text fontSize="xs" overflowWrap="anywhere">Source reference: {source.source_reference}</Text>}
               {source.page != null && <Text fontSize="xs">Page: {source.page}</Text>}
               {source.chunk_id && <Text fontSize="xs" overflowWrap="anywhere">Chunk: {source.chunk_id}</Text>}
             </Box>

@@ -7,6 +7,7 @@ from starlette.concurrency import run_in_threadpool
 from backend import db
 from backend.services import scopes
 from backend.services import rag_client
+from backend.services import vehicle_profiles
 from backend import settings
 
 # One process is the existing supported backend deployment. Concurrent turns
@@ -14,16 +15,8 @@ from backend import settings
 _active = set()
 
 
-def active_vehicle(user):
-    if user.get('role') == 'admin':
-        return None
-    from backend.routes.mobile import owned
-    current = db.get('app_users', user['id']).get('active_vehicle_id')
-    return owned('user_vehicles', user['id'], current) if current else None
-
-
 def enforce_vehicle(user, kind, scope_id, personal_id=None):
-    vehicle = active_vehicle(user)
+    vehicle = vehicle_profiles.active_vehicle(user)
     if user.get('role') != 'admin':
         if kind == 'vehicle' and (not vehicle or vehicle['catalogue_id'] != str(scope_id)):
             raise HTTPException(409, 'Select this registered vehicle as active before starting or continuing its chat.')
@@ -32,19 +25,24 @@ def enforce_vehicle(user, kind, scope_id, personal_id=None):
     return vehicle['id'] if vehicle else None
 
 
+def authorize_session(session_id, token, user):
+    try:
+        identity = str(UUID(str(session_id)))
+    except ValueError:
+        raise HTTPException(422, "Invalid chat session identifier.") from None
+    row = db.get('chat_sessions', identity)
+    if row.get('user_id') != user['id']:
+        raise HTTPException(403, 'This chat session belongs to another account or a retired anonymous session.')
+    digest = hashlib.sha256((token or '').encode()).hexdigest()
+    if not secrets.compare_digest(digest, row['token_hash']):
+        raise HTTPException(403, 'This chat session is not accessible.')
+    return row
+
+
 def load(request, user):
     token = request.session_token
     if request.session_id:
-        try:
-            UUID(request.session_id)
-        except ValueError:
-            raise HTTPException(422, "Invalid chat session identifier.") from None
-        row = db.get("chat_sessions", request.session_id)
-        if row.get('user_id') != user['id']:
-            raise HTTPException(403, 'This chat session belongs to another account or a retired anonymous session.')
-        digest = hashlib.sha256((token or "").encode()).hexdigest()
-        if not secrets.compare_digest(digest, row["token_hash"]):
-            raise HTTPException(403, "This chat session is not accessible.")
+        row = authorize_session(request.session_id, token, user)
         kind = "vehicle" if row.get("vehicle_id") else "category"
         identity = row[kind + "_id"]
         if (request.scope_type and request.scope_type != kind) or (request.scope_id and request.scope_id != identity):
@@ -70,9 +68,15 @@ def load(request, user):
                          "token_hash": hashlib.sha256(token.encode()).hexdigest()})
     enforce_vehicle(user, kind, identity, row.get('user_vehicle_id'))
     scope = scopes.resolve(kind, identity)
+    profile = vehicle_profiles.load(user)
+    personal_id = profile['vehicle_id'] if profile else None
+    if user.get('role') != 'admin' and personal_id != row.get('user_vehicle_id'):
+        raise HTTPException(409, 'The active vehicle changed. Start or restore its separate conversation.')
+    if profile and kind == 'vehicle' and profile['catalogue_id'] != str(identity):
+        raise HTTPException(409, 'The active vehicle does not match this knowledge scope.')
     # Client history is untrusted and may belong to another knowledge scope.
     messages = recent_messages(row["id"])
-    return row, token, scope, messages
+    return row, token, scope, messages, profile
 
 
 def recent_messages(session_id):
@@ -94,10 +98,10 @@ async def send(request, user):
     if identity:
         _active.add(identity)
     try:
-        row, token, scope, history = await run_in_threadpool(load, request, user)
+        row, token, scope, history, profile = await run_in_threadpool(load, request, user)
         identity = row["id"]
         _active.add(identity)
-        answer = await rag_client.query(request.message, history, scope)
+        answer = await rag_client.query(request.message, history, scope, vehicle_profile=profile)
         # Re-resolve before exposing an answer if an admin changed eligibility
         # during retrieval/generation. Do not persist the stale response.
         current = await run_in_threadpool(scopes.resolve, scope["scope_type"], scope["scope_id"])
@@ -110,6 +114,9 @@ async def send(request, user):
             final_scope = await run_in_threadpool(scopes.resolve, scope['scope_type'], scope['scope_id'])
             if final_scope != scope:
                 raise HTTPException(409, 'Knowledge associations changed while resolving sources. Retry your question.')
+        current_profile = await run_in_threadpool(vehicle_profiles.load, user)
+        if current_profile != profile:
+            raise HTTPException(409, 'Your active vehicle profile changed. Please retry your question.')
         if answer.get('response_type') not in {'generation_error', 'retrieval_error'}:
             await run_in_threadpool(save_turn, identity, request.message, answer["answer"])
         return {**answer, "session_id": identity, "session_token": token,

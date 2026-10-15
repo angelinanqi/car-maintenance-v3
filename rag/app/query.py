@@ -11,6 +11,7 @@ from rag.app.generation.provider import GenerationClient, FALLBACK_NOTICE
 from rag.app.generation.grounded import applicable, generate, INSUFFICIENT, CLARIFY
 from rag.app.safety import policy_risk, emergency_guidance, RESTRICTED_ANSWER
 from rag.app.youtube.retrieval import retrieve_youtube, timestamp_url
+from rag.app.retrieval.content import retrieve_content, retrieve_emergency, render_emergency, public_source
 
 NO_MANUAL = INSUFFICIENT
 MANUAL_UNAVAILABLE = "The manual search is temporarily unavailable. Please try again shortly."
@@ -129,11 +130,14 @@ def retrieve_manual(query_embedding, top_k, *, scope,
 
 
 
-async def handle_query(query, *, scope, history=None, top_k=settings.RAG_TOP_K):
+async def handle_query(query, *, scope, history=None, vehicle_profile=None, top_k=settings.RAG_TOP_K):
     if not query.strip() or top_k < 1:
         raise ValueError("Provide a nonempty query and positive top_k")
     if not scope.get("scope_id") or scope.get("scope_type") not in {"vehicle", "category"}:
         raise ValueError("Invalid knowledge scope")
+    if (vehicle_profile and scope['scope_type'] == 'vehicle'
+            and str(vehicle_profile['catalogue_id']) != str(scope['scope_id'])):
+        raise ValueError('The personal vehicle profile does not match the knowledge scope')
     history = recent_context(history)
     start = perf_counter()
     timings, routing, manual, youtube, generation = {}, {}, {}, {}, {}
@@ -150,15 +154,30 @@ async def handle_query(query, *, scope, history=None, top_k=settings.RAG_TOP_K):
         answer = "I support English-language car-maintenance questions within your selected knowledge scope."
     elif route == "emergency":
         answer = emergency_guidance(question)
+        eligible = retrieve_emergency(question, scope.get('content_sources', []))
+        if eligible:
+            answer += '\n\n' + render_emergency(eligible)
+            useful = True
+            generation.update(manual_relevant=False, content_relevant=True)
+            response_type = 'emergency_protocol'
     elif route == "restricted":
         answer = RESTRICTED_ANSWER
-    elif not scope["document_ids"]:
+    elif not (scope["document_ids"] or scope.get('content_sources') or vehicle_profile):
         answer, response_type = NO_MANUAL, "insufficient_information"
     else:
         retrieval_query = build_retrieval_query(query, history)
         routing["retrieval_query"] = retrieval_query
         started = perf_counter()
-        embedding = await asyncio.to_thread(prepare_retrieval, retrieval_query)
+        embedding = None
+        embedding_error = None
+        if scope['document_ids'] or scope.get('video_ids'):
+            try:
+                embedding = await asyncio.to_thread(prepare_retrieval, retrieval_query)
+            except Exception as error:
+                # Published content uses lexical retrieval and can still answer
+                # when the optional manual/video embedding service is unavailable.
+                embedding_error = error
+                logger.warning('Query embedding failed (%s)', type(error).__name__)
         timings["embedding"] = round((perf_counter() - started) * 1000, 1)
 
         def timed(name, function, *args, **kwargs):
@@ -168,11 +187,25 @@ async def handle_query(query, *, scope, history=None, top_k=settings.RAG_TOP_K):
             finally:
                 timings[name] = round((perf_counter() - started) * 1000, 1)
 
+        def search_manuals():
+            if not scope['document_ids']:
+                return []
+            if embedding_error is not None:
+                raise embedding_error
+            return retrieve_manual(embedding, max(top_k, settings.RAG_CANDIDATES),
+                                   scope=scope, query=retrieval_query, diagnostics=manual)
+
+        def search_videos():
+            if not scope.get('video_ids'):
+                return []
+            if embedding_error is not None:
+                raise embedding_error
+            return retrieve_youtube(retrieval_query, top_k, query_embedding=embedding,
+                                    video_ids=scope['video_ids'], diagnostics=youtube)
+
         records, candidates = await asyncio.gather(
-            asyncio.to_thread(timed, "manual_retrieval", retrieve_manual, embedding, max(top_k, settings.RAG_CANDIDATES),
-                              scope=scope, query=retrieval_query, diagnostics=manual),
-            asyncio.to_thread(timed, "youtube_retrieval", retrieve_youtube, retrieval_query, top_k,
-                              query_embedding=embedding, video_ids=scope.get("video_ids", []), diagnostics=youtube),
+            asyncio.to_thread(timed, "manual_retrieval", search_manuals),
+            asyncio.to_thread(timed, "youtube_retrieval", search_videos),
             return_exceptions=True)
         manual_failed, video_failed = isinstance(records, Exception), isinstance(candidates, Exception)
         if manual_failed:
@@ -185,17 +218,19 @@ async def handle_query(query, *, scope, history=None, top_k=settings.RAG_TOP_K):
         media = [r for r in eligible if r.metadata.get('content_type') in {'table', 'image'}]
         eligible = [r for r in eligible if r.metadata.get('content_type') == 'paragraph'][:top_k]
         attachments = resolve_attachments(media, eligible, question=question)
+        eligible += retrieve_content(retrieval_query, scope.get('content_sources', []), top_k)
         generation.update(excluded_sources=excluded, generation_llm_calls=0, evidence_llm_calls=0)
         from rag.app.youtube.selection import select_videos
         vehicle_code = (scope.get("vehicle") or {}).get("code")
         videos = await select_videos(question, candidates, vehicle_code, None, youtube)
         started = perf_counter()
         answer = NO_MANUAL + (" " + CLARIFY if excluded else "")
-        if eligible:
+        if eligible or vehicle_profile:
             generator = GenerationClient()
             try:
                 answer, useful = await asyncio.to_thread(generate, question, eligible, generator,
-                                                         scope=scope, risk=routing["risk"], diagnostics=generation)
+                                                         scope=scope, risk=routing["risk"],
+                                                         vehicle_profile=vehicle_profile, diagnostics=generation)
             except Exception as error:
                 answer = MODEL_UNAVAILABLE
                 generation.update(error_type=type(error).__name__, decision_reason="generation_error")
@@ -206,8 +241,8 @@ async def handle_query(query, *, scope, history=None, top_k=settings.RAG_TOP_K):
                     answer += "\n\n" + FALLBACK_NOTICE
         timings["generation"] = round((perf_counter() - started) * 1000, 1)
         if manual_failed:
-            answer = MANUAL_UNAVAILABLE
             attachments = []
+            answer = answer + '\n\n' + MANUAL_UNAVAILABLE if useful else MANUAL_UNAVAILABLE
         elif attachments:
             if not useful:
                 answer = 'Relevant source material is shown below. Check the original source, vehicle configuration, units, legends and notes before using table values or symbols.'
@@ -223,19 +258,25 @@ async def handle_query(query, *, scope, history=None, top_k=settings.RAG_TOP_K):
         if route == "rag_with_external_warning":
             answer += "\n\n" + EXTERNAL_WARNING
         response_type = ('source_attachments' if attachments and not useful else ("manual_and_video" if videos else "manual_only") if useful else ("video_only" if videos else "insufficient_information"))
+        if useful and generation.get('profile_relevant'):
+            response_type = 'profile_and_manual' if generation.get('manual_relevant') else 'profile_only'
+        if useful and generation.get('content_relevant'):
+            response_type = 'mixed_sources' if generation.get('manual_relevant') or generation.get('profile_relevant') else 'published_content'
         if generation.get("decision_reason") == "generation_error":
             response_type = "generation_error"
-        elif manual_failed and not videos:
+        elif manual_failed and not videos and not useful:
             response_type = "retrieval_error"
-    generation["manual_relevant"] = useful
+    manual_relevant = generation.get('manual_relevant', useful)
+    generation["manual_relevant"] = manual_relevant
     public_videos = [{"title": v["metadata"].get("video_title", v["metadata"]["video_id"]),
                       "url": timestamp_url(v["metadata"]["video_id"], v["metadata"].get("start_seconds")),
                       "timestamp": v["metadata"].get("start_seconds")} for v in videos]
     result = {"route": route, "answer": answer, "videos": public_videos, 'attachments': attachments,
-              "external_warning": route == "rag_with_external_warning", "manual_relevant": useful,
+              "external_warning": route == "rag_with_external_warning", "manual_relevant": manual_relevant,
               "response_type": response_type,
-              "sources": [{"label": f"S{i}", "chunk_id": r.chunk_id,
-                           "document_id": r.metadata.get("document_id", r.metadata.get("document_name"))}
+              "sources": [(public_source(r, f'S{i}') if r.metadata.get('source_type') in {'learning_guide', 'emergency_protocol'}
+                           else {"label": f"S{i}", "source_type": "manual", "chunk_id": r.chunk_id,
+                                 "document_id": r.metadata.get("document_id", r.metadata.get("document_name"))})
                           for i, r in enumerate(eligible, 1) if f"[S{i}]" in answer] if useful else []}
     timings["total"] = round((perf_counter() - start) * 1000, 1)
     logger.info("rag_query scope=%s type=%s provider=%s model=%s total_ms=%s",

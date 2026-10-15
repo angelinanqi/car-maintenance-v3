@@ -4,8 +4,33 @@ import '../app_state.dart';
 import '../data/chat_repository.dart';
 import '../data/api_client.dart';
 import '../models/chat_message.dart';
+import '../models/mechanic_preparation.dart';
+import 'mechanic_preparation.dart';
 import '../widgets/vehicle_selector.dart';
 import '../widgets/chat_attachment.dart';
+
+String sourceDescription(Map<String, dynamic> source) {
+  final kind = switch (source['source_type']) {
+    'learning_guide' => 'Learning guide',
+    'emergency_protocol' => 'Reviewed emergency protocol',
+    _ => 'Reference document',
+  };
+  final title =
+      source['title'] ??
+      source['document_title'] ??
+      source['document_id'] ??
+      'Reference';
+  final reference = source['source_reference'] as String?;
+  final details = <String>[
+    '${source['label'] ?? 'Source'}: $kind — $title',
+    if (source['reviewed_at'] != null) 'Reviewed: ${source['reviewed_at']}',
+    if (reference != null && reference.isNotEmpty)
+      'Source reference: $reference',
+    if (source['page'] != null) 'Page: ${source['page']}',
+    if (source['chunk_id'] != null) 'Reference: ${source['chunk_id']}',
+  ];
+  return details.join('\n');
+}
 
 class Chat extends StatefulWidget {
   final AppState state;
@@ -14,6 +39,7 @@ class Chat extends StatefulWidget {
   final String? topic;
   final String? prompt;
   final Map<String, dynamic>? contextData;
+  final VoidCallback? onEmergency;
   const Chat({
     super.key,
     required this.state,
@@ -22,6 +48,7 @@ class Chat extends StatefulWidget {
     this.topic,
     this.prompt,
     this.contextData,
+    this.onEmergency,
   });
   @override
   State<Chat> createState() => _ChatState();
@@ -180,6 +207,28 @@ class _ChatState extends State<Chat> {
     _topic = null;
     _sessionId = null;
     _sessionToken = null;
+  }
+
+  void _prepareForMechanic() {
+    final repository = widget.repository;
+    if (_pending || repository is! FastApiChatRepository) return;
+    final userMessages = _messages.where((message) => message.isUser).toList();
+    var initialQuestion = _text.text.trim();
+    if (initialQuestion.isEmpty && userMessages.isNotEmpty) {
+      initialQuestion = userMessages.last.text;
+    }
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => MechanicPreparationPage(
+          state: widget.state,
+          repository: repository,
+          initialQuestion: initialQuestion,
+          sessionId: _sessionId,
+          sessionToken: _sessionToken,
+        ),
+      ),
+    );
   }
 
   void _scrollDown() => WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -387,6 +436,25 @@ class _ChatState extends State<Chat> {
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     child: Text('Topic: $_topic'),
                   ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 4,
+                  ),
+                  child: Text(
+                    aiReferenceNotice,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+                if (widget.repository is FastApiChatRepository)
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      onPressed: _pending ? null : _prepareForMechanic,
+                      icon: const Icon(Icons.question_answer_outlined),
+                      label: const Text('Prepare questions for a mechanic'),
+                    ),
+                  ),
                 Expanded(
                   child: ListView(
                     controller: _scroll,
@@ -421,6 +489,13 @@ class _ChatState extends State<Chat> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 SelectableText(message.text),
+                                if (message.reply?.route == 'emergency' &&
+                                    widget.onEmergency != null)
+                                  FilledButton.icon(
+                                    onPressed: widget.onEmergency,
+                                    icon: const Icon(Icons.emergency_outlined),
+                                    label: const Text('Open emergency help'),
+                                  ),
                                 if (widget.repository is FastApiChatRepository)
                                   for (final attachment
                                       in message.reply?.attachments ??
@@ -458,9 +533,7 @@ class _ChatState extends State<Chat> {
                                 for (final source
                                     in message.reply?.sources ??
                                         <Map<String, dynamic>>[])
-                                  SelectableText(
-                                    '${source['label'] ?? 'Source'}: ${source['document_title'] ?? source['document_id'] ?? 'Reference'}${source['page'] == null ? '' : ', page ${source['page']}'}${source['chunk_id'] == null ? '' : '\nReference: ${source['chunk_id']}'}',
-                                  ),
+                                  SelectableText(sourceDescription(source)),
                                 for (final video
                                     in message.reply?.videos ??
                                         <Map<String, dynamic>>[])

@@ -7,8 +7,29 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from backend import settings
 from backend.models import SourceAttachmentReference
+from backend.models import MechanicQuestionDraft
+from backend.mechanic_questions import general_questions
 
 logger = logging.getLogger(__name__)
+
+
+async def mechanic_questions(question, user_questions, vehicle_profile):
+    if settings.RAG_SERVICE_URL and settings.RAG_SERVICE_TOKEN:
+        try:
+            # A general checklist remains available if tailored preparation is slow.
+            async with httpx.AsyncClient(timeout=min(settings.RAG_SERVICE_TIMEOUT, 45), follow_redirects=False) as client:
+                response = await client.post(settings.RAG_SERVICE_URL + '/v1/mechanic-questions',
+                    headers={'Authorization': 'Bearer ' + settings.RAG_SERVICE_TOKEN},
+                    json={'question': question, 'user_questions': user_questions, 'vehicle_profile': vehicle_profile})
+                response.raise_for_status()
+                data = response.json()
+                draft = MechanicQuestionDraft.model_validate(data['draft'])
+                if not isinstance(data.get('tailored'), bool):
+                    raise ValueError('Invalid preparation result')
+                return draft, data['tailored']
+        except (httpx.HTTPError, ValidationError, ValueError, KeyError, TypeError) as error:
+            logger.warning('Question preparation unavailable (%s)', type(error).__name__)
+    return general_questions(question), False
 
 
 class ChatAnswer(BaseModel):
@@ -24,20 +45,38 @@ class ChatAnswer(BaseModel):
     response_type: str = "manual_only"
 
 
-async def query(message, history, scope):
+async def query(message, history, scope, *, vehicle_profile=None):
     if not settings.RAG_SERVICE_URL or not settings.RAG_SERVICE_TOKEN:
         raise HTTPException(503, "The RAG service connection is not configured. Set RAG_SERVICE_URL and RAG_SERVICE_TOKEN on the backend to use the existing pipeline.")
     try:
         async with httpx.AsyncClient(timeout=settings.RAG_SERVICE_TIMEOUT, follow_redirects=False) as client:
             response = await client.post(settings.RAG_SERVICE_URL + "/v1/chat",
                 headers={"Authorization": "Bearer " + settings.RAG_SERVICE_TOKEN},
-                json={"message": message, "history": history, "scope": scope})
+                json={"message": message, "history": history, "scope": scope,
+                      "vehicle_profile": vehicle_profile})
             response.raise_for_status()
             answer = ChatAnswer.model_validate(response.json()).model_dump(mode='json')
             metadata = scope.get('document_metadata', {})
             by_id = {str(v.get('document_id', key)): v for key, v in metadata.items()}
             by_id.update(metadata)
-            for source in answer['sources'] + answer['attachments']:
+            content = {(s['source_type'], s['source_id']): s for s in scope.get('content_sources', [])}
+            for source in answer['sources']:
+                kind = source.get('source_type', 'manual')
+                if kind == 'manual':
+                    document = by_id.get(str(source.get('document_id')))
+                    if document is None:
+                        raise ValueError('The RAG service returned a source outside the resolved scope')
+                    source['document_title'] = document['document_title']
+                else:
+                    current = content.get((kind, source.get('source_id')))
+                    if current is None or source.get('revision') != current['revision']:
+                        raise ValueError('The RAG service returned unpublished or stale content')
+                    label = source.get('label')
+                    source.clear()
+                    source.update(label=label, source_type=kind, source_id=current['source_id'],
+                                  revision=current['revision'], title=current['title'],
+                                  source_reference=current.get('source_reference', ''), reviewed_at=current.get('reviewed_at'))
+            for source in answer['attachments']:
                 document = by_id.get(str(source.get('document_id')))
                 if document is None:
                     raise ValueError('The RAG service returned a source outside the resolved scope')

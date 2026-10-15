@@ -13,7 +13,7 @@ from typing import Literal
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from rag.config import settings
-from backend.models import SourceAttachmentReference
+from backend.models import PersonalVehicleProfile, SourceAttachmentReference, MechanicQuestionDraft
 
 app = FastAPI()
 logger = logging.getLogger(__name__)
@@ -29,6 +29,7 @@ class Request(BaseModel):
     message: str = Field(min_length=1, max_length=settings.CHAT_MAX_MESSAGE_LENGTH)
     history: list[Message] = Field(default_factory=list, max_length=settings.CHAT_HISTORY_LIMIT)
     scope: dict
+    vehicle_profile: PersonalVehicleProfile | None = None
 
 
 class Answer(BaseModel):
@@ -40,6 +41,26 @@ class Answer(BaseModel):
     external_warning: bool = False
     manual_relevant: bool = False
     response_type: str = 'manual_only'
+
+
+class MechanicQuestionsRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
+    question: str = Field(min_length=1, max_length=4000)
+    user_questions: list[str] = Field(default_factory=list, max_length=settings.CHAT_HISTORY_LIMIT)
+    vehicle_profile: PersonalVehicleProfile | None = None
+
+
+class MechanicQuestionsAnswer(BaseModel):
+    draft: MechanicQuestionDraft
+    tailored: bool
+
+
+def verify_service_credentials(authorization):
+    token = os.getenv('RAG_SERVICE_TOKEN', '')
+    if len(token.encode()) < 32:
+        raise HTTPException(503, 'Configure RAG_SERVICE_TOKEN with at least 32 bytes.')
+    if not secrets.compare_digest(authorization.encode(), ('Bearer ' + token).encode()):
+        raise HTTPException(401, 'Invalid service credentials.')
 
 
 def verify_revisions(scope):
@@ -72,22 +93,28 @@ def verify_revisions(scope):
 
 @app.post('/v1/chat', response_model=Answer)
 async def chat(request: Request, authorization: str = Header(default='')):
-    token = os.getenv('RAG_SERVICE_TOKEN', '')
-    if len(token.encode()) < 32:
-        raise HTTPException(503, 'Configure RAG_SERVICE_TOKEN with at least 32 bytes.')
-    if not secrets.compare_digest(authorization.encode(), ('Bearer ' + token).encode()):
-        raise HTTPException(401, 'Invalid service credentials.')
+    verify_service_credentials(authorization)
     if (request.scope.get('scope_type') not in {'vehicle', 'category'}
-            or not request.scope.get('scope_id') or not request.scope.get('document_ids')):
+            or not request.scope.get('scope_id')
+            or not (request.scope.get('document_ids') or request.scope.get('content_sources'))):
         raise HTTPException(422, 'A resolved knowledge scope is required.')
     try:
         await asyncio.to_thread(verify_revisions, request.scope)
         from rag.app.query import handle_query
         return Answer.model_validate(await handle_query(request.message,
-            history=[message.model_dump() for message in request.history], scope=request.scope))
+            history=[message.model_dump() for message in request.history], scope=request.scope,
+            vehicle_profile=request.vehicle_profile.model_dump(mode='json') if request.vehicle_profile else None))
     except Exception:
         logger.exception('Existing RAG pipeline request failed')
         raise HTTPException(503, 'The AI service is temporarily unavailable.') from None
+
+
+@app.post('/v1/mechanic-questions', response_model=MechanicQuestionsAnswer)
+async def mechanic_questions(request: MechanicQuestionsRequest, authorization: str = Header(default='')):
+    verify_service_credentials(authorization)
+    from rag.app.generation.mechanic_questions import prepare_questions
+    return await asyncio.to_thread(prepare_questions, request.question, request.user_questions,
+        request.vehicle_profile.model_dump(mode='json') if request.vehicle_profile else None)
 
 
 if __name__ == '__main__':
