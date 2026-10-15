@@ -1,4 +1,5 @@
 import '../models/chat_message.dart';
+import '../models/mechanic_preparation.dart';
 import 'api_client.dart';
 import 'account_repository.dart';
 
@@ -16,13 +17,44 @@ class FastApiChatRepository implements ChatRepository {
     this.account,
     this.timeout = const Duration(minutes: 4),
   });
+
+  Future<MechanicPreparation> prepareQuestions({
+    required String question,
+    String? vehicleId,
+    String? sessionId,
+    String? sessionToken,
+  }) async {
+    final data = await api.post(
+      '/chat/mechanic-questions',
+      {
+        'question': question,
+        'vehicle_id': vehicleId,
+        if (sessionId != null) 'session_id': sessionId,
+        if (sessionToken != null) 'session_token': sessionToken,
+      },
+      token: account?.token,
+      requestTimeout: const Duration(seconds: 55),
+    );
+    try {
+      return MechanicPreparation.fromJson(data);
+    } on FormatException {
+      throw const ApiException(
+        'The question list could not be read. Please retry.',
+      );
+    } on TypeError {
+      throw const ApiException(
+        'The question list could not be read. Please retry.',
+      );
+    }
+  }
+
   @override
   Future<ChatReply> send(ChatRequest request) async {
     try {
       final reply = ChatReply.fromJson(
         await api.post(
           '/chat',
-          request.toJson(historyLimit: api.historyLimit),
+          request.toJson(),
           requestTimeout: timeout,
           token: account?.token,
         ),
@@ -35,6 +67,10 @@ class FastApiChatRepository implements ChatRepository {
       }
       return reply;
     } on FormatException {
+      throw const ApiException(
+        'Chat response does not match the agreed contract.',
+      );
+    } on TypeError {
       throw const ApiException(
         'Chat response does not match the agreed contract.',
       );

@@ -1,6 +1,5 @@
 from rag.config.settings import MALAY_CONFIDENCE_THRESHOLD
 import re
-from pathlib import Path
 from rag.app.cleaning.language_detector import LanguageDetector
 
 
@@ -22,12 +21,6 @@ class MarkdownCleaner:
         malay_threshold: float = MALAY_CONFIDENCE_THRESHOLD,
     ) -> None:
         self.language_detector = LanguageDetector(malay_threshold=malay_threshold)
-
-    def clean_file(self, input_path: Path, output_path: Path):
-        """Clean extracted Markdown for indexing."""
-        cleaned = self.clean(input_path.read_text(encoding="utf-8"))
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(cleaned, encoding="utf-8")
 
     def clean(
         self,

@@ -30,7 +30,9 @@ class ChatRequest {
     this.sessionToken,
   });
 
-  Map<String, dynamic> toJson({int historyLimit = 6}) => {
+  Map<String, dynamic> toJson() => {
+    // The backend loads the current personal profile from the authenticated
+    // account's active vehicle on every turn. Do not send cached profile data.
     // Existing FastAPI forbids unknown fields. Context is bounded, labelled
     // text in the existing message field, not a provider-specific parameter.
     'message': backendMessage,
@@ -39,12 +41,8 @@ class ChatRequest {
     if (sessionId != null) 'session_id': sessionId,
     if (sessionToken != null) 'session_token': sessionToken,
     'car_model': vehicle?.effectiveScope ?? 'general',
-    'conversation': history
-        .skip(history.length > historyLimit ? history.length - historyLimit : 0)
-        .map(
-          (m) => {'role': m.isUser ? 'user' : 'assistant', 'content': m.text},
-        )
-        .toList(),
+    // History is loaded by the backend from this session. Sending old answers
+    // can exceed the request's per-message limit after a long source excerpt.
   };
 
   String get backendMessage => context == null

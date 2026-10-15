@@ -4,6 +4,23 @@ The RAG service answers scoped questions using indexed documents and optional
 YouTube transcripts. The indexing worker downloads backend extractions, chunks
 the Markdown, creates embeddings, and stores them in Chroma.
 
+The backend also loads the authenticated user's active personal vehicle profile
+for each chat request and passes it as `vehicle_profile` to the private service.
+It reaches answer preparation as the current personal context, with `[P1]` for
+profile facts. It is not embedded or stored in the shared Chroma collections.
+See [the backend profile flow](../backend/README.md#personal-vehicle-context-in-chat)
+for the included fields and database requirements.
+
+Published learning guides and reviewed emergency protocols arrive in the
+server-resolved scope's `content_sources` snapshot. They are ranked using BM25
+over their current text, so no additional persisted index or synchronization
+worker is required. Content-only scopes skip manual/video embedding work when
+neither source is assigned. Answers retain the distinction between educational
+guides, reviewed protocols, applicable manuals, and personal profile facts.
+Immediate emergency responses append the matching reviewed protocol's complete
+warnings and ordered steps without invoking a model. See the
+[publication rules](../backend/README.md#published-guides-and-reviewed-emergency-protocols).
+
 ## Setup
 
 From the repository root, using Python 3.12:

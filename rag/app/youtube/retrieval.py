@@ -51,7 +51,6 @@ def retrieve_youtube(
     database_path=None,
     *,
     query_embedding=None,
-    best_only=False,
     diagnostics=None,
     video_ids=None,
 ):
@@ -110,15 +109,6 @@ def retrieve_youtube(
     if not distances or not distances[0]:
         return []
 
-    if best_only:
-        # Expand a tied boundary so top_k cannot silently discard tied videos.
-        while limit < count and distances[0][-1] == min(distances[0]):
-            limit = min(limit * 2, count)
-            response = store.search(embedding, top_k=limit, **({"video_ids": video_ids} if video_ids is not None else {}))
-            distances = (response or {}).get("distances") or []
-            if not distances or not distances[0]:
-                return []
-
     distance_row = distances[0]
 
     if distance_row is None:
@@ -141,27 +131,6 @@ def retrieve_youtube(
         for i, chunk_id in enumerate(ids[0])
     ]
 
-    if best_only:
-        hnsw_configuration = store.collection.configuration.get("hnsw") or {}
-        metric = hnsw_configuration.get("space", "l2")
-        selected = select_best_videos(results, metric)
-        reason = "Highest-similarity candidates; instructional usefulness has not been assessed."
-
-        if diagnostics is not None:
-            scored = [
-                dict(r, score=distance_to_similarity(r["distance"], metric))
-                for r in results
-            ]
-
-            diagnostics.update(
-                raw_chunks=scored,
-                grouped_videos=group_by_video(scored),
-                selected_videos=selected,
-                relevant=False,
-                reason=reason,
-            )
-        return selected
-
     if diagnostics is not None:
         metric = diagnostics["metric"]
         scored = [dict(r, score=distance_to_similarity(r["distance"], metric)) for r in results]
@@ -176,29 +145,3 @@ def distance_to_similarity(distance, metric):
     if metric in {"cosine", "ip"}:
         return 1 - distance
     raise ValueError(f"Unsupported video distance metric: {metric}")
-
-
-def select_best_videos(results, metric="l2", threshold=None):
-    # keep every best scoring video that passes the cosine similarity cutoff
-    from rag.config.settings import VIDEO_RELEVANCE_THRESHOLD
-
-    if threshold is None:
-        threshold = VIDEO_RELEVANCE_THRESHOLD
-
-    if metric not in {"l2", "cosine", "ip"}:
-        raise ValueError(f"Unsupported video distance metric: {metric}")
-
-    grouped = group_by_video(results)
-
-    if not grouped:
-        return []
-
-    best_distance = grouped[0]["distance"]
-    score = distance_to_similarity(best_distance, metric)
-    if score < threshold:
-        return []
-    return [
-        dict(result, score=score)
-        for result in grouped
-        if result["distance"] == best_distance
-    ]

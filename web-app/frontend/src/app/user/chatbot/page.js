@@ -217,8 +217,12 @@ export default function ChatbotPage() {
       {configuration?.rag_configured === false && <Text role="status" mb={4} color="orange.700">
         This backend has no RAG service connection configured. Test requests use the real backend and report its response. Check RAG_SERVICE_URL and RAG_SERVICE_TOKEN on the backend.
       </Text>}
+      <Text fontSize="xs" color="gray.600" mb={3}>
+        AI guidance is for learning and reference and may be incomplete or incorrect.
+        Confirm repairs and specifications with a qualified mechanic.
+      </Text>
       <Button mb={4} variant="outline" onClick={() => refresh({ documentsOnly: true })}>Refresh scopes and processing status</Button>
-      {!loading && !chatOption.some((item) => !item.disabled) && <Text role="status" mb={4}>No supported scope is currently available. Process and publish an associated document and its vehicle or category scope, then refresh.</Text>}
+      {!loading && !chatOption.some((item) => !item.disabled) && <Text role="status" mb={4}>No supported scope is currently available. Publish a vehicle or category scope and add a published reference document, learning guide, or reviewed emergency protocol, then refresh.</Text>}
 
       {!session ? (
         <Box
@@ -238,7 +242,8 @@ export default function ChatbotPage() {
             <Heading size="lg">Try a conversation</Heading>
             <Text color="gray.600" fontSize="sm">
               Choose a published vehicle or category. The chatbot searches only
-              documents and supplementary videos assigned to that scope.
+              assigned reference documents and videos, published learning guides,
+              and reviewed emergency protocols available in that scope.
             </Text>
             {optionSelector}
             <Button

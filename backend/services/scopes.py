@@ -1,6 +1,7 @@
 """Resolve published knowledge through database associations on every request."""
 from fastapi import HTTPException
 from backend import db
+from backend.services import content_sources
 
 
 def resolve(scope_type, scope_id, *, require_available=True):
@@ -9,6 +10,8 @@ def resolve(scope_type, scope_id, *, require_available=True):
     table = "knowledge_vehicles" if scope_type == "vehicle" else "guide_categories"
     scope = db.get(table, scope_id)
     published = scope.get("published" if scope_type == "vehicle" else "knowledge_published", False)
+    if scope_type == 'category' and not scope.get('published', False):
+        published = False
     if require_available and not published:
         raise HTTPException(409, "This knowledge scope is not published.")
     field = scope_type + "_id"
@@ -18,8 +21,9 @@ def resolve(scope_type, scope_id, *, require_available=True):
     documents = db.all_rows("documents", id=ids, status="processed") if ids else []
     documents = [d for d in documents if d.get("published", False) and d.get("chunk_count", 0) > 0 and d.get("indexed_revision")
                  and d["indexed_revision"] == d.get("source_revision")]
-    if require_available and not documents:
-        raise HTTPException(409, "This scope has no usable indexed documents. Select another scope.")
+    content = content_sources.load(scope_type, scope_id)
+    if require_available and not documents and not content:
+        raise HTTPException(409, "This scope has no published reference content. Select another scope.")
     associations = db.all_rows("document_vehicles", document_id=[d["id"] for d in documents]) if documents else []
     vehicles = {v["id"]: v for v in db.all_rows("knowledge_vehicles")}
     metadata = {}
@@ -40,6 +44,7 @@ def resolve(scope_type, scope_id, *, require_available=True):
     return {"scope_type": scope_type, "scope_id": str(scope_id), "label": scope["name"],
             "vehicle": scope if scope_type == "vehicle" else None,
             "document_ids": list(metadata), "document_metadata": metadata,
+            "content_sources": content,
             "video_ids": [v["video_id"] for v in videos], "published": published,
             "vehicle_codes": [v["code"] for v in vehicles.values()]}
 
@@ -52,6 +57,7 @@ def catalog(*, admin=False):
             if admin or scope["published"]:
                 result.append({"scope_type": kind, "scope_id": row["id"], "label": row["name"],
                                "code": row.get("code"), "published": scope["published"],
-                               "available": scope["published"] and bool(scope["document_ids"]),
-                               "document_count": len(scope["document_ids"])})
+                               "available": scope["published"] and bool(scope["document_ids"] or scope['content_sources']),
+                               "document_count": len(scope["document_ids"]),
+                               "content_count": len(scope['content_sources'])})
     return result

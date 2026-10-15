@@ -1,3 +1,3 @@
-from .search import Searcher, RetrievalResult
+from .search import RetrievalResult, build_results
 
-__all__ = ["Searcher", "RetrievalResult"]
+__all__ = ["RetrievalResult", "build_results"]

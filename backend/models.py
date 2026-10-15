@@ -13,6 +13,46 @@ class InputModel(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
 
+class MechanicQuestion(InputModel):
+    question: str = Field(min_length=1, max_length=300)
+    reason: str = Field(min_length=1, max_length=300)
+
+
+class MechanicQuestionDraft(InputModel):
+    concern_summary: str = Field(min_length=1, max_length=600)
+    questions: list[MechanicQuestion] = Field(min_length=3, max_length=5)
+
+
+class MechanicPreparationRequest(InputModel):
+    question: str = Field(min_length=1, max_length=4000)
+    vehicle_id: str | None = Field(default=None, max_length=200)
+    session_id: UUID | None = None
+    session_token: str | None = Field(default=None, max_length=128)
+
+
+class MechanicPreparation(MechanicQuestionDraft):
+    vehicle_summary: str
+    details_to_note: list[str]
+    tailored: bool = False
+
+
+class PersonalVehicleProfile(InputModel):
+    """Private, database-loaded context; never accepted from a mobile client."""
+    vehicle_id: str = Field(min_length=1, max_length=200)
+    catalogue_id: UUID
+    name: str = Field(max_length=200)
+    plate_number: str = Field(max_length=40)
+    mileage_km: int = Field(ge=0, le=2147483647)
+    catalogue_name: str
+    manufacturer: str | None = None
+    model: str | None = None
+    year: str
+    engine: str
+    variant: str
+    powertrain: Literal['petrol', 'diesel']
+    updated_at: datetime
+
+
 class SourceAttachmentReference(BaseModel):
     """Private RAG descriptors; display content is resolved by the backend."""
     model_config = ConfigDict(extra='forbid')

@@ -2,11 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../data/nearby_repository.dart';
+import '../widgets/workshop_notes.dart';
 
 class NearbyAssistance extends StatefulWidget {
   final NearbyRepository repository;
   final NearbyLocation? location;
-  const NearbyAssistance({super.key, required this.repository, this.location});
+  final String? consultationNotes;
+  const NearbyAssistance({
+    super.key,
+    required this.repository,
+    this.location,
+    this.consultationNotes,
+  });
 
   @override
   State<NearbyAssistance> createState() => _NearbyAssistanceState();
@@ -167,6 +174,8 @@ class _NearbyAssistanceState extends State<NearbyAssistance> {
     body: ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        if (widget.consultationNotes?.isNotEmpty == true)
+          WorkshopNotes(notes: widget.consultationNotes!),
         const Text(
           'Find a workshop to call',
           style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),

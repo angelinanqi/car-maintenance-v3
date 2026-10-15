@@ -4,7 +4,7 @@ from functools import lru_cache
 import re
 from threading import Lock
 
-from rag.app.retrieval.search import RetrievalResult, Searcher
+from rag.app.retrieval.search import RetrievalResult, build_results
 from rag.config import settings
 
 # Keep technical identifiers such as O/D, K3-VE, P0300, 1.3 and units intact.
@@ -116,7 +116,7 @@ def search(store, query, embedding, document_ids, *, top_k=5, mode=None,
     limit = min(max(top_k, settings.RAG_CANDIDATES), len(records))
     dense = []
     if mode != "lexical":
-        dense = Searcher._build_results(store.search(embedding, top_k=limit,
+        dense = build_results(store.search(embedding, top_k=limit,
                                                       document_ids=document_ids, content_type=content_type))
     lexical = lexical_search(query, records, limit) if mode != "dense" else []
     weights = adaptive_weights(query) if mode == "adaptive" else (1.0, 1.0)

@@ -15,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field
 
 from backend.settings import CORS_ORIGINS
+from backend.models import MechanicPreparationRequest, MechanicPreparation
 
 @asynccontextmanager
 async def lifespan(app):
@@ -106,6 +107,12 @@ async def chat(request: ChatRequest, user=Depends(mobile.require_user)):
             status_code=503,
             detail="The chatbot is temporarily unavailable. Please try again shortly.",
         ) from None
+
+
+@app.post('/chat/mechanic-questions', response_model=MechanicPreparation)
+async def prepare_mechanic_questions(request: MechanicPreparationRequest, user=Depends(mobile.require_user)):
+    from backend.services.mechanic_preparation import prepare
+    return await prepare(request, user)
 
 
 @app.get("/config")
