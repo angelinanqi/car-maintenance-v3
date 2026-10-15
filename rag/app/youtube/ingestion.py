@@ -1,3 +1,4 @@
+from rag.config.settings import EMBEDDING_MAX_TOKENS
 import json
 from hashlib import sha256
 from .chunking import chunk_transcript, build_metadata_record
@@ -6,7 +7,7 @@ from .transcripts import fetch_transcript, save_json
 from .retrieval import create_embedder, replace_video
 
 # save and reuse YouTube data locally to avoid repeating work
-# python -m rag.scripts.run_youtube_ingestion --rebuild
+# python -m rag.app.youtube.pipeline --rebuild
 
 
 def ingest_videos(videos, output_dir, store, rebuild=False):
@@ -105,7 +106,7 @@ def ingest_videos(videos, output_dir, store, rebuild=False):
                         video,
                         raw,
                         embedder.model.tokenizer,
-                        max_tokens=min(8192, embedder.model.max_seq_length or 8192),
+                        max_tokens=min(EMBEDDING_MAX_TOKENS, embedder.model.max_seq_length or EMBEDDING_MAX_TOKENS),
                     )
 
                 else:

@@ -1,6 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { DOCUMENT_EXTENSIONS, DOCUMENT_MAX_FILES, DOCUMENT_MAX_BYTES } from "@/lib/config.mjs";
+import { useEffect, useState } from "react";
+import { validateDocumentFile } from "@/lib/documentFiles.mjs";
+import { request } from "@/api/client.mjs";
 import {
   Dialog,
   Button,
@@ -8,35 +11,41 @@ import {
   Input,
   Field,
   HStack,
-  Tag,
   FileUpload,
   Text,
 } from "@chakra-ui/react";
 
-export default function FileModal({ isOpen, onClose, editData = null }) {
-  const [fileName, setFileName] = useState("");
+export default function FileModal({
+  isOpen,
+  onClose,
+  onSave,
+  editData = null,
+  tags = [],
+  replacementFor = null,
+}) {
+  const [fileName, setFileName] = useState(editData?.name || "");
   const [tagInput, setTagInput] = useState("");
+  const [files, setFiles] = useState(editData?.file ? [editData.file] : []);
+  const [carModel, setCarModel] = useState(editData?.carModel || "general");
+  const [documentType, setDocumentType] = useState(editData?.document_type || "other_reference");
+  const [vehicles, setVehicles] = useState([]);
+  const [scopesLoaded, setScopesLoaded] = useState(false);
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
 
   // Preset tags available to click and choose from
   const [availableTags, setAvailableTags] = useState([
-    "Manuals",
-    "Others",
+    ...new Set(["Manuals", "Other", ...tags, ...(editData?.tags || [])]),
   ]);
-  // Active selected tags
-  const [selectedTags, setSelectedTags] = useState(["Manuals"]);
-
+  const [selectedTags, setSelectedTags] = useState(editData?.tags || []);
   const isEditMode = Boolean(editData);
-
-  // Populate data when editing, or reset when opening fresh
   useEffect(() => {
-    if (editData) {
-      setFileName(editData.name || "");
-      setSelectedTags(editData.category ? [editData.category] : [""]);
-    } else {
-      setFileName("");
-      setSelectedTags([""]);
-    }
-  }, [editData, isOpen]);
+    let active = true;
+    request("/knowledge/manage").then((result) => {
+      if (active) { setVehicles(result.vehicles); setScopesLoaded(true); }
+    }).catch((failure) => { if (active) setError(failure.message); });
+    return () => { active = false; };
+  }, []);
 
   // Click handler to toggle tag selection ON/OFF
   const handleToggleTag = (tag) => {
@@ -49,9 +58,13 @@ export default function FileModal({ isOpen, onClose, editData = null }) {
 
   // Add a brand new tag on pressing 'Enter' inside input
   const handleAddCustomTag = (e) => {
-    if (e.key === "Enter" && tagInput.trim()) {
+    if (e.key === "Enter") {
       e.preventDefault();
-      const newTag = tagInput.trim();
+      if (!tagInput.trim()) return;
+      const newTag =
+        availableTags.find(
+          (tag) => tag.toLowerCase() === tagInput.trim().toLowerCase(),
+        ) || tagInput.trim();
 
       // Add to available tags if not present
       if (!availableTags.includes(newTag)) {
@@ -66,30 +79,38 @@ export default function FileModal({ isOpen, onClose, editData = null }) {
   };
 
   // Submit handler
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
+    if (saving) return;
 
-    const payload = {
-      fileName,
-      tags: selectedTags,
-    };
-
-    if (isEditMode) {
-      // BACKEND UPDATE API CALL HERE
-      console.log("Saving Edits for ID:", editData.id, payload);
-    } else {
-      // BACKEND UPLOAD API CALL HERE
-      console.log("Uploading New File:", payload);
+    if (
+      ((isEditMode || files.length === 1) && !fileName.trim()) ||
+      ((!isEditMode || replacementFor) && files.length === 0)
+    ) {
+      setError("Enter a name and choose a file before adding the document.");
+      return;
     }
-
-    onClose();
+    const fileError = files.map(validateDocumentFile).find(Boolean);
+    if (fileError) {
+      setError(fileError);
+      return;
+    }
+    setSaving(true);
+    try {
+      await onSave({ name: fileName.trim(), tags: selectedTags, carModel, documentType, files });
+      onClose();
+    } catch (error) {
+      if (error.uploadedFiles?.length) setFiles((previous) => previous.filter((file) => !error.uploadedFiles.includes(file)));
+      setError(error.uploadedFiles?.length ? `${error.uploadedFiles.length} file(s) uploaded. Remaining files: ${error.message}` : error.message);
+    }
+    finally { setSaving(false); }
   };
 
   return (
-    <Dialog.Root open={isOpen} onOpenChange={(e) => !e.open && onClose()}>
+    <Dialog.Root open={isOpen} onOpenChange={(e) => !e.open && !saving && onClose()}>
       <Dialog.Backdrop />
       <Dialog.Positioner>
-        <Dialog.Content>
+        <Dialog.Content maxH="85vh" overflowY="auto">
           <form onSubmit={handleSubmit}>
             {/* HEADER */}
             <Dialog.Header
@@ -98,12 +119,14 @@ export default function FileModal({ isOpen, onClose, editData = null }) {
               alignItems="center"
             >
               <Dialog.Title>
-                {isEditMode ? "Edit Document" : "Upload New File"}
+                {replacementFor ? "Stage Replacement" : isEditMode ? "Edit Document" : "Upload Documents"}
               </Dialog.Title>
               <Button
+                type="button"
                 variant="ghost"
                 size="xs"
                 onClick={onClose}
+                disabled={saving}
                 aria-label="Close"
               >
                 ✕
@@ -113,43 +136,121 @@ export default function FileModal({ isOpen, onClose, editData = null }) {
             {/* BODY */}
             <Dialog.Body>
               <Stack gap={4}>
-                {/* 1. File Upload Component (Upload Mode Only) */}
-                {!isEditMode && (
-                  <Field.Root required>
-                    <Field.Label>Attachment</Field.Label>
-                    <FileUpload.Root maxFiles={1}>
-                      <FileUpload.Dropzone
-                        w="100%"
-                        p={6}
-                        border="2px dashed"
-                        borderColor="gray.200"
-                        borderRadius="md"
-                        textAlign="center"
-                        cursor="pointer"
-                      >
-                        <FileUpload.DropzoneContent>
-                          <FileUpload.Label>
-                            Drag and drop files here, or click to browse
-                          </FileUpload.Label>
-                        </FileUpload.DropzoneContent>
-                      </FileUpload.Dropzone>
-                      <FileUpload.HiddenInput />
-                    </FileUpload.Root>
-                  </Field.Root>
+                <Text fontSize="sm" color="gray.600">
+                  {replacementFor ? "Upload a new draft revision. The current document stays available until you process, review and publish the replacement. Its metadata and scope assignments are copied." : "Sources are stored securely. Uploading does not start processing; use Process in the document list."}
+                </Text>
+                {error && (
+                  <Text role="alert" color="red.600">
+                    {error}
+                  </Text>
                 )}
-
-                {/* 2. File Name Input */}
-                <Field.Root required>
-                  <Field.Label>File Name</Field.Label>
-                  <Input
-                    placeholder="e.g. Mercedes Car Manual"
-                    value={fileName}
-                    onChange={(e) => setFileName(e.target.value)}
-                  />
+                {/* Local attachments; edit supports replacement. */}
+                <Field.Root>
+                  <Field.Label>
+                    {isEditMode
+                      ? "Attachment (replace to reprocess)"
+                      : "Attachments"}
+                  </Field.Label>
+                  <FileUpload.Root
+                    disabled={Boolean(editData?.published && !replacementFor)}
+                    accept={DOCUMENT_EXTENSIONS}
+                    maxFileSize={DOCUMENT_MAX_BYTES}
+                    maxFiles={isEditMode ? 1 : DOCUMENT_MAX_FILES}
+                    acceptedFiles={files}
+                    onFileReject={() =>
+                      setError(
+                        `Choose ${DOCUMENT_EXTENSIONS.join(" or ")} files (up to ${DOCUMENT_MAX_FILES}; one when editing), at most ${DOCUMENT_MAX_BYTES} bytes each. Remove the current attachment before replacing it.`,
+                      )
+                    }
+                    onFileChange={(details) => {
+                      const selected = details.acceptedFiles[0] || null;
+                      setFiles(details.acceptedFiles);
+                      setError("");
+                      if (selected && !fileName.trim())
+                        setFileName(selected.name);
+                    }}
+                  >
+                    <FileUpload.Dropzone
+                      w="100%"
+                      p={6}
+                      border="2px dashed"
+                      borderColor="gray.200"
+                      borderRadius="md"
+                      textAlign="center"
+                      cursor="pointer"
+                    >
+                      <FileUpload.DropzoneContent>
+                        <FileUpload.Label>
+                          Drag and drop files here, or click to browse
+                        </FileUpload.Label>
+                      </FileUpload.DropzoneContent>
+                    </FileUpload.Dropzone>
+                    <FileUpload.HiddenInput />
+                    <FileUpload.ItemGroup>
+                      {files.map((file, index) => (
+                        <FileUpload.Item
+                          key={`${file.name}-${index}`}
+                          file={file}
+                        >
+                          <FileUpload.ItemName />
+                          <FileUpload.ItemSizeText />
+                          <FileUpload.ItemDeleteTrigger />
+                        </FileUpload.Item>
+                      ))}
+                    </FileUpload.ItemGroup>
+                  </FileUpload.Root>
                 </Field.Root>
 
+                {/* 2. File Name Input */}
+                {!replacementFor && (isEditMode || files.length <= 1) && (
+                  <Field.Root required>
+                    <Field.Label>File Name</Field.Label>
+                    <Input
+                      placeholder="e.g. Mercedes Car Manual"
+                      value={fileName}
+                      onChange={(e) => setFileName(e.target.value)}
+                    />
+                  </Field.Root>
+                )}
+                {files.length > 1 && (
+                  <Text fontSize="sm">
+                    Each file keeps its filename. Tags and vehicle apply to all
+                    selected files.
+                  </Text>
+                )}
+                {!replacementFor && <Field.Root>
+                  <Field.Label>Mobile manual catalogue</Field.Label>
+                  <select
+                    aria-label="Document vehicle"
+                    value={carModel}
+                    onChange={(event) => setCarModel(event.target.value)}
+                    style={{
+                      padding: 8,
+                      border: "1px solid #E2E8F0",
+                      width: "100%",
+                    }}
+                  >
+                    <option value="general">General reference</option>
+                    {!vehicles.some((v) => v.code === carModel) && carModel !== "general" && <option value={carModel}>{carModel} (legacy label)</option>}
+                    {vehicles.map((vehicle) => (
+                      <option key={vehicle.id} value={vehicle.code}>{vehicle.name}</option>
+                    ))}
+                  </select>
+                  <Text fontSize="xs" color="gray.600">
+                    This label filters the mobile manual catalogue. Use Knowledge scopes to assign this document to any vehicle or category for chat.
+                  </Text>
+                </Field.Root>}
+
+                {!replacementFor && <Field.Root>
+                  <Field.Label>Document type</Field.Label>
+                  <select aria-label="Document type" value={documentType} onChange={(event) => setDocumentType(event.target.value)}>
+                    <option value="owners_manual">Owner&apos;s manual</option><option value="maintenance_booklet">Maintenance booklet</option><option value="service_manual">Service manual</option><option value="other_reference">Other reference</option>
+                  </select>
+                </Field.Root>}
+
                 {/* 3. Clickable Tag Selection Section */}
-                <Field.Root>
+                {!replacementFor && <Text fontSize="sm">Publication is a separate action in the document list after confirmed indexing. Published files require Stage replacement to retain the current version.</Text>}
+                {!replacementFor && <Field.Root>
                   <Field.Label>Select Tags</Field.Label>
 
                   {/* Clickable Tag Badges */}
@@ -157,23 +258,26 @@ export default function FileModal({ isOpen, onClose, editData = null }) {
                     {availableTags.map((tag) => {
                       const isSelected = selectedTags.includes(tag);
                       return (
-                        <Tag.Root
+                        <Button
+                          type="button"
+                          aria-pressed={isSelected}
                           key={tag}
-                          size="lg"
+                          size="sm"
                           variant={isSelected ? "solid" : "outline"}
                           colorPalette={isSelected ? "blue" : "gray"}
                           cursor="pointer"
                           onClick={() => handleToggleTag(tag)}
                           userSelect="none"
                         >
-                          <Tag.Label>{tag}</Tag.Label>
-                        </Tag.Root>
+                          {tag}
+                        </Button>
                       );
                     })}
                   </HStack>
 
                   {/* Input to create a custom tag */}
                   <Input
+                    aria-label="New tag"
                     placeholder="Type custom tag & press Enter to add"
                     value={tagInput}
                     onChange={(e) => setTagInput(e.target.value)}
@@ -184,17 +288,17 @@ export default function FileModal({ isOpen, onClose, editData = null }) {
                     Selected:{" "}
                     {selectedTags.length > 0 ? selectedTags.join(", ") : "None"}
                   </Text>
-                </Field.Root>
+                </Field.Root>}
               </Stack>
             </Dialog.Body>
 
             {/* FOOTER */}
             <Dialog.Footer>
-              <Button variant="outline" onClick={onClose}>
+              <Button type="button" variant="outline" onClick={onClose} disabled={saving}>
                 Cancel
               </Button>
-              <Button type="submit" colorPalette="blue">
-                {isEditMode ? "Save Changes" : "Upload File"}
+              <Button type="submit" colorPalette="blue" loading={saving} disabled={!scopesLoaded}>
+                {replacementFor ? "Upload replacement draft" : isEditMode ? "Save Changes" : "Add Documents"}
               </Button>
             </Dialog.Footer>
           </form>

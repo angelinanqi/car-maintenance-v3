@@ -20,6 +20,9 @@ downloads/
 eggs/
 .eggs/
 lib/
+!car_app/lib/
+!car_app/lib/**
+!web-app/frontend/src/lib/
 lib64/
 parts/
 sdist/
@@ -154,8 +157,11 @@ activemq-data/
 
 # Environments
 .env
+.env.*
+!.env.example
 .envrc
 .venv
+.venv-api/
 env/
 venv/
 ENV/
@@ -221,3 +227,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local verification runtime
+.tools/
+.venv-ocr/
+development_verification/postgres-data/
+development_verification/live-runtime/

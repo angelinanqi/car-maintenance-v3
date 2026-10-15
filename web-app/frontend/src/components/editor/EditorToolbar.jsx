@@ -1,5 +1,6 @@
 "use client";
 
+import { IMAGE_MAX_BYTES, IMAGE_CONTENT_TYPES } from "@/lib/config.mjs";
 import { useState } from "react";
 import {
   HStack,
@@ -14,11 +15,13 @@ import {
   FileUpload,
 } from "@chakra-ui/react";
 
-export default function EditorToolbar({ editor }) {
+export default function EditorToolbar({ editor, uploadImage }) {
   const [isYoutubeOpen, setIsYoutubeOpen] = useState(false);
   const [isImageOpen, setIsImageOpen] = useState(false);
 
   const [youtubeUrl, setYoutubeUrl] = useState("");
+  const [mediaError, setMediaError] = useState("");
+  const [uploading, setUploading] = useState(false);
   const [selectedImageFile, setSelectedImageFile] = useState(null);
 
   if (!editor) {
@@ -44,43 +47,27 @@ export default function EditorToolbar({ editor }) {
       })
       .run();
 
+    if (!success) setMediaError("Enter a valid YouTube video URL.");
     if (success) {
+      setMediaError("");
       setYoutubeUrl("");
       setIsYoutubeOpen(false);
     }
   };
 
-  const handleImageSubmit = (e) => {
+  const handleImageSubmit = async (e) => {
     e.preventDefault();
-
-    if (!selectedImageFile) {
-      return;
-    }
-
-    const reader = new FileReader();
-
-    reader.onload = () => {
-      const src = reader.result;
-
-      if (typeof src !== "string") {
-        return;
-      }
-
-      const success = editor
-        .chain()
-        .focus()
-        .setImage({
-          src,
-        })
-        .run();
-
-      if (success) {
-        setSelectedImageFile(null);
-        setIsImageOpen(false);
-      }
-    };
-
-    reader.readAsDataURL(selectedImageFile);
+    if (!selectedImageFile || uploading) return;
+    setUploading(true);
+    setMediaError("");
+    try {
+      if (selectedImageFile.size > IMAGE_MAX_BYTES) throw new Error("Image exceeds the upload size limit.");
+      const src = await uploadImage(selectedImageFile);
+      if (!editor.chain().focus().setImage({ src }).run()) throw new Error("Could not insert this image.");
+      setSelectedImageFile(null);
+      setIsImageOpen(false);
+    } catch (error) { setMediaError(error.message); }
+    finally { setUploading(false); }
   };
 
   const closeYoutubeDialog = () => {
@@ -223,9 +210,9 @@ export default function EditorToolbar({ editor }) {
             size="xs"
             variant="outline"
             colorPalette="teal"
-            onClick={() => setIsImageOpen(true)}
+            onClick={() => { setMediaError(""); setIsImageOpen(true); }}
           >
-            📷 Upload Image
+            📷 Insert Image
           </Button>
 
           <Button
@@ -233,7 +220,7 @@ export default function EditorToolbar({ editor }) {
             size="xs"
             variant="outline"
             colorPalette="red"
-            onClick={() => setIsYoutubeOpen(true)}
+            onClick={() => { setMediaError(""); setIsYoutubeOpen(true); }}
           >
             ▶ Add YouTube
           </Button>
@@ -244,7 +231,7 @@ export default function EditorToolbar({ editor }) {
       {/* YouTube Dialog                    */}
       {/* ================================= */}
 
-      <Dialog.Root
+      <Dialog.Root lazyMount unmountOnExit
         open={isYoutubeOpen}
         onOpenChange={(e) => {
           setIsYoutubeOpen(e.open);
@@ -277,6 +264,7 @@ export default function EditorToolbar({ editor }) {
               </Dialog.Header>
 
               <Dialog.Body>
+                {mediaError && <Text role="alert" color="red.600" mb={3}>{mediaError}</Text>}
                 <Field.Root required>
                   <Field.Label>YouTube Link</Field.Label>
 
@@ -314,7 +302,7 @@ export default function EditorToolbar({ editor }) {
       {/* Image Dialog (Pure Chakra)        */}
       {/* ================================= */}
 
-      <Dialog.Root
+      <Dialog.Root lazyMount unmountOnExit
         open={isImageOpen}
         onOpenChange={(e) => {
           setIsImageOpen(e.open);
@@ -334,7 +322,7 @@ export default function EditorToolbar({ editor }) {
                 justifyContent="space-between"
                 alignItems="center"
               >
-                <Dialog.Title>Upload Photo</Dialog.Title>
+                <Dialog.Title>Upload Image</Dialog.Title>
 
                 <Button
                   type="button"
@@ -347,9 +335,11 @@ export default function EditorToolbar({ editor }) {
               </Dialog.Header>
 
               <Dialog.Body>
+                {mediaError && <Text role="alert" color="red.600" mb={3}>{mediaError}</Text>}
                 <Stack gap={4}>
                   <FileUpload.Root
-                    accept={["image/*"]}
+                    accept={IMAGE_CONTENT_TYPES}
+                    maxFileSize={IMAGE_MAX_BYTES}
                     maxFiles={1}
                     onFileChange={(details) => {
                       setSelectedImageFile(details.acceptedFiles[0] || null);
@@ -378,8 +368,7 @@ export default function EditorToolbar({ editor }) {
                   </FileUpload.Root>
 
                   <Text fontSize="xs" color="gray.500">
-                    Tip: You can also copy any image to your clipboard and paste
-                    it directly into the editor body with Ctrl+V / Cmd+V!
+                    Images are stored persistently. Save the guide after inserting an image.
                   </Text>
                 </Stack>
               </Dialog.Body>
@@ -396,9 +385,10 @@ export default function EditorToolbar({ editor }) {
                 <Button
                   type="submit"
                   colorPalette="teal"
-                  disabled={!selectedImageFile}
+                  disabled={!selectedImageFile || uploading}
+                  loading={uploading}
                 >
-                  Upload & Insert
+                  Insert Image
                 </Button>
               </Dialog.Footer>
             </form>

@@ -1,49 +1,76 @@
-import NextLink from 'next/link';
-import { VStack, Box, Text, Button, Separator } from '@chakra-ui/react';
+﻿"use client";
+
+import NextLink from "next/link";
+import { usePathname } from "next/navigation";
+import { useState } from "react";
+import { useSession } from "./SessionProvider";
+import { Stack, Box, Text, Button } from "@chakra-ui/react";
 
 export default function NavBar() {
-    const navItems = [
-        { label: 'Home', href: '/user/home' },
-        { label: 'Knowledge Base', href: '/user/kb' },
-        { label: 'Learn Cards', href: '/user/learn-cards' },
-        { label: 'Emergency', href: '/user/emergency' },
-    ];
+  const pathname = usePathname();
+  const session = useSession();
+  const [error, setError] = useState("");
+  const navItems = [
+    { label: "Home", href: "/user/home" },
+    { label: "Vehicles", href: "/user/vehicles" },
+    { label: "Maintenance Items", href: "/user/maintenance-items" },
+    { label: "Schedules", href: "/user/schedules" },
+    { label: "Documents", href: "/user/kb" },
+    { label: "Chatbot Testing", href: "/user/chatbot" },
+    { label: "Learn Cards", href: "/user/learn-cards" },
+    { label: "Emergency", href: "/user/emergency" },
+  ];
 
-    return (
-        <Box
-            as="nav"
-            w="240px"
-            h="100vh"
-            p={4}
-            borderRight="1px solid"
-            borderColor="gray.200"
-        >
-            <VStack align="stretch" gap={4}>
-                <Box px={2} py={2}>
-                    <Text fontSize="xl" fontWeight="bold" letterSpacing="tight">
-                        Car App
-                    </Text>
-                </Box>
-
-                <Separator />
-
-                <VStack align="stretch" gap={1}>
-                    {navItems.map((item) => (
-                        <Button
-                            key={item.label}
-                            asChild
-                            variant="ghost"
-                            justifyContent="flex-start"
-                            w="100%"
-                            fontWeight="normal"
-                        >
-                            <NextLink href={item.href}>
-                                {item.label}
-                            </NextLink>
-                        </Button>
-                    ))}
-                </VStack>
-            </VStack>
-        </Box>
-    );
+  return (
+    <Box
+      as="nav"
+      aria-label="Main navigation"
+      w={{ base: "100%", md: "240px" }}
+      h={{ base: "auto", md: "100vh" }}
+      position={{ md: "sticky" }}
+      top={0}
+      p={4}
+      bg="white"
+      display="flex"
+      flexDirection="column"
+      borderRightWidth={{ md: "1px" }}
+      borderBottomWidth={{ base: "1px", md: "0" }}
+      borderColor="gray.200"
+    >
+      <Text fontSize="xl" fontWeight="bold" px={2} mb={4}>
+        Car App
+      </Text>
+      <Stack direction={{ base: "row", md: "column" }} gap={1} overflowX="auto">
+        {navItems.map((item) => {
+          const active =
+            pathname === item.href || pathname.startsWith(item.href + "/");
+          return (
+            <Button
+              key={item.href}
+              asChild
+              variant={active ? "subtle" : "ghost"}
+              colorPalette={active ? "blue" : "gray"}
+              justifyContent="flex-start"
+              flexShrink={0}
+            >
+              <NextLink
+                href={item.href}
+                aria-current={active ? "page" : undefined}
+              >
+                {item.label}
+              </NextLink>
+            </Button>
+          );
+        })}
+      </Stack>
+      <Box mt={{ base: 5, md: "auto" }} pt={4} borderTopWidth="1px" borderColor="gray.200">
+        <Text fontSize="sm" fontWeight="semibold" px={2}>Account</Text>
+        <Text fontSize="xs" color="gray.600" px={2} mt={1} mb={3}>
+          {session.user?.email}
+        </Text>
+        {error && <Text role="alert" color="red.600" fontSize="sm">{error}</Text>}
+        <Button variant="outline" onClick={async () => { try { await session.logout(); } catch (cause) { setError(cause.message); } }}>Sign out</Button>
+      </Box>
+    </Box>
+  );
 }

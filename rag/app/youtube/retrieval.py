@@ -1,4 +1,6 @@
+from rag.config.settings import RAG_TOP_K
 from .config import COLLECTION_NAME
+from rag.config.settings import VIDEO_RELEVANCE_THRESHOLD, YOUTUBE_WATCH_URL
 
 
 def open_store(database_path, *, create=True):
@@ -32,7 +34,7 @@ def replace_video(store, video_id, chunks, embedder):
 
 
 def timestamp_url(video_id, start_seconds):
-    url = f"https://www.youtube.com/watch?v={video_id}"
+    url = f"{YOUTUBE_WATCH_URL}?v={video_id}"
     return url if start_seconds is None else f"{url}&t={max(0, int(start_seconds))}s"
 
 
@@ -45,25 +47,42 @@ def group_by_video(results):
 
 def retrieve_youtube(
     query,
-    top_k=5,
+    top_k=RAG_TOP_K,
     database_path=None,
     *,
     query_embedding=None,
     best_only=False,
     diagnostics=None,
+    video_ids=None,
 ):
     from rag.app.embedding.vector_store import CHROMA_PATH
+
+    if video_ids is not None and not video_ids:
+        if diagnostics is not None:
+            diagnostics.update(raw_chunks=[], relevant=False, reason="No videos assigned to this knowledge scope.")
+        return []
 
     if not query.strip() or top_k < 1:
         raise ValueError("Provide a nonempty query and positive top_k.")
 
-    store = open_store(database_path or CHROMA_PATH, create=False)
+    from chromadb.errors import NotFoundError
+
+    try:
+        store = open_store(database_path or CHROMA_PATH, create=False)
+    except (FileNotFoundError, NotFoundError):
+        # Videos are optional; a manual-only installation can still answer.
+        if diagnostics is not None:
+            diagnostics.update(
+                indexed_chunks=0, raw_chunks=[], grouped_videos=[],
+                selected_videos=[], threshold=VIDEO_RELEVANCE_THRESHOLD,
+                metric=None, relevant=False, reason="No YouTube index prepared.",
+            )
+        return []
     count = store.collection.count()
 
     if diagnostics is not None:
-        from rag.config.settings import VIDEO_RELEVANCE_THRESHOLD
-
         diagnostics.update(
+            collection=store.collection.name,
             indexed_chunks=count,
             raw_chunks=[],
             grouped_videos=[],
@@ -85,7 +104,7 @@ def retrieve_youtube(
         embedding = create_embedder().embed_query(query)
 
     limit = min(top_k, count)
-    response = store.search(embedding, top_k=limit)
+    response = store.search(embedding, top_k=limit, **({"video_ids": video_ids} if video_ids is not None else {}))
     distances = (response or {}).get("distances") or []
 
     if not distances or not distances[0]:
@@ -95,7 +114,7 @@ def retrieve_youtube(
         # Expand a tied boundary so top_k cannot silently discard tied videos.
         while limit < count and distances[0][-1] == min(distances[0]):
             limit = min(limit * 2, count)
-            response = store.search(embedding, top_k=limit)
+            response = store.search(embedding, top_k=limit, **({"video_ids": video_ids} if video_ids is not None else {}))
             distances = (response or {}).get("distances") or []
             if not distances or not distances[0]:
                 return []
@@ -126,6 +145,7 @@ def retrieve_youtube(
         hnsw_configuration = store.collection.configuration.get("hnsw") or {}
         metric = hnsw_configuration.get("space", "l2")
         selected = select_best_videos(results, metric)
+        reason = "Highest-similarity candidates; instructional usefulness has not been assessed."
 
         if diagnostics is not None:
             scored = [
@@ -137,19 +157,16 @@ def retrieve_youtube(
                 raw_chunks=scored,
                 grouped_videos=group_by_video(scored),
                 selected_videos=selected,
-                relevant=bool(selected),
-                reason=(
-                    "Best video(s) passed the threshold."
-                    if selected
-                    else (
-                        "Best video score is below the threshold."
-                        if results
-                        else "No candidate chunks returned."
-                    )
-                ),
+                relevant=False,
+                reason=reason,
             )
         return selected
 
+    if diagnostics is not None:
+        metric = diagnostics["metric"]
+        scored = [dict(r, score=distance_to_similarity(r["distance"], metric)) for r in results]
+        diagnostics.update(raw_chunks=scored, grouped_videos=group_by_video(scored),
+                           reason="Candidates retrieved; instructional relevance not yet assessed.")
     return results
 
 

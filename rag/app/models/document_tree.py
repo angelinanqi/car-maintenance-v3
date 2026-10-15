@@ -21,6 +21,8 @@ class DocumentNode:
     alt: str | None = None
     caption: str | None = None
     ordered: bool | None = None
+    rowspan: int = 1
+    colspan: int = 1
     children: list[DocumentNode] = field(default_factory=list)
 
     @classmethod
@@ -37,7 +39,7 @@ class DocumentNode:
             metadata = item["metadata"]
             if not metadata.get("id"):
                 raise ValueError(
-                    "Tree has no persisted node IDs. Run rag.scripts.run_normalize first."
+                    "Tree has no persisted node IDs. Reprocess the document through the indexing worker."
                 )
             node_id = UUID(str(metadata["id"]))
             if node_id in seen:
@@ -73,6 +75,8 @@ class DocumentNode:
                 alt=item.get("alt_text", item.get("alt")),
                 caption=item.get("caption"),
                 ordered=item.get("ordered"),
+                rowspan=item.get("rowspan", 1),
+                colspan=item.get("colspan", 1),
             )
             node.children = [load(child, node_id, document_name) for child in children]
             return node

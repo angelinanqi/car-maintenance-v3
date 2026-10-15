@@ -1,3 +1,4 @@
+from rag.config.settings import YOUTUBE_TRANSCRIPT_LANGUAGES
 import json
 from youtube_transcript_api import YouTubeTranscriptApi
 
@@ -14,7 +15,7 @@ def save_json(path, data):
 def fetch_transcript(video_id):
 
     available = list(YouTubeTranscriptApi().list(video_id))
-    for language in ("ms", "en"):
+    for language in YOUTUBE_TRANSCRIPT_LANGUAGES:
         for generated in (False, True):
             for transcript in available:
                 if (
@@ -28,4 +29,4 @@ def fetch_transcript(video_id):
                         "is_generated": generated,
                         "snippets": fetched.to_raw_data(),
                     }
-    raise ValueError("No Malay or English transcript available (translation disabled).")
+    raise ValueError("No transcript in YOUTUBE_TRANSCRIPT_LANGUAGES available (translation disabled).")

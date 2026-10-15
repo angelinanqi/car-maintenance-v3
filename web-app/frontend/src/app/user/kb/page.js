@@ -1,148 +1,330 @@
-'use client';
+"use client";
+import KnowledgeScopes from "@/components/KnowledgeScopes";
 
-import { useState } from 'react';
+import { useState } from "react";
+import { useContent } from "@/components/ContentProvider";
+import { toaster } from "@/components/ui/toaster";
+import { downloadDocumentUrl, downloadExtractionUrl, originalDocumentUrl, publishDocument, unpublishDocument, stageReplacement } from "@/api/documents.mjs";
 import {
-    Flex,
-    Heading,
-    Text,
-    Button,
-    Table,
-    Badge,
-    Group,
-    Stack,
-    Box,
-} from '@chakra-ui/react';
+  Flex,
+  Heading,
+  Text,
+  Button,
+  Table,
+  Badge,
+  Group,
+  Stack,
+  Box,
+  Checkbox,
+  Input,
+} from "@chakra-ui/react";
 
 // Relative Imports
-import AdminLayout from '../../../components/layouts/AdminLayout';
-import FileModal from '../../../components/modals/FileModal';
-import DeleteConfirmModal from '../../../components/modals/DeleteConfirmModal';
+import AdminLayout from "../../../components/layouts/AdminLayout";
+import FileModal from "../../../components/modals/FileModal";
+import DeleteConfirmModal from "../../../components/modals/DeleteConfirmModal";
 
 export default function ProjectsPage() {
-    // Modal States
-    const [isUploadOpen, setIsUploadOpen] = useState(false);
-    const [editItem, setEditItem] = useState(null);       // Controls Edit Modal
-    const [deleteItem, setDeleteItem] = useState(null);   // Controls Delete Modal
+  // Modal States
+  const [isUploadOpen, setIsUploadOpen] = useState(false);
+  const [editItem, setEditItem] = useState(null); // Controls Edit Modal
+  const [deleteItem, setDeleteItem] = useState(null); // Controls Delete Modal
+  const [replacementItem, setReplacementItem] = useState(null);
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [publishingId, setPublishingId] = useState(null);
 
-    // Sample Dataset
-    const [items, setItems] = useState([
-        { id: 1, name: 'Myvi Car Manual', category: 'Manuals', status: 'Active', date: '2026-08-15' },
-        { id: 2, name: 'Perodua Bezza Warranty Booklet', category: 'Manuals', status: 'Pending', date: '2026-08-20' },
-        { id: 3, name: 'Emergency SOPs Proton Saga', category: 'Other', status: 'Active', date: '2026-08-28' },
-    ]);
+  const {
+    documents: items,
+    saveDocument, deleteDocument, refresh,
+    processDocuments,
+  } = useContent();
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [processingRequest, setProcessingRequest] = useState(false);
+  const visible = items.filter((item) => `${item.name} ${item.tags.join(" ")}`.toLowerCase().includes(query.toLowerCase()) && (!statusFilter || item.status === statusFilter));
+  const selectable = visible.filter((item) => item.status !== "processing" && !item.published);
+  const selected = selectable.filter((item) => selectedIds.includes(item.id));
 
-    // Open Edit Modal with selected row data
-    const handleOpenEdit = (item) => {
-        setEditItem(item);
-    };
+  async function handleProcess(ids, force = false) {
+    if (processingRequest) return;
+    setProcessingRequest(true);
+    try {
+      const results = await processDocuments(ids, force);
+      const failed = results.filter((item) => item.error);
+      toaster.create({ title: failed.length ? failed.map((item) => item.error).join("; ") : "Processing requested. Status updates automatically.", type: failed.length ? "error" : "success" });
+    } catch (error) { toaster.create({ title: error.message, type: "error" }); }
+    finally { setProcessingRequest(false); }
+  }
 
-    // Open Delete Confirmation Modal
-    const handleOpenDelete = (item) => {
-        setDeleteItem(item);
-    };
+  function downloadFile(item) {
+    window.open(downloadDocumentUrl(item.id), "_blank", "noopener,noreferrer");
+  }
 
-    // Execute Delete
-    const handleConfirmDelete = () => {
-        if (deleteItem) {
-            // BACKEND DELETE CALL HERE
-            setItems((prev) => prev.filter((i) => i.id !== deleteItem.id));
-            setDeleteItem(null);
-        }
-    };
+  async function handleSave(data) {
+    await saveDocument(editItem, data);
+    toaster.create({ title: editItem ? "Document updated" : "Documents uploaded", type: "success" });
+  }
+  async function changePublication(item) {
+    if (publishingId) return;
+    if (!window.confirm(item.published ? "Unpublish this document? It will no longer be retrieved or publicly downloadable." : "Confirm that the original and processed document have been reviewed and are ready to publish? Publishing a replacement retires the previous document.")) return;
+    setPublishingId(item.id);
+    try {
+      await (item.published ? unpublishDocument(item.id) : publishDocument(item.id));
+      await refresh();
+      toaster.create({ title: item.published ? "Document unpublished" : "Document published", type: "success" });
+    } catch (error) { toaster.create({ title: error.message, type: "error" }); }
+    finally { setPublishingId(null); }
+  }
 
-    return (
-        <AdminLayout title="Knowledge Base" description="Manage your project documents and records.">
-            <Stack gap={6}>
+  // Open Edit Modal with selected row data
+  const handleOpenEdit = (item) => {
+    setEditItem(item);
+  };
 
-                {/* HEADER ROW */}
-                <Flex justify="space-between" align="center" wrap="wrap" gap={4}>
-                    <Box>
-                        <Heading size="md">All Documents</Heading>
-                        <Text fontSize="sm" color="gray.500">
-                            Showing {items.length} records
-                        </Text>
-                    </Box>
+  // Open Delete Confirmation Modal
+  const handleOpenDelete = (item) => {
+    setDeleteItem(item);
+  };
 
-                    {/* Upload Trigger */}
-                    <Button colorPalette="blue" onClick={() => setIsUploadOpen(true)}>
-                        Upload File
-                    </Button>
-                </Flex>
+  // Execute Delete
+  const handleConfirmDelete = async () => {
+    if (!deleteItem) return;
+    try {
+      await deleteDocument(deleteItem.id);
+      setSelectedIds((previous) => previous.filter((id) => id !== deleteItem.id));
+      setDeleteItem(null);
+      toaster.create({ title: "Document and stored files removed; excluded from chat", type: "success" });
+    } catch (error) { toaster.create({ title: error.message, type: "error" }); }
+  };
 
-                {/* TABLE VIEW */}
-                <Table.ScrollArea border="1px solid" borderColor="gray.200" borderRadius="md">
-                    <Table.Root size="sm" variant="outline">
-                        <Table.Header>
-                            <Table.Row bg="gray.50">
-                                <Table.ColumnHeader>Name</Table.ColumnHeader>
-                                <Table.ColumnHeader>Category</Table.ColumnHeader>
-                                <Table.ColumnHeader>Status</Table.ColumnHeader>
-                                <Table.ColumnHeader>Date Added</Table.ColumnHeader>
-                                <Table.ColumnHeader textAlign="right">Actions</Table.ColumnHeader>
-                            </Table.Row>
-                        </Table.Header>
-                        <Table.Body>
-                            {items.map((item) => (
-                                <Table.Row key={item.id}>
-                                    <Table.Cell fontWeight="medium">{item.name}</Table.Cell>
-                                    <Table.Cell>{item.category}</Table.Cell>
-                                    <Table.Cell>
-                                        <Badge colorPalette={item.status === 'Active' ? 'green' : 'orange'}>
-                                            {item.status}
-                                        </Badge>
-                                    </Table.Cell>
-                                    <Table.Cell>{item.date}</Table.Cell>
-                                    
-                                    {/* Action Buttons */}
-                                    <Table.Cell textAlign="right">
-                                        <Group attached={false} gap={2} justify="flex-end">
-                                            <Button
-                                                variant="outline"
-                                                size="xs"
-                                                onClick={() => handleOpenEdit(item)}
-                                            >
-                                                Edit
-                                            </Button>
-                                            <Button
-                                                variant="outline"
-                                                colorPalette="red"
-                                                size="xs"
-                                                onClick={() => handleOpenDelete(item)}
-                                            >
-                                                Remove
-                                            </Button>
-                                        </Group>
-                                    </Table.Cell>
-                                </Table.Row>
-                            ))}
-                        </Table.Body>
-                    </Table.Root>
-                </Table.ScrollArea>
+  return (
+    <AdminLayout
+      title="Documents and Manuals"
+      description="Upload, associate, process, review and publish reference documents."
+    >
+      <Stack gap={6}>
+        <KnowledgeScopes documents={items} onChanged={refresh} />
+        {/* HEADER ROW */}
+        <Flex justify="space-between" align="center" wrap="wrap" gap={4}>
+          <Box>
+            <Heading size="md">All Documents</Heading>
+            <Text fontSize="sm" color="gray.500">
+              Showing {items.length} records
+            </Text>
+          </Box>
 
-                {/* MODALS */}
-                
-                {/* 1. Upload Modal */}
-                <FileModal 
-                    isOpen={isUploadOpen} 
-                    onClose={() => setIsUploadOpen(false)} 
-                />
+          {/* Upload Trigger */}
+          <Button variant="outline" onClick={refresh}>Refresh</Button>
+          <Button colorPalette="blue" onClick={() => setIsUploadOpen(true)}>
+            Add Documents
+          </Button>
+        </Flex>
 
-                {/* 2. Edit Modal (Reuses FileModal in edit mode) */}
-                <FileModal 
-                    isOpen={Boolean(editItem)} 
-                    editData={editItem} 
-                    onClose={() => setEditItem(null)} 
-                />
+        <Text fontSize="sm" color="gray.600">
+          Upload and associate sources, then process them. Review extraction and wait for confirmed indexing before publishing. Only indexed, published documents in published scopes are searchable.
+        </Text>
+        <Flex gap={3} wrap="wrap"><Input maxW="400px" aria-label="Search documents" value={query} placeholder="Search title or tags" onChange={(e) => setQuery(e.target.value)} /><label>Processing status <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}><option value="">All statuses</option>{["uploaded", "processing", "awaiting_index", "processed", "failed"].map((value) => <option key={value} value={value}>{value.replaceAll("_", " ")}</option>)}</select></label></Flex>
+        <Flex gap={3} align="center" wrap="wrap">
+          <Text fontSize="sm">
+            {selected.length} selected ·{" "}
+            {items.filter((item) => item.status === "processed").length}{" "}
+            indexed · {items.filter((item) => item.status === "awaiting_index").length} awaiting indexing
+          </Text>
+          <Button
+            disabled={!selected.length || processingRequest}
+            onClick={() => handleProcess(selected.map((item) => item.id))}
+          >
+            Process selected
+          </Button>
+          <Button
+            variant="ghost"
+            disabled={!selectedIds.length}
+            onClick={() => setSelectedIds([])}
+          >
+            Clear selection
+          </Button>
+        </Flex>
+        {/* TABLE VIEW */}
+        <Table.ScrollArea
+          border="1px solid"
+          borderColor="gray.200"
+          borderRadius="md"
+        >
+          <Table.Root size="sm" variant="outline" minW="650px">
+            <Table.Header>
+              <Table.Row bg="gray.50">
+                <Table.ColumnHeader>
+                  <Checkbox.Root
+                    disabled={!selectable.length}
+                    checked={
+                      selected.length === selectable.length &&
+                      selectable.length > 0
+                        ? true
+                        : selected.length
+                          ? "indeterminate"
+                          : false
+                    }
+                    onCheckedChange={({ checked }) =>
+                      setSelectedIds(
+                        checked ? selectable.map((item) => item.id) : [],
+                      )
+                    }
+                  >
+                    <Checkbox.HiddenInput aria-label="Select all documents" />
+                    <Checkbox.Control />
+                  </Checkbox.Root>
+                </Table.ColumnHeader>
+                <Table.ColumnHeader>Name</Table.ColumnHeader>
+                <Table.ColumnHeader>Tags</Table.ColumnHeader>
+                <Table.ColumnHeader>Status</Table.ColumnHeader>
+                <Table.ColumnHeader>Publication</Table.ColumnHeader>
+                <Table.ColumnHeader>Date Added</Table.ColumnHeader>
+                <Table.ColumnHeader textAlign="right">
+                  Actions
+                </Table.ColumnHeader>
+              </Table.Row>
+            </Table.Header>
+            <Table.Body>
+              {visible.map((item) => (
+                <Table.Row key={item.id}>
+                  <Table.Cell>
+                    <Checkbox.Root
+                      disabled={item.status === "processing" || item.published}
+                      checked={selectedIds.includes(item.id)}
+                      onCheckedChange={({ checked }) =>
+                        setSelectedIds((previous) =>
+                          checked
+                            ? [...previous, item.id]
+                            : previous.filter((id) => id !== item.id),
+                        )
+                      }
+                    >
+                      <Checkbox.HiddenInput
+                        aria-label={`Select ${item.name}`}
+                      />
+                      <Checkbox.Control />
+                    </Checkbox.Root>
+                  </Table.Cell>
+                  <Table.Cell fontWeight="medium">
+                    {item.name}
+                    <Text fontSize="xs" color="gray.600">
+                      Scope: {item.carModel || "general"}
+                    </Text>
+                    <Text fontSize="xs">{item.document_type?.replaceAll("_", " ") || "Other reference"}</Text>
+                    {item.replacement_for_id && <Text fontSize="xs">Replacement for {item.replacement_for_id}</Text>}
+                  </Table.Cell>
+                  <Table.Cell>
+                    {item.tags.length ? item.tags.join(", ") : "No tags"}
+                  </Table.Cell>
+                  <Table.Cell>
+                    <Badge
+                      colorPalette={
+                        item.status === "failed"
+                          ? "red"
+                          : item.status === "processed"
+                            ? "green"
+                            : item.status === "processing"
+                              ? "blue"
+                              : "gray"
+                      }
+                    >
+                      {item.status === "awaiting_index" ? "Awaiting indexing" : item.status === "processed" ? (item.indexed_revision ? "Indexed" : "Reprocessing required") : item.status}
+                    </Badge>
+                    {item.error && (
+                      <Text role="alert" fontSize="xs" color="red.600">
+                        {item.error}
+                      </Text>
+                    )}
+                  </Table.Cell>
+                  <Table.Cell><Badge colorPalette={item.published ? "green" : "gray"}>{item.superseded_by_id ? "Superseded" : item.published ? "Published" : "Draft"}</Badge></Table.Cell>
+                  <Table.Cell>{item.date}</Table.Cell>
 
-                {/* 3. Delete Confirmation Modal */}
-                <DeleteConfirmModal
-                    isOpen={Boolean(deleteItem)} 
-                    itemName={deleteItem?.name} 
-                    onClose={() => setDeleteItem(null)} 
-                    onConfirm={handleConfirmDelete} 
-                />
+                  {/* Action Buttons */}
+                  <Table.Cell textAlign="right">
+                    <Group attached={false} gap={2} justify="flex-end">
+                      <Button
+                        size="xs"
+                        loading={item.status === "processing"}
+                        disabled={item.status === "processing" || processingRequest || item.published}
+                        onClick={() => handleProcess([item.id], ["processed", "awaiting_index"].includes(item.status))}
+                      >
+                        {item.status === "failed"
+                          ? "Retry"
+                          : ["processed", "awaiting_index"].includes(item.status) ? "Reprocess" : "Process"}
+                      </Button>
+                      <Button size="xs" variant="outline" disabled={Boolean(publishingId) || Boolean(item.superseded_by_id) || (!item.published && (item.status !== "processed" || !item.indexed_revision || item.indexed_revision !== item.source_revision))} onClick={() => changePublication(item)}>{item.published ? "Unpublish" : "Publish"}</Button>
+                      <Button size="xs" variant="outline" disabled={item.status === "processing" || Boolean(item.superseded_by_id)} onClick={() => setReplacementItem(item)}>Stage replacement</Button>
+                      {item.source_type === "pdf" && <Button size="xs" variant="outline" onClick={() => window.open(originalDocumentUrl(item.id), "_blank", "noopener,noreferrer")}>Open original PDF</Button>}
+                      {item.extraction_storage_path && ["awaiting_index", "processed"].includes(item.status) && <Button
+                        size="xs" variant="outline" onClick={() => window.open(downloadExtractionUrl(item.id), "_blank", "noopener,noreferrer")}
+                      >Review extraction</Button>}
+                      <Button
+                        size="xs"
+                        variant="outline"
+                        disabled={item.status === "processing"}
+                        onClick={() => downloadFile(item)}
+                      >
+                        Download
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="xs"
+                        onClick={() => handleOpenEdit(item)}
+                        disabled={item.status === "processing"}
+                      >
+                        Edit
+                      </Button>
+                      <Button
+                        variant="outline"
+                        colorPalette="red"
+                        size="xs"
+                        onClick={() => handleOpenDelete(item)}
+                        disabled={item.status === "processing"}
+                      >
+                        Remove
+                      </Button>
+                    </Group>
+                  </Table.Cell>
+                </Table.Row>
+              ))}
+            </Table.Body>
+          </Table.Root>
+        </Table.ScrollArea>
 
-            </Stack>
-        </AdminLayout>
-    );
+        {items.length === 0 && (
+          <Text color="gray.600">
+            No documents yet. Upload a PDF or Markdown document to get started.
+          </Text>
+        )}
+        {/* MODALS */}
+
+        {(isUploadOpen || editItem) && (
+          <FileModal
+            key={editItem?.id || "new"}
+            isOpen
+            editData={editItem}
+            tags={items.flatMap((item) => item.tags)}
+            onSave={handleSave}
+            onClose={() => {
+              setIsUploadOpen(false);
+              setEditItem(null);
+            }}
+          />
+        )}
+        {replacementItem && <FileModal key={`replacement-${replacementItem.id}`} isOpen editData={replacementItem} replacementFor={replacementItem.id} onClose={() => setReplacementItem(null)} onSave={async ({ files }) => {
+          try { await stageReplacement(replacementItem.id, files[0]); }
+          finally { await refresh(); }
+          toaster.create({ title: "Replacement draft uploaded. Process and review it before publishing.", type: "success" });
+        }} />}
+
+        {/* Delete Confirmation Modal */}
+        <DeleteConfirmModal
+          isOpen={Boolean(deleteItem)}
+          itemName={deleteItem?.name}
+          onClose={() => setDeleteItem(null)}
+          onConfirm={handleConfirmDelete}
+        />
+      </Stack>
+    </AdminLayout>
+  );
 }

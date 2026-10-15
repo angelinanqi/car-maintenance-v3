@@ -1,115 +1,51 @@
-import { Grid, Card, Text, Box, Heading, Stack } from '@chakra-ui/react';
-import AdminLayout from '../../../components/layouts/AdminLayout';
+﻿"use client";
+
+import NextLink from "next/link";
+import { Grid, Card, Text, Heading, Stack, Button } from "@chakra-ui/react";
+import AdminLayout from "@/components/layouts/AdminLayout";
+import { useContent } from "@/components/ContentProvider";
 
 export default function Home() {
-    // =========================================================================
-    // BACKEND INTEGRATION EXAMPLE:
-    // To connect real data, fetch it via server components, React Query, or useEffect.
-    // =========================================================================
+  const { dashboard } = useContent();
+  const documents = dashboard?.documents || {};
+  const guides = dashboard?.guides || {};
+  const sections = [
+    { label: "Documents", count: documents.total ?? "-", href: "/user/kb", description: `${documents.processed || 0} processed, ${documents.awaiting_index || 0} awaiting indexing, ${documents.processing || 0} processing, ${documents.failed || 0} failed, ${documents.uploaded || 0} awaiting processing.` },
+    { label: "Learning Guides", count: guides.total ?? "-", href: "/user/learn-cards", description: `${guides.published || 0} published and ${guides.draft || 0} drafts.` },
+    { label: "Emergency Steps", count: dashboard?.steps ?? "-", href: "/user/emergency", description: `${dashboard?.playbooks || 0} playbooks and ${dashboard?.contacts || 0} contacts.` },
+  ];
 
-    const totalDocuments = "0";
-    const learningCards = "0";
-    const emergencySteps = "0";
-
-    return (
-        <AdminLayout title="Home" description="Welcome back!">
-            <Stack gap={6}>
-
-                {/* TOP SECTION: 4 Stat Cards */}
-                <Grid templateColumns={{ base: '1fr', md: 'repeat(2, 1fr)', xl: 'repeat(4, 1fr)' }} gap={4}>
-
-                    {/* Stat Card 1 */}
-                    <Card.Root variant="outline">
-                        <Card.Body p={4}>
-                            <Grid templateColumns="1fr auto" alignItems="start" gap={2}>
-                                <Box>
-                                    <Text fontSize="xs" color="gray.500" fontWeight="medium">
-                                        Documents
-                                    </Text>
-                                    <Heading size="xl" mt={1}>
-                                        {totalDocuments}
-                                    </Heading>
-                                </Box>
-                            </Grid>
-                        </Card.Body>
-                    </Card.Root>
-
-                    {/* Stat Card 2 */}
-                    <Card.Root variant="outline">
-                        <Card.Body p={4}>
-                            <Grid templateColumns="1fr auto" alignItems="start" gap={2}>
-                                <Box>
-                                    <Text fontSize="xs" color="gray.500" fontWeight="medium">
-                                        Learning Cards
-                                    </Text>
-                                    <Heading size="xl" mt={1}>
-                                        {learningCards}
-                                    </Heading>
-                                </Box>
-                            </Grid>
-                        </Card.Body>
-                    </Card.Root>
-
-                    {/* Stat Card 3 */}
-                    <Card.Root variant="outline">
-                        <Card.Body p={4}>
-                            <Grid templateColumns="1fr auto" alignItems="start" gap={2}>
-                                <Box>
-                                    <Text fontSize="xs" color="gray.500" fontWeight="medium">
-                                        Emergency Steps
-                                    </Text>
-                                    <Heading size="xl" mt={1}>
-                                        {emergencySteps}
-                                    </Heading>
-                                </Box>
-                            </Grid>
-                        </Card.Body>
-                    </Card.Root>
-
-                    {/* Stat Card 4 */}
-                    <Card.Root variant="outline">
-                        <Card.Body p={4}>
-                            <Grid templateColumns="1fr auto" alignItems="start" gap={2}>
-                                <Box>
-                                    <Text fontSize="xs" color="gray.500" fontWeight="medium">
-                                        Card 4
-                                    </Text>
-                                    <Heading size="xl" mt={1}>
-                                        -
-                                    </Heading>
-                                </Box>
-                            </Grid>
-                        </Card.Body>
-                    </Card.Root>
-
-                </Grid>
-
-                {/* BOTTOM SECTION: 2 Large Content Cards */}
-                <Grid templateColumns={{ base: '1fr', lg: '2fr 1fr' }} gap={6}>
-
-                    {/* Bottom Card 1 */}
-                    <Card.Root variant="outline" minH="300px">
-                        <Card.Body />
-                    </Card.Root>
-
-                    {/* Bottom Card 2 (Recent Activity) */}
-                    <Card.Root variant="outline" minH="300px">
-                        <Card.Header pb={2}>
-                            <Heading size="md">Recent Activity</Heading>
-                            <Text fontSize="sm" color="gray.500">
-                                Secondary data or activity feed
-                            </Text>
-                        </Card.Header>
-                        <Card.Body>
-                            <Text color="gray.400">
-                                [ Content goes here later - e.g., Recent logs or user list ]
-                            </Text>
-                        </Card.Body>
-                    </Card.Root>
-
-                </Grid>
-
-            </Stack>
-        </AdminLayout>
-    );
+  return (
+    <AdminLayout
+      title="Home"
+      description="Saved documents, guides, and emergency playbooks."
+    >
+      <Grid
+        templateColumns={{ base: "1fr", lg: "repeat(3, minmax(0, 1fr))" }}
+        gap={4}
+      >
+        {sections.map((section) => (
+          <Card.Root key={section.href} variant="outline" bg="white">
+            <Card.Body>
+              <Stack gap={3} h="100%">
+                <Heading size="sm">{section.label}</Heading>
+                <Text fontSize="3xl" fontWeight="bold">
+                  {section.count}
+                </Text>
+                <Text fontSize="sm" color="gray.600" flex={1}>
+                  {section.description}
+                </Text>
+                <Button asChild variant="outline" alignSelf="start">
+                  <NextLink href={section.href}>Open {section.label}</NextLink>
+                </Button>
+              </Stack>
+            </Card.Body>
+          </Card.Root>
+        ))}
+      </Grid>
+      <Button asChild mt={6} variant="outline">
+        <NextLink href="/user/chatbot">Open real Chat Preview</NextLink>
+      </Button>
+    </AdminLayout>
+  );
 }

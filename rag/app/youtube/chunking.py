@@ -1,3 +1,4 @@
+from rag.config.settings import EMBEDDING_MAX_TOKENS
 from hashlib import sha256
 import json
 import math
@@ -11,7 +12,7 @@ def chunk_transcript(
     tokenizer,
     target=CHUNK_TOKENS,
     overlap=OVERLAP_TOKENS,
-    max_tokens=8192,
+    max_tokens=EMBEDDING_MAX_TOKENS,
 ):
     if not 0 <= overlap < target:
         raise ValueError("Require 0 <= overlap < target tokens.")

@@ -91,6 +91,19 @@ def build_metadata(
         "source_depth",
         "source_position",
         "src",
+        "car_model",
+        "year",
+        "engine",
+        "variant",
+        "transmission",
+        "source_quality",
+        "source_fidelity_verified",
+        "document_id",
+        "source_content",
+        "table_data",
+        "table_parse_valid",
+        "element_id",
+        "source_element_ids",
     ]:
         value = metadata.get(key)
 
@@ -108,6 +121,7 @@ def process_document(
     file_path: Path,
     embedder: Embedder,
     vector_store: VectorStore,
+    extra_metadata: dict | None = None,
 ):
     document_name, chunks = load_chunks(file_path)
 
@@ -116,7 +130,7 @@ def process_document(
     metadatas = []
 
     for index, chunk in enumerate(chunks, start=1):
-        text = chunk.get("text", "").strip()
+        text = chunk.get("retrieval_text", chunk.get("text", "")).strip()
 
         if not text:
             print(f"Skipping empty chunk " f"{document_name} #{index}")
@@ -134,13 +148,22 @@ def process_document(
             chunk_id,
         )
 
+        if extra_metadata:
+            metadata.update(extra_metadata)
+
         ids.append(chunk_id)
         texts.append(text)
         metadatas.append(metadata)
 
     print(f"\nEmbedding {len(texts)} chunks " f"from {document_name}...")
 
-    embeddings = embedder.embed_documents(texts) if texts else []
+    if not texts:
+        raise ValueError(
+            f"No nonempty chunks in {file_path}; existing index records were retained. "
+            "Check cleaning/parsing output before reingesting."
+        )
+
+    embeddings = embedder.embed_documents(texts)
 
     vector_store.replace_document(
         document_name=document_name,

@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { Dialog, Button, Text } from "@chakra-ui/react";
 
 export default function DeleteConfirmModal({
@@ -8,8 +9,14 @@ export default function DeleteConfirmModal({
   onConfirm,
   itemName,
 }) {
+  const [busy, setBusy] = useState(false);
+  async function confirm() {
+    if (busy) return;
+    setBusy(true);
+    try { await onConfirm(); } finally { setBusy(false); }
+  }
   return (
-    <Dialog.Root open={isOpen} onOpenChange={(e) => !e.open && onClose()}>
+    <Dialog.Root open={isOpen} onOpenChange={(e) => !e.open && !busy && onClose()}>
       <Dialog.Backdrop />
       <Dialog.Positioner>
         <Dialog.Content>
@@ -19,16 +26,16 @@ export default function DeleteConfirmModal({
 
           <Dialog.Body>
             <Text fontSize="sm" color="gray.600">
-              Are you sure you want to delete <strong>"{itemName}"</strong>?
-              This action cannot be undone.
+              Are you sure you want to delete <strong>{itemName}</strong>?
+              This removes the saved record and its associated stored files where applicable.
             </Text>
           </Dialog.Body>
 
           <Dialog.Footer>
-            <Button variant="outline" onClick={onClose}>
+            <Button variant="outline" onClick={onClose} disabled={busy}>
               Cancel
             </Button>
-            <Button colorPalette="red" onClick={onConfirm}>
+            <Button colorPalette="red" onClick={confirm} loading={busy}>
               Delete
             </Button>
           </Dialog.Footer>

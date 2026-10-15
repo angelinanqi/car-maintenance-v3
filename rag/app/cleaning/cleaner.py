@@ -1,6 +1,6 @@
+from rag.config.settings import MALAY_CONFIDENCE_THRESHOLD
 import re
 from pathlib import Path
-from rag.app.cleaning.cleaning_report import CleaningReport
 from rag.app.cleaning.language_detector import LanguageDetector
 
 
@@ -19,27 +19,20 @@ class MarkdownCleaner:
 
     def __init__(
         self,
-        malay_threshold: float = 0.97,
+        malay_threshold: float = MALAY_CONFIDENCE_THRESHOLD,
     ) -> None:
         self.language_detector = LanguageDetector(malay_threshold=malay_threshold)
 
-    def clean_file(self, input_path: Path, output_path: Path, report_path: Path):
-        """Clean one Markdown file and persist its audit report."""
-        cleaned, report = self.clean(
-            input_path.read_text(encoding="utf-8"), input_path.stem
-        )
+    def clean_file(self, input_path: Path, output_path: Path):
+        """Clean extracted Markdown for indexing."""
+        cleaned = self.clean(input_path.read_text(encoding="utf-8"))
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        report_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(cleaned, encoding="utf-8")
-        report.save(report_path)
-        return report
 
     def clean(
         self,
         markdown: str,
-        document_name: str,
-    ) -> tuple[str, CleaningReport]:
-        report = CleaningReport(document_name=document_name)
+    ) -> str:
 
         # Keep fenced/indented code byte-for-byte at the line level. Also avoids
         # deleting repeated code lines or treating code pipes as table syntax.
@@ -50,16 +43,16 @@ class MarkdownCleaner:
         for index, line in enumerate(original):
             if index in protected:
                 if pending:
-                    result.append(self._clean_prose("\n".join(pending), report))
+                    result.append(self._clean_prose("\n".join(pending)))
                     pending = []
                 result.append(line + "\n")
             else:
                 pending.append(line)
         if pending:
-            result.append(self._clean_prose("\n".join(pending), report))
-        return "".join(result), report
+            result.append(self._clean_prose("\n".join(pending)))
+        return "".join(result)
 
-    def _clean_prose(self, markdown: str, report: CleaningReport) -> str:
+    def _clean_prose(self, markdown: str) -> str:
         text = self._normalize_unicode(markdown)
         text = self._normalize_whitespace(text)
 
@@ -67,17 +60,14 @@ class MarkdownCleaner:
 
         lines = self._remove_malay(
             lines,
-            report,
         )
 
         lines = self._remove_consecutive_duplicates(
             lines,
-            report,
         )
 
         lines = self._remove_obvious_garbage(
             lines,
-            report,
         )
 
         cleaned = self._final_whitespace_cleanup(lines)
@@ -149,7 +139,6 @@ class MarkdownCleaner:
     def _remove_malay(
         self,
         lines: list[str],
-        report: CleaningReport,
     ) -> list[str]:
         """
         Remove confidently Malay paragraphs.
@@ -168,9 +157,7 @@ class MarkdownCleaner:
 
             block = "\n".join(paragraph).strip()
 
-            if self._should_remove_malay(block):
-                report.malay_blocks_removed.append(block)
-            else:
+            if not self._should_remove_malay(block):
                 result.extend(paragraph)
 
             paragraph.clear()
@@ -203,7 +190,6 @@ class MarkdownCleaner:
 
                 cleaned_line = self._clean_table_line(
                     line,
-                    report,
                 )
 
                 result.append(cleaned_line)
@@ -214,9 +200,7 @@ class MarkdownCleaner:
                 flush_paragraph()
                 natural = re.sub(r"^\s*(?:>\s*)+", "", line)
                 natural = re.sub(r"^\s*(?:#{1,6}\s+|[-*+]\s+|\d+[.)]\s+)", "", natural)
-                if self._should_remove_malay(natural):
-                    report.malay_blocks_removed.append(natural)
-                else:
+                if not self._should_remove_malay(natural):
                     result.append(line)
                 continue
 
@@ -229,7 +213,6 @@ class MarkdownCleaner:
     def _clean_table_line(
         self,
         line: str,
-        report: CleaningReport,
     ) -> str:
         """
         Remove confidently Malay prose from individual table cells.
@@ -248,7 +231,6 @@ class MarkdownCleaner:
             cell = part.strip()
 
             if self._should_remove_malay(cell):
-                report.malay_blocks_removed.append(cell)
                 cleaned_parts.append("")
             else:
                 cleaned_parts.append(part)
@@ -355,7 +337,6 @@ class MarkdownCleaner:
     def _remove_consecutive_duplicates(
         self,
         lines: list[str],
-        report: CleaningReport,
     ) -> list[str]:
         result: list[str] = []
 
@@ -371,7 +352,6 @@ class MarkdownCleaner:
                 and index not in table_lines
                 and not self._is_markdown_structure(line)
             ):
-                report.duplicate_lines_removed.append(stripped)
                 continue
 
             result.append(line)
@@ -386,7 +366,6 @@ class MarkdownCleaner:
     def _remove_obvious_garbage(
         self,
         lines: list[str],
-        report: CleaningReport,
     ) -> list[str]:
         result: list[str] = []
 
@@ -394,7 +373,6 @@ class MarkdownCleaner:
             stripped = line.strip()
 
             if self._is_obvious_garbage(stripped):
-                report.garbage_removed.append(stripped)
                 continue
 
             result.append(line)

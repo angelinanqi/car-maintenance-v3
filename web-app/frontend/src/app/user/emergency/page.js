@@ -1,6 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import { useContent } from "@/components/ContentProvider";
+import { toaster } from "@/components/ui/toaster";
+import EmergencyContact from "@/components/EmergencyContact";
+import DeleteConfirmModal from "@/components/modals/DeleteConfirmModal";
 import {
   Grid,
   Box,
@@ -24,103 +28,66 @@ import AdminLayout from "../../../components/layouts/AdminLayout";
 
 export default function SOPManagerPage() {
   const [mode, setMode] = useState("edit");
+  const [completedIds, setCompletedIds] = useState([]);
+  const [newContact, setNewContact] = useState(null);
+  const [deleteItem, setDeleteItem] = useState(null);
 
-  // Roadside Emergency SOP List State
-  const [sops, setSops] = useState([
-    {
-      id: 1,
-      title: "Highway Engine Breakdown SOP",
-      stepsCount: 4,
-      status: "Active",
-      updatedAt: "1 Sep 2026",
-    },
-    {
-      id: 2,
-      title: "Flat Tire on Active Roadway",
-      stepsCount: 3,
-      status: "Active",
-      updatedAt: "28 Aug 2026",
-    },
-    {
-      id: 3,
-      title: "Overheating Engine Protocol",
-      stepsCount: 3,
-      status: "Active",
-      updatedAt: "15 Aug 2026",
-    },
-  ]);
+  const { sops, contacts, savePlaybook, publishPlaybook, deletePlaybook, saveContact, deleteContact } = useContent();
+  const [draft, setDraft] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [selectedSopId, setSelectedSopId] = useState(null);
+  const selectedSop = draft || sops.find((s) => s.id === selectedSopId) || sops[0];
 
-  const [selectedSopId, setSelectedSopId] = useState(1);
+  const steps = (selectedSop?.steps || []).map((step) => ({
+    ...step,
+    completed: completedIds.includes(step.id),
+  }));
+  const setSteps = (update) => {
+    if (!selectedSop) return;
+    setDraft({ ...selectedSop, steps: typeof update === "function" ? update(selectedSop.steps) : update });
+  };
 
-  // Roadside Emergency Steps State
-  const [steps, setSteps] = useState([
-    {
-      id: 101,
-      stepNumber: 1,
-      title: "Safely Pull Over & Signal Danger",
-      description:
-        "Turn on hazard lights immediately. Guide the vehicle onto the hard shoulder or off the main traffic lane as far right/left as safely possible.",
-      imageUrl: "",
-      completed: false,
-    },
-    {
-      id: 102,
-      stepNumber: 2,
-      title: "Evacuate Passengers & Set Warning Triangle",
-      description:
-        "All occupants should exit from the non-traffic side and stand behind safety barriers. Set your reflective warning triangle 45 meters (150 feet) behind the vehicle.",
-      imageUrl: "",
-      completed: false,
-    },
-    {
-      id: 103,
-      stepNumber: 3,
-      title: "Contact Emergency Roadside Assistance",
-      description:
-        "Call the highway patrol hotline or your insurance towing service. Provide your exact GPS location, nearest kilometer marker, and vehicle status.",
-      imageUrl: "",
-      completed: false,
-    },
-    {
-      id: 104,
-      stepNumber: 4,
-      title: "Stay Clear of Traffic Until Help Arrives",
-      description:
-        "Do not stay inside the vehicle if pulled over on a high-speed shoulder. Wait safely behind the barrier facing oncoming traffic.",
-      imageUrl: "",
-      completed: false,
-    },
-  ]);
+  function selectPlaybook(sop) {
+    if (draft && !window.confirm("Discard unsaved playbook changes?")) return;
+    setDraft(null); setSelectedSopId(sop.id); setMode("edit");
+  }
 
-  // Roadside Emergency Contacts (Towing, Highway Patrol, Insurance)
-  const [contacts, setContacts] = useState([
-    {
-      id: 1,
-      name: "Highway Patrol Hotline (PLUS)",
-      phone: "1-800-88-0000",
-      isEditing: false,
-    },
-    {
-      id: 2,
-      name: "24/7 Towing & Recovery Service",
-      phone: "+60 12-345 6789",
-      isEditing: false,
-    },
-    {
-      id: 3,
-      name: "Insurance Roadside Dispatch",
-      phone: "1-300-88-9999",
-      isEditing: false,
-    },
-  ]);
+  async function persistPlaybook(unpublish = false) {
+    if (!selectedSop) return;
+    setSaving(true);
+    try {
+      const saved = await savePlaybook(selectedSop.id, {
+        title: selectedSop.title,
+        scenario_key: selectedSop.scenario_key?.trim() || null,
+        source: selectedSop.source || "",
+        category: selectedSop.category || "",
+        description: selectedSop.description || "",
+        safety_warnings: selectedSop.safety_warnings || "",
+        ...(unpublish === true ? { status: "draft" } : {}),
+        steps: selectedSop.steps.map(({ id, title, description, imageUrl }) => ({ id, title, description, imageUrl })),
+      });
+      setSelectedSopId(saved.id); setDraft(null);
+      toaster.create({ title: "Playbook saved", type: "success" });
+    } catch (error) { toaster.create({ title: error.message, type: "error" }); }
+    finally { setSaving(false); }
+  }
 
-  const selectedSop = sops.find((s) => s.id === selectedSopId);
+  async function reviewAndPublish() {
+    if (!selectedSop?.id || draft) return;
+    if (!window.confirm("Confirm that these instructions and their source have been reviewed and are ready for public use?")) return;
+    setSaving(true);
+    try {
+      await publishPlaybook(selectedSop.id);
+      toaster.create({ title: "Reviewed playbook published", type: "success" });
+    } catch (error) { toaster.create({ title: error.message, type: "error" }); }
+    finally { setSaving(false); }
+  }
 
   const handleToggleStepComplete = (id) => {
-    setSteps((prev) =>
-      prev.map((step) =>
-        step.id === id ? { ...step, completed: !step.completed } : step,
-      ),
+    setCompletedIds((previous) =>
+      previous.includes(id)
+        ? previous.filter((item) => item !== id)
+        : [...previous, id],
     );
   };
 
@@ -136,50 +103,61 @@ export default function SOPManagerPage() {
 
   const handleAddStep = () => {
     const newStep = {
-      id: Date.now(),
-      stepNumber: steps.length + 1,
-      title: `Step ${steps.length + 1}: `,
+      id: crypto.randomUUID(),
+      title: "",
       description: "",
       imageUrl: "",
       completed: false,
     };
-    setSteps([...steps, newStep]);
-  };
-
-  // Contact Edit Handlers
-  const handleToggleEditContact = (id) => {
-    setContacts((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, isEditing: !c.isEditing } : c)),
-    );
-  };
-
-  const handleContactChange = (id, field, value) => {
-    setContacts((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, [field]: value } : c)),
-    );
+    setSteps((previous) => [...previous, newStep]);
   };
 
   const handleAddContact = () => {
-    setContacts([
-      ...contacts,
-      {
-        id: Date.now(),
-        name: "New Emergency Contact",
-        phone: "+60 10-000 0000",
-        isEditing: true,
-      },
-    ]);
+    setNewContact({ id: crypto.randomUUID(), name: "", phone: "" });
   };
+
+  function moveStep(index, direction) {
+    setSteps((previous) => {
+      const next = [...previous];
+      const target = index + direction;
+      if (target < 0 || target >= next.length) return previous;
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+  }
+
+  function previewChecklist() {
+    if (
+      !steps.length ||
+      steps.some(
+        (step) =>
+          !step.title.trim() ||
+          !step.description.trim() ||
+          (step.imageUrl && !/^https?:\/\//i.test(step.imageUrl)),
+      )
+    ) {
+      toaster.create({
+        title:
+          "Add a title and description for every step; images need an http(s) URL",
+        type: "error",
+      });
+      return;
+    }
+    setMode("incident");
+  }
 
   return (
     <AdminLayout
       title="Roadside Emergency SOPs"
-      description="Breakdown Safety Runbooks & Emergency Dispatch Contacts"
+      description="Manage published playbooks, ordered steps, and shared contacts."
     >
       <Stack gap={6}>
+        <Text fontSize="sm" color="gray.600">
+          Use Save Playbook to persist instruction edits. Checklist progress is a separate preview and resets when you leave this page.
+        </Text>
         {/* TOP MAIN TABS */}
         <Tabs.Root defaultValue="steps" variant="line">
-          <Tabs.List mb={6}>
+          <Tabs.List mb={6} overflowX="auto">
             <Tabs.Trigger value="steps">
               Roadside Playbooks & Steps
             </Tabs.Trigger>
@@ -191,7 +169,10 @@ export default function SOPManagerPage() {
           {/* TAB 1: Playbooks & Steps Split Interface */}
           <Tabs.Content value="steps">
             <Grid
-              templateColumns={{ base: "1fr", lg: "30% 70%" }}
+              templateColumns={{
+                base: "1fr",
+                lg: "minmax(0, 3fr) minmax(0, 7fr)",
+              }}
               gap={6}
               alignContent="start"
             >
@@ -199,16 +180,12 @@ export default function SOPManagerPage() {
               <Stack gap={4}>
                 <Flex justify="space-between" align="center">
                   <Heading size="md">Playbooks</Heading>
-                  {mode === "edit" && (
-                    <Button size="xs" colorPalette="blue">
-                      + New SOP
-                    </Button>
-                  )}
+                  <Button size="sm" onClick={() => { if (draft && !window.confirm("Discard unsaved changes?")) return; setDraft({ title: "", steps: [] }); setMode("edit"); }}>New playbook</Button>
                 </Flex>
 
                 <Stack gap={3}>
                   {sops.map((sop) => {
-                    const isSelected = sop.id === selectedSopId;
+                    const isSelected = sop.id === selectedSop?.id;
                     return (
                       <Card.Root
                         key={sop.id}
@@ -228,7 +205,18 @@ export default function SOPManagerPage() {
                               : "blue.50/30"
                             : "white"
                         }
-                        onClick={() => setSelectedSopId(sop.id)}
+                        role="button"
+                        tabIndex={0}
+                        aria-pressed={isSelected}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            selectPlaybook(sop);
+                          }
+                        }}
+                        onClick={() => {
+                          selectPlaybook(sop);
+                        }}
                       >
                         <Card.Body p={4}>
                           <Stack gap={2}>
@@ -241,9 +229,7 @@ export default function SOPManagerPage() {
                                 {sop.title}
                               </Text>
                               <Badge
-                                colorPalette={
-                                  sop.status === "Active" ? "green" : "gray"
-                                }
+                                colorPalette="gray"
                                 variant="subtle"
                                 size="xs"
                               >
@@ -251,7 +237,7 @@ export default function SOPManagerPage() {
                               </Badge>
                             </Flex>
                             <Text fontSize="xs" color="gray.500">
-                              {sop.stepsCount} Sequential Steps
+                              {sop.steps.length} steps
                             </Text>
                           </Stack>
                         </Card.Body>
@@ -272,14 +258,16 @@ export default function SOPManagerPage() {
                   borderRadius="md"
                   border="1px solid"
                   borderColor={mode === "incident" ? "red.600" : "gray.200"}
+                  wrap="wrap"
+                  gap={4}
                   transition="all 0.2s"
                 >
                   <Box>
                     <HStack gap={2}>
-                      <Heading size="md">{selectedSop?.title}</Heading>
+                      {mode === "edit" && selectedSop ? <Input aria-label="Playbook title" placeholder="Playbook title" value={selectedSop.title} onChange={(event) => setDraft({ ...selectedSop, title: event.target.value })} /> : <Heading size="md">{selectedSop?.title || "Create a playbook to begin"}</Heading>}
                       {mode === "incident" && (
                         <Badge colorPalette="red" variant="solid" size="sm">
-                          LIVE BREAKDOWN MODE
+                          CHECKLIST PREVIEW
                         </Badge>
                       )}
                     </HStack>
@@ -293,27 +281,57 @@ export default function SOPManagerPage() {
                   </Box>
 
                   <HStack gap={2}>
+                    {mode === "edit" && selectedSop && <>
+                      <Button size="sm" loading={saving} onClick={() => persistPlaybook()}>Save Playbook</Button>
+                      {selectedSop.id && selectedSop.status !== "published" && <Button size="sm" disabled={saving || Boolean(draft)} onClick={reviewAndPublish}>Review and publish</Button>}
+                      {selectedSop.status === "published" && <Button size="sm" disabled={saving} onClick={() => persistPlaybook(true)}>Unpublish</Button>}
+                      {selectedSop.id && <Button size="sm" colorPalette="red" variant="outline" onClick={() => setDeleteItem({ type: "playbook", id: selectedSop.id, name: selectedSop.title })}>Remove playbook</Button>}
+                    </>}
                     {mode === "edit" ? (
                       <Button
                         size="sm"
                         colorPalette="red"
-                        onClick={() => setMode("incident")}
+                        onClick={previewChecklist}
                       >
-                        🚨 Run Emergency Mode
+                        Preview Checklist
                       </Button>
                     ) : (
                       <Button
                         size="sm"
                         variant="outline"
-                        colorPalette="whiteAlpha"
+                        color="white"
+                        borderColor="white"
                         onClick={() => setMode("edit")}
                       >
-                        Exit Emergency Mode
+                        Back to Editing
+                      </Button>
+                    )}
+                    {mode === "incident" && (
+                      <Button
+                        size="sm"
+                        onClick={() =>
+                          setCompletedIds((previous) =>
+                            previous.filter(
+                              (id) => !steps.some((step) => step.id === id),
+                            ),
+                          )
+                        }
+                      >
+                        Reset checklist
                       </Button>
                     )}
                   </HStack>
                 </Flex>
 
+                {mode === "edit" && selectedSop && <Stack gap={3}>
+                  <Field.Root><Field.Label>Emergency category</Field.Label><Input list="emergency-categories" value={selectedSop.category || ""} onChange={(event) => setDraft({ ...selectedSop, category: event.target.value })} /><datalist id="emergency-categories">{[...new Set(sops.map((sop) => sop.category).filter(Boolean))].map((category) => <option key={category} value={category} />)}</datalist></Field.Root>
+                  <Field.Root><Field.Label>Situation description</Field.Label><Textarea value={selectedSop.description || ""} onChange={(event) => setDraft({ ...selectedSop, description: event.target.value })} /></Field.Root>
+                  <Field.Root><Field.Label>Safety warnings</Field.Label><Textarea value={selectedSop.safety_warnings || ""} onChange={(event) => setDraft({ ...selectedSop, safety_warnings: event.target.value })} /></Field.Root>
+                  <Field.Root><Field.Label>Scenario key</Field.Label><Input placeholder="minor-accident" value={selectedSop.scenario_key || ""} onChange={(event) => setDraft({ ...selectedSop, scenario_key: event.target.value })} /></Field.Root>
+                  <Field.Root><Field.Label>Source / review reference</Field.Label><Textarea value={selectedSop.source || ""} onChange={(event) => setDraft({ ...selectedSop, source: event.target.value })} /></Field.Root>
+                  <Text fontSize="sm">{selectedSop.reviewed_at ? `Reviewed ${new Date(selectedSop.reviewed_at).toLocaleString()}` : "Review required before publication."} Editing published instructions returns them to draft when saved.</Text>
+                </Stack>}
+                {mode !== "edit" && selectedSop && <Stack gap={2}><Text fontWeight="semibold">{selectedSop.category}</Text><Text>{selectedSop.description}</Text>{selectedSop.safety_warnings && <Box bg="orange.50" p={3}><Text fontWeight="semibold">Safety warnings</Text><Text whiteSpace="pre-wrap">{selectedSop.safety_warnings}</Text></Box>}</Stack>}
                 {mode === "incident" && (
                   <Card.Root variant="outline" bg="white" borderColor="red.200">
                     <Card.Body p={4}>
@@ -342,6 +360,11 @@ export default function SOPManagerPage() {
                 )}
 
                 <Stack gap={4}>
+                  {steps.length === 0 && (
+                    <Text color="gray.600" p={4}>
+                      No steps yet. Add steps in editing mode.
+                    </Text>
+                  )}
                   {steps.map((step, index) => {
                     if (mode === "incident") {
                       return (
@@ -364,7 +387,9 @@ export default function SOPManagerPage() {
                                 colorPalette="green"
                                 mt={1}
                               >
-                                <Checkbox.HiddenInput />
+                                <Checkbox.HiddenInput
+                                  aria-label={"Complete step " + (index + 1)}
+                                />
                                 <Checkbox.Control />
                               </Checkbox.Root>
 
@@ -380,7 +405,8 @@ export default function SOPManagerPage() {
                                       step.completed ? "gray.500" : "black"
                                     }
                                   >
-                                    Step {index + 1}: {step.title}
+                                    Step {index + 1}:{" "}
+                                    {step.title || "Untitled step"}
                                   </Text>
                                   {step.completed && (
                                     <Badge colorPalette="green" variant="solid">
@@ -397,7 +423,7 @@ export default function SOPManagerPage() {
                                   {step.description}
                                 </Text>
 
-                                {step.imageUrl && (
+                                {/^https?:\/\//i.test(step.imageUrl) && (
                                   <Box mt={2}>
                                     <img
                                       src={step.imageUrl}
@@ -433,6 +459,8 @@ export default function SOPManagerPage() {
                               <Input
                                 size="sm"
                                 fontWeight="semibold"
+                                aria-label={"Step " + (index + 1) + " title"}
+                                placeholder="Step title"
                                 value={step.title}
                                 onChange={(e) =>
                                   handleStepChange(
@@ -448,6 +476,9 @@ export default function SOPManagerPage() {
                               <Textarea
                                 size="sm"
                                 rows={3}
+                                aria-label={
+                                  "Step " + (index + 1) + " description"
+                                }
                                 value={step.description}
                                 onChange={(e) =>
                                   handleStepChange(
@@ -458,6 +489,54 @@ export default function SOPManagerPage() {
                                 }
                               />
                             </Field.Root>
+                            <Field.Root>
+                              <Field.Label>Image URL (optional)</Field.Label>
+                              <Input
+                                aria-label={`Step ${index + 1} image URL`}
+                                placeholder="https://..."
+                                value={step.imageUrl}
+                                onChange={(event) =>
+                                  handleStepChange(
+                                    step.id,
+                                    "imageUrl",
+                                    event.target.value,
+                                  )
+                                }
+                              />
+                            </Field.Root>
+                            <HStack>
+                              <Button
+                                size="xs"
+                                variant="outline"
+                                disabled={index === 0}
+                                onClick={() => moveStep(index, -1)}
+                              >
+                                Move up
+                              </Button>
+                              <Button
+                                size="xs"
+                                variant="outline"
+                                disabled={index === steps.length - 1}
+                                onClick={() => moveStep(index, 1)}
+                              >
+                                Move down
+                              </Button>
+                              <Button
+                                size="xs"
+                                variant="outline"
+                                colorPalette="red"
+                                onClick={() =>
+                                  setDeleteItem({
+                                    type: "step",
+                                    id: step.id,
+                                    name: step.title || `Step ${index + 1}`,
+                                    sopId: selectedSopId,
+                                  })
+                                }
+                              >
+                                Remove step
+                              </Button>
+                            </HStack>
                           </Stack>
                         </Card.Body>
                       </Card.Root>
@@ -466,10 +545,11 @@ export default function SOPManagerPage() {
 
                   {mode === "edit" && (
                     <Button
-                      variant="dashed"
+                      variant="outline"
                       border="2px dashed"
                       borderColor="gray.300"
                       onClick={handleAddStep}
+                      disabled={!selectedSop}
                       w="100%"
                     >
                       + Add Step {steps.length + 1}
@@ -484,88 +564,76 @@ export default function SOPManagerPage() {
           <Tabs.Content value="contacts">
             <Stack gap={4} maxW="800px">
               {/* Header Row */}
-              <Flex justify="space-between" align="center" mb={2}>
+              <Flex
+                justify="space-between"
+                align="center"
+                mb={2}
+                wrap="wrap"
+                gap={3}
+              >
                 <Box>
                   <Heading size="md">Emergency & Towing Contacts</Heading>
                   <Text fontSize="sm" color="gray.500">
-                    24/7 Roadside assistance & highway patrol directory
+                    Manage shared emergency and roadside contacts.
                   </Text>
                 </Box>
                 <Button
                   size="sm"
                   colorPalette="blue"
                   onClick={handleAddContact}
+                  disabled={Boolean(newContact)}
                 >
                   + Add Contact
                 </Button>
               </Flex>
 
               {/* Contact Cards List */}
+              {contacts.length === 0 && !newContact && (
+                <Text>No contacts yet. Add a shared contact.</Text>
+              )}
               {contacts.map((contact) => (
-                <Card.Root key={contact.id} variant="outline" bg="white">
-                  <Card.Body p={4}>
-                    <Flex justify="space-between" align="center" gap={4}>
-                      {/* Left Info: Name & Phone */}
-                      {contact.isEditing ? (
-                        <HStack gap={4} flex={1}>
-                          <Field.Root>
-                            <Input
-                              size="sm"
-                              placeholder="Service / Contact Name"
-                              value={contact.name}
-                              onChange={(e) =>
-                                handleContactChange(
-                                  contact.id,
-                                  "name",
-                                  e.target.value,
-                                )
-                              }
-                            />
-                          </Field.Root>
-
-                          <Field.Root>
-                            <Input
-                              size="sm"
-                              placeholder="Phone / Hotline Number"
-                              value={contact.phone}
-                              onChange={(e) =>
-                                handleContactChange(
-                                  contact.id,
-                                  "phone",
-                                  e.target.value,
-                                )
-                              }
-                            />
-                          </Field.Root>
-                        </HStack>
-                      ) : (
-                        <Box flex={1}>
-                          <Text fontWeight="bold" fontSize="md">
-                            {contact.name}
-                          </Text>
-                          <Text fontSize="sm" color="gray.600" mt={0.5}>
-                            {contact.phone}
-                          </Text>
-                        </Box>
-                      )}
-
-                      {/* Right Action: Edit / Save Toggle */}
-                      <Button
-                        size="sm"
-                        variant={contact.isEditing ? "solid" : "outline"}
-                        colorPalette={contact.isEditing ? "blue" : "gray"}
-                        onClick={() => handleToggleEditContact(contact.id)}
-                      >
-                        {contact.isEditing ? "Save" : "Edit"}
-                      </Button>
-                    </Flex>
-                  </Card.Body>
-                </Card.Root>
+                <EmergencyContact
+                  key={contact.id}
+                  contact={contact}
+                  onSave={async (saved) => {
+                    await saveContact(saved.id, { name: saved.name, phone: saved.phone });
+                    toaster.create({ title: "Contact saved", type: "success" });
+                  }}
+                  onDelete={() =>
+                    setDeleteItem({
+                      type: "contact",
+                      id: contact.id,
+                      name: contact.name,
+                    })
+                  }
+                />
               ))}
+              {newContact && (
+                <EmergencyContact key={newContact.id} contact={newContact} isNew
+                  onCancel={() => setNewContact(null)}
+                  onSave={async (saved) => {
+                    await saveContact(null, { name: saved.name, phone: saved.phone });
+                    setNewContact(null);
+                    toaster.create({ title: "Contact added", type: "success" });
+                  }} />
+              )}
             </Stack>
           </Tabs.Content>
         </Tabs.Root>
       </Stack>
+      <DeleteConfirmModal isOpen={Boolean(deleteItem)} itemName={deleteItem?.name}
+        onClose={() => setDeleteItem(null)}
+        onConfirm={async () => {
+          try {
+            if (deleteItem.type === "playbook") {
+              await deletePlaybook(deleteItem.id); setDraft(null); setSelectedSopId(null);
+            } else if (deleteItem.type === "step") {
+              setSteps((previous) => previous.filter((step) => step.id !== deleteItem.id));
+            } else { await deleteContact(deleteItem.id); }
+            setDeleteItem(null);
+            toaster.create({ title: deleteItem.type === "step" ? "Step removed from draft; save the playbook to persist" : "Record removed", type: "success" });
+          } catch (error) { toaster.create({ title: error.message, type: "error" }); }
+        }} />
     </AdminLayout>
   );
 }
