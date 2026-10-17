@@ -72,7 +72,17 @@ class GuideContent extends StatelessWidget {
             uri.toString(),
             semanticLabel: extension.attributes['alt'],
             fit: BoxFit.contain,
-            errorBuilder: (_, _, _) => const Text('Image could not be loaded.'),
+            loadingBuilder: (_, child, progress) => progress == null
+                ? child
+                : const Padding(
+                    padding: EdgeInsets.all(24),
+                    child: LinearProgressIndicator(
+                      semanticsLabel: 'Loading guide image',
+                    ),
+                  ),
+            errorBuilder: (_, _, _) => Text(
+              'Image could not be loaded.${extension.attributes['alt']?.isNotEmpty == true ? ' ${extension.attributes['alt']}' : ''}',
+            ),
           );
         },
       ),
@@ -89,7 +99,7 @@ class GuideContent extends StatelessWidget {
           };
           if (uri == null ||
               !['https', 'http'].contains(uri.scheme) ||
-              !hosts.contains(uri.host)) {
+              uri.host.isEmpty) {
             return const Text(
               'This embedded content is unavailable in the reader.',
             );
@@ -97,13 +107,26 @@ class GuideContent extends StatelessWidget {
           return TextButton.icon(
             onPressed: () => _open(context, uri.toString()),
             icon: const Icon(Icons.play_circle_outline),
-            label: const Text('Open YouTube video'),
+            label: Text(
+              hosts.contains(uri.host)
+                  ? 'Open YouTube video'
+                  : 'Open embedded content',
+            ),
           );
         },
       ),
     ],
     style: {
-      'body': Style(margin: Margins.zero),
+      'body': Style(
+        margin: Margins.zero,
+        fontSize: FontSize(16),
+        lineHeight: LineHeight.number(1.6),
+        color: Theme.of(context).colorScheme.onSurface,
+      ),
+      'h1': Style(fontSize: FontSize(28), lineHeight: LineHeight.number(1.25)),
+      'h2': Style(fontSize: FontSize(24), lineHeight: LineHeight.number(1.3)),
+      'h3': Style(fontSize: FontSize(20), lineHeight: LineHeight.number(1.35)),
+      'a': Style(color: Theme.of(context).colorScheme.primary),
       'iframe': Style(width: Width.auto(), height: Height.auto()),
     },
   );

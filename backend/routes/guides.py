@@ -16,7 +16,9 @@ router = APIRouter(prefix="/guides", tags=["Guides"])
 logger = logging.getLogger(__name__)
 
 
-def validate_guide(values):
+def validate_guide(values, guide_id=None):
+    if guide_id and str(guide_id) in values.get("related_lesson_ids", []):
+        raise HTTPException(422, "A guide cannot link to itself as a related lesson.")
     if values["category_id"]:
         category = db.get("guide_categories", values["category_id"])
         if values["status"] == "published" and not category.get("published", True):
@@ -41,18 +43,19 @@ def list_guides(request: Request, include_drafts: bool = False, offset: int = Qu
     if include_drafts:
         auth.require_draft_access(request)
     if include_drafts:
-        return db.list_rows("guides", offset=offset, limit=limit)
+        return db.list_rows("guides", offset=offset, limit=limit, order_by=("display_order", "created_at", "id"))
     categories = {r["id"] for r in db.all_rows("guide_categories", published=True)}
-    rows = db.all_rows("guides", status="published")
+    rows = db.all_rows("guides", status="published", order_by=("display_order", "created_at", "id"))
     return [row for row in rows if not row["category_id"] or row["category_id"] in categories][offset:offset + limit]
 
 
 @router.post("", response_model=Guide, status_code=201, dependencies=[Depends(auth.require_admin)])
 def create_guide(request: GuideInput):
-    values = validate_guide(request.model_dump(mode="json"))
-    if values["status"] == "published":
-        values["published_at"] = datetime.now(timezone.utc).isoformat()
-    return db.insert("guides", values)
+    with content_lock("guide-links"):
+        values = validate_guide(request.model_dump(mode="json"))
+        if values["status"] == "published":
+            values["published_at"] = datetime.now(timezone.utc).isoformat()
+        return db.insert("guides", values)
 
 
 @router.get("/{guide_id}", response_model=Guide)
@@ -71,11 +74,11 @@ def get_guide(guide_id: UUID, request: Request):
 
 @router.patch("/{guide_id}", response_model=Guide, dependencies=[Depends(auth.require_admin)])
 def edit_guide(guide_id: UUID, request: GuidePatch):
-    with content_lock("guide:" + str(guide_id)):
+    with content_lock("guide-links"), content_lock("guide:" + str(guide_id)):
         old = db.get("guides", guide_id)
         values = GuideInput(**{key: old[key] for key in GuideInput.model_fields if key in old}).model_dump(mode="json")
         values.update(request.model_dump(mode="json", exclude_unset=True))
-        validate_guide(values)
+        validate_guide(values, guide_id)
         values["published_at"] = (
             old["published_at"] or datetime.now(timezone.utc).isoformat()
             if values["status"] == "published" else None
@@ -90,7 +93,7 @@ def publish_guide(guide_id: UUID):
 
 @router.delete("/{guide_id}", status_code=204, dependencies=[Depends(auth.require_admin)])
 def delete_guide(guide_id: UUID):
-    with content_lock("guide:" + str(guide_id)):
+    with content_lock("guide-links"), content_lock("guide:" + str(guide_id)):
         db.get("guides", guide_id)
         if any(str(guide_id) in row.get("related_lesson_ids", []) for row in db.all_rows("guides")):
             raise HTTPException(409, "Remove related-lesson links before deleting this guide.")
@@ -123,7 +126,8 @@ def upload_image(guide_id: UUID, file: UploadFile = File(...)):
         bucket.upload(path, data, {"content-type": mime, "upsert": "false"})
         url = bucket.get_public_url(path)
         try:
-            return db.insert("guide_images", dict(id=image_id, guide_id=str(guide_id), storage_path=path, url=url))
+            row = db.insert("guide_images", dict(id=image_id, guide_id=str(guide_id), storage_path=path))
+            return {**row, "url": url}
         except Exception:
             try:
                 bucket.remove([path])

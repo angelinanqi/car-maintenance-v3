@@ -21,6 +21,7 @@ import { CHAT_MAX_MESSAGE_LENGTH as DEFAULT_MESSAGE_LIMIT } from "@/lib/config.m
 import { sendChatMessage } from "@/lib/chatApi.mjs";
 import { useContent } from "@/components/ContentProvider";
 import NextLink from "next/link";
+import ChatStarterEditor from "@/components/ChatStarterEditor";
 
 export default function ChatbotPage() {
   const { documents, configuration, loading, refresh } = useContent();
@@ -192,12 +193,13 @@ export default function ChatbotPage() {
       title="Chatbot Testing"
       description="Ask questions using the existing manuals and related videos."
     >
+      <ChatStarterEditor />
       <Flex
         gap={2}
         wrap="wrap"
         align="center"
         mb={4}
-        fontSize="xs"
+        fontSize="sm"
         color="gray.600"
       >
         <Text>Scope: {optionLabel || "Select a vehicle or category"}</Text>
@@ -217,7 +219,7 @@ export default function ChatbotPage() {
       {configuration?.rag_configured === false && <Text role="status" mb={4} color="orange.700">
         This backend has no RAG service connection configured. Test requests use the real backend and report its response. Check RAG_SERVICE_URL and RAG_SERVICE_TOKEN on the backend.
       </Text>}
-      <Text fontSize="xs" color="gray.600" mb={3}>
+      <Text fontSize="sm" color="gray.600" mb={3}>
         AI guidance is for learning and reference and may be incomplete or incorrect.
         Confirm repairs and specifications with a qualified mechanic.
       </Text>
@@ -247,13 +249,13 @@ export default function ChatbotPage() {
             </Text>
             {optionSelector}
             <Button
-              colorPalette="blue"
+              colorPalette="brand"
               disabled={!chatOption.some((item) => item.value === selectedScope && !item.disabled)}
               onClick={() => startChat(selectedScope)}
             >
               Start Chat
             </Button>
-            <Text fontSize="xs" color="gray.500">
+            <Text fontSize="sm" color="muted">
               Changing the knowledge scope starts a new conversation. Refresh
               this page to load newly published scopes.
             </Text>
@@ -375,13 +377,13 @@ export default function ChatbotPage() {
               </Field.Root>
               <Button
                 type="submit"
-                colorPalette="blue"
+                colorPalette="brand"
                 disabled={pending || !draft.trim()}
               >
                 Send
               </Button>
             </Flex>
-            <Text fontSize="xs" color="gray.500" mt={2}>
+            <Text fontSize="sm" color="muted" mt={2}>
               Enter to send · Shift + Enter for a new line
             </Text>
           </Box>
@@ -416,7 +418,7 @@ export default function ChatbotPage() {
                 Cancel
               </Button>
               <Button
-                colorPalette="blue"
+                colorPalette="brand"
                 onClick={() => startChat(confirmation.option)}
               >
                 Start new chat

@@ -100,7 +100,7 @@ def rerank(query, records):
 
 
 def search(store, query, embedding, document_ids, *, top_k=5, mode=None,
-           use_reranker=None, diagnostics=None, content_type=None):
+           use_reranker=None, content_type=None):
     mode = mode or settings.RAG_RETRIEVAL_MODE
     if not query.strip():
         raise ValueError("Query cannot be empty")
@@ -128,7 +128,4 @@ def search(store, query, embedding, document_ids, *, top_k=5, mode=None,
     allowed = set(document_ids)
     if any(r.metadata.get("document_name") not in allowed for r in ranked):
         raise ValueError("Retrieval returned a record outside its document scope")
-    if diagnostics is not None:
-        diagnostics.update(mode=mode, scoped_chunks=len(records), dense_ids=[r.chunk_id for r in dense],
-                           lexical_ids=[r.chunk_id for r in lexical])
     return [replace(r, rank=i) for i, r in enumerate(ranked[:top_k], 1)]

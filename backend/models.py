@@ -65,7 +65,6 @@ class SourceAttachmentReference(BaseModel):
 
 class DocumentEdit(InputModel):
     name: str = Field(min_length=1)
-    car_model: Vehicle = "general"
     tags: list[str] = Field(default_factory=list)
     year: str = ""
     engine: str = ""
@@ -103,7 +102,7 @@ class Document(DocumentEdit):
 class Manual(BaseModel):
     id: UUID
     name: str
-    car_model: Vehicle
+    vehicle_independent: bool
     source_type: Literal["pdf", "md"]
     size_bytes: int
     updated_at: datetime
@@ -117,7 +116,7 @@ class ProcessBatch(InputModel):
 class CategoryInput(InputModel):
     name: str = Field(min_length=1)
     description: str = ""
-    display_order: int = Field(default=0, ge=0)
+    display_order: int = Field(default=0, ge=0, le=2147483647)
     published: bool = True
 
 
@@ -130,13 +129,21 @@ class Category(CategoryInput):
 
 class GuideInput(InputModel):
     title: str = Field(min_length=1)
+    display_order: int = Field(default=0, ge=0, le=2147483647)
     category_id: UUID | None = None
     content: str = "<p></p>"
     status: Literal["draft", "published"] = "draft"
     description: str = ""
-    reading_minutes: int | None = Field(default=None, gt=0)
+    reading_minutes: int | None = Field(default=None, gt=0, le=2147483647)
     related_lesson_ids: list[UUID] = Field(default_factory=list)
     maintenance_item_ids: list[UUID] = Field(default_factory=list)
+
+    @field_validator('related_lesson_ids', 'maintenance_item_ids')
+    @classmethod
+    def unique_links(cls, value):
+        if len(value) != len(set(value)):
+            raise ValueError('Related records must be unique')
+        return value
 
 
 class Guide(GuideInput):
@@ -163,6 +170,7 @@ class Step(InputModel):
 
 class PlaybookInput(InputModel):
     title: str = Field(min_length=1)
+    display_order: int = Field(default=0, ge=0, le=2147483647)
     steps: list[Step] = Field(default_factory=list)
     scenario_key: str | None = Field(default=None, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
     source: str = ""
@@ -191,10 +199,19 @@ class Playbook(PlaybookInput):
 class ReviewConfirmation(InputModel):
     confirm_review: Literal[True]
 
+    @field_validator("confirm_review", mode="before")
+    @classmethod
+    def explicit_confirmation(cls, value):
+        if value is not True:
+            raise ValueError("Explicit review confirmation is required")
+        return value
+
 
 class ContactInput(InputModel):
     name: str = Field(min_length=1)
-    phone: str = Field(min_length=3, pattern=r"^[+\d\s().-]+$")
+    description: str = ""
+    display_order: int = Field(default=0, ge=0, le=2147483647)
+    phone: str = Field(min_length=3, pattern=r"^[+0-9\s().-]+$")
 
     @field_validator("phone")
     @classmethod
@@ -213,7 +230,6 @@ class Contact(ContactInput):
 
 class DocumentPatch(InputModel):
     name: str | None = Field(default=None, min_length=1)
-    car_model: Vehicle | None = None
     tags: list[str] | None = None
     mobile_visible: bool | None = None
     year: str | None = None
@@ -234,19 +250,22 @@ class DocumentPatch(InputModel):
 
 class GuidePatch(InputModel):
     title: str | None = Field(default=None, min_length=1)
+    display_order: int | None = Field(default=None, ge=0, le=2147483647)
     category_id: UUID | None = None
     content: str | None = None
     status: Literal["draft", "published"] | None = None
     description: str | None = None
-    reading_minutes: int | None = Field(default=None, gt=0)
+    reading_minutes: int | None = Field(default=None, gt=0, le=2147483647)
     related_lesson_ids: list[UUID] | None = None
     maintenance_item_ids: list[UUID] | None = None
 
-    @field_validator("title", "content", "status", "description", "related_lesson_ids", "maintenance_item_ids")
+    @field_validator("title", "display_order", "content", "status", "description", "related_lesson_ids", "maintenance_item_ids")
     @classmethod
     def reject_null(cls, value):
         if value is None:
             raise ValueError("This field cannot be null")
+        if isinstance(value, list) and len(value) != len(set(value)):
+            raise ValueError('Related records must be unique')
         return value
 
 

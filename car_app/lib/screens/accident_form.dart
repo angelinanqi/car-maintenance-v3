@@ -7,7 +7,13 @@ import '../data/accident_repository.dart';
 class AccidentForm extends StatefulWidget {
   final AccidentRepository repository;
   final Map<String, dynamic>? record;
-  const AccidentForm({super.key, required this.repository, this.record});
+  final VoidCallback? onHelp;
+  const AccidentForm({
+    super.key,
+    required this.repository,
+    this.record,
+    this.onHelp,
+  });
   @override
   State<AccidentForm> createState() => _AccidentFormState();
 }
@@ -270,6 +276,13 @@ class _AccidentFormState extends State<AccidentForm>
     child: Scaffold(
       appBar: AppBar(
         title: const Text('Incident information'),
+        actions: [
+          if (widget.onHelp != null)
+            TextButton(
+              onPressed: widget.onHelp,
+              child: const Text('Call for help'),
+            ),
+        ],
         leading: IconButton(
           tooltip: 'Back',
           icon: const Icon(Icons.arrow_back),
@@ -282,7 +295,7 @@ class _AccidentFormState extends State<AccidentForm>
               padding: const EdgeInsets.all(20),
               children: [
                 const Text(
-                  'Changes save locally while you edit. Save an incident record to keep it in history. This form is not a police or insurance submission.',
+                  'You can leave fields empty and continue later. Changes save on this device as you edit. Saving a record does not submit a police report or insurance claim.',
                 ),
                 const SizedBox(height: 16),
                 if (_feedback != null)
@@ -295,7 +308,14 @@ class _AccidentFormState extends State<AccidentForm>
                     onPressed: _load,
                     child: const Text('Retry loading draft'),
                   ),
+                Text(
+                  '1. What happened',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
+                  isExpanded: true,
+                  itemHeight: null,
                   initialValue: _type,
                   decoration: const InputDecoration(labelText: 'Incident type'),
                   items:
@@ -318,6 +338,7 @@ class _AccidentFormState extends State<AccidentForm>
                           _changed();
                         },
                 ),
+                const SizedBox(height: 12),
                 OutlinedButton(
                   onPressed: !_loaded || _busy
                       ? null
@@ -343,8 +364,11 @@ class _AccidentFormState extends State<AccidentForm>
                           );
                           _changed();
                         },
-                  child: Text('Incident time: $_occurredAt'),
+                  child: Text(
+                    'When: ${MaterialLocalizations.of(context).formatMediumDate(_occurredAt)} at ${MaterialLocalizations.of(context).formatTimeOfDay(TimeOfDay.fromDateTime(_occurredAt))}',
+                  ),
                 ),
+                const SizedBox(height: 12),
                 TextField(
                   controller: _location,
                   enabled: _loaded && !_busy,
@@ -352,51 +376,60 @@ class _AccidentFormState extends State<AccidentForm>
                     labelText: 'Location description',
                   ),
                 ),
-                TextField(
-                  controller: _name,
-                  enabled: _loaded && !_busy,
-                  decoration: const InputDecoration(
-                    labelText: 'Other driver name',
-                    border: OutlineInputBorder(),
-                  ),
+                const SizedBox(height: 20),
+                ExpansionTile(
+                  title: const Text('2. Other driver and vehicle'),
+                  subtitle: const Text('Add only what you know'),
+                  childrenPadding: const EdgeInsets.symmetric(vertical: 12),
+                  children: [
+                    TextField(
+                      controller: _name,
+                      enabled: _loaded && !_busy,
+                      decoration: const InputDecoration(
+                        labelText: 'Other driver name',
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: _plate,
+                      enabled: _loaded && !_busy,
+                      textCapitalization: TextCapitalization.characters,
+                      decoration: const InputDecoration(
+                        labelText: 'Other vehicle plate',
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: _phone,
+                      enabled: _loaded && !_busy,
+                      keyboardType: TextInputType.phone,
+                      decoration: const InputDecoration(
+                        labelText: 'Contact phone',
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: _insurer,
+                      enabled: _loaded && !_busy,
+                      decoration: const InputDecoration(
+                        labelText: 'Insurer (if known)',
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
                 ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: _plate,
-                  enabled: _loaded && !_busy,
-                  textCapitalization: TextCapitalization.characters,
-                  decoration: const InputDecoration(
-                    labelText: 'Other vehicle plate',
-                    border: OutlineInputBorder(),
-                  ),
+                const SizedBox(height: 20),
+                Text(
+                  '3. Notes and photos',
+                  style: Theme.of(context).textTheme.titleLarge,
                 ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: _phone,
-                  enabled: _loaded && !_busy,
-                  keyboardType: TextInputType.phone,
-                  decoration: const InputDecoration(
-                    labelText: 'Contact phone',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: _insurer,
-                  enabled: _loaded && !_busy,
-                  decoration: const InputDecoration(
-                    labelText: 'Insurer (if known)',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
                 TextField(
                   controller: _details,
                   enabled: _loaded && !_busy,
                   maxLines: 4,
                   decoration: const InputDecoration(
-                    labelText: 'Time, location, and notes',
-                    border: OutlineInputBorder(),
+                    labelText: 'What you noticed (optional)',
                   ),
                 ),
                 const SizedBox(height: 20),
@@ -448,10 +481,26 @@ class _AccidentFormState extends State<AccidentForm>
                   ],
                   child: const Padding(
                     padding: EdgeInsets.all(16),
-                    child: Text('Add photo ▾'),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.add_a_photo_outlined),
+                        SizedBox(width: 8),
+                        Text('Add photo'),
+                      ],
+                    ),
                   ),
                 ),
                 const SizedBox(height: 16),
+                Text(
+                  '4. Keep your record',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Save a draft to continue later, or keep this incident in history. Photos stay on this device.',
+                ),
+                const SizedBox(height: 12),
                 FilledButton(
                   onPressed: _loaded && !_busy ? _save : null,
                   child: Text(_busy ? 'Saving...' : 'Save draft'),
@@ -468,7 +517,7 @@ class _AccidentFormState extends State<AccidentForm>
                             if (mounted) {
                               setState(
                                 () => _feedback =
-                                    'Incident record could not be saved. $error',
+                                    'Incident record could not be saved. Your draft is kept. Please retry.',
                               );
                             }
                           }

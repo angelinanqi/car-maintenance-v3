@@ -1,8 +1,22 @@
 "use client";
 
+import { Checkbox } from "@/components/ui/checkbox";
+
+import { AdminSelect } from "@/components/admin/NativeControls";
+
 import { useCallback, useEffect, useState } from "react";
 import NextLink from "next/link";
-import { Box, Button, Heading, Input, Stack, Text } from "@chakra-ui/react";
+import {
+  Fieldset,
+  Field,
+  Box,
+  Button,
+  Heading,
+  Input,
+  Stack,
+  Text,
+  Textarea,
+} from "@chakra-ui/react";
 import { request } from "@/api/client.mjs";
 
 export default function KnowledgeScopes({ documents, onChanged }) {
@@ -24,6 +38,7 @@ export default function KnowledgeScopes({ documents, onChanged }) {
   const [videoIds, setVideoIds] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const load = useCallback(async () => {
     setData(await request("/knowledge/manage"));
   }, []);
@@ -44,10 +59,12 @@ export default function KnowledgeScopes({ documents, onChanged }) {
     if (pending) return;
     setPending(true);
     setError("");
+    setNotice("");
     try {
       await action();
       await load();
       await onChanged();
+      setNotice("Knowledge scope settings saved.");
     } catch (failure) {
       setError(failure.message);
       await Promise.allSettled([load(), onChanged()]);
@@ -84,7 +101,7 @@ export default function KnowledgeScopes({ documents, onChanged }) {
   }
   const selected = documents.find((item) => item.id === documentId);
   return (
-    <Box borderWidth="1px" borderRadius="lg" p={4}>
+    <Box bg="white" borderRadius="12px" p={{ base: 5, md: 7 }}>
       <Heading size="md" mb={3}>
         Document applicability and content scopes
       </Heading>
@@ -109,6 +126,11 @@ export default function KnowledgeScopes({ documents, onChanged }) {
           {error}
         </Text>
       )}
+      {notice && (
+        <Text role="status" mb={4}>
+          {notice}
+        </Text>
+      )}
       <Button
         mb={3}
         variant="outline"
@@ -119,11 +141,11 @@ export default function KnowledgeScopes({ documents, onChanged }) {
       </Button>
       {!data && !error && <Text>Loading knowledge scopes…</Text>}
       {data && (
-        <fieldset disabled={pending}>
+        <Fieldset.Root disabled={pending}>
           <Stack gap={4}>
-            <label>
-              Document{" "}
-              <select
+            <Field.Root>
+              <Field.Label>Document </Field.Label>
+              <AdminSelect
                 value={documentId}
                 onChange={(e) => chooseDocument(e.target.value)}
               >
@@ -133,10 +155,10 @@ export default function KnowledgeScopes({ documents, onChanged }) {
                     {d.name} ({d.status})
                   </option>
                 ))}
-              </select>
-            </label>
+              </AdminSelect>
+            </Field.Root>
             {selected && (
-              <fieldset disabled={selected.status === "processing"}>
+              <Fieldset.Root disabled={selected.status === "processing"}>
                 <Stack gap={3}>
                   <Input
                     aria-label="Search scope assignments"
@@ -151,68 +173,62 @@ export default function KnowledgeScopes({ documents, onChanged }) {
                         .includes(query.toLowerCase()),
                     )
                     .map((v) => (
-                      <label key={v.id}>
-                        <input
-                          type="checkbox"
-                          checked={associations.vehicle_ids.includes(v.id)}
-                          onChange={() => toggle("vehicle_ids", v.id)}
-                        />{" "}
+                      <Checkbox
+                        key={v.id}
+                        checked={associations.vehicle_ids.includes(v.id)}
+                        onCheckedChange={() => toggle("vehicle_ids", v.id)}
+                      >
                         {v.name} · {v.year} · {v.variant}
-                      </label>
+                      </Checkbox>
                     ))}
                   {data.categories
                     .filter((c) =>
                       c.name.toLowerCase().includes(query.toLowerCase()),
                     )
                     .map((c) => (
-                      <label key={c.id}>
-                        <input
-                          type="checkbox"
-                          checked={associations.category_ids.includes(c.id)}
-                          onChange={() => toggle("category_ids", c.id)}
-                        />{" "}
+                      <Checkbox
+                        key={c.id}
+                        checked={associations.category_ids.includes(c.id)}
+                        onCheckedChange={() => toggle("category_ids", c.id)}
+                      >
                         Category: {c.name}
-                      </label>
+                      </Checkbox>
                     ))}
                   {["year", "engine", "variant"].map((key) => (
-                    <label key={key}>
-                      Source {key}
+                    <Field.Root key={key}>
+                      <Field.Label>Source {key}</Field.Label>
                       <Input
                         value={metadata[key]}
                         onChange={(e) =>
                           setMetadata({ ...metadata, [key]: e.target.value })
                         }
                       />
-                    </label>
+                    </Field.Root>
                   ))}
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={metadata.vehicle_independent}
-                      onChange={(e) =>
-                        setMetadata({
-                          ...metadata,
-                          vehicle_independent: e.target.checked,
-                        })
-                      }
-                    />{" "}
+                  <Checkbox
+                    checked={metadata.vehicle_independent}
+                    onCheckedChange={(e) =>
+                      setMetadata({
+                        ...metadata,
+                        vehicle_independent: e.checked === true,
+                      })
+                    }
+                  >
                     Vehicle-independent guidance
-                  </label>
-                  <label>
-                    <input
-                      type="checkbox"
-                      disabled={!selected.extraction_storage_path}
-                      checked={metadata.source_fidelity_verified}
-                      onChange={(e) =>
-                        setMetadata({
-                          ...metadata,
-                          source_fidelity_verified: e.target.checked,
-                        })
-                      }
-                    />{" "}
+                  </Checkbox>
+                  <Checkbox
+                    disabled={!selected.extraction_storage_path}
+                    checked={metadata.source_fidelity_verified}
+                    onCheckedChange={(e) =>
+                      setMetadata({
+                        ...metadata,
+                        source_fidelity_verified: e.checked === true,
+                      })
+                    }
+                  >
                     I checked extracted specifications, units and table
                     relationships against the original source.
-                  </label>
+                  </Checkbox>
                   <Button
                     onClick={() =>
                       save(async () => {
@@ -230,36 +246,37 @@ export default function KnowledgeScopes({ documents, onChanged }) {
                     Save document applicability and associations
                   </Button>
                 </Stack>
-              </fieldset>
+              </Fieldset.Root>
             )}
-            <Heading size="sm">Category chat publication</Heading>
+            <Heading as="h2" size="lg" mt={5}>
+              Category chat publication
+            </Heading>
             {data.categories.map((category) => (
-              <label key={category.id}>
-                <input
-                  type="checkbox"
-                  checked={category.knowledge_published || false}
-                  onChange={(e) =>
-                    save(() =>
-                      request(
-                        `/knowledge/categories/${category.id}/publication`,
-                        {
-                          method: "PATCH",
-                          body: { published: e.target.checked },
-                        },
-                      ),
-                    )
-                  }
-                />{" "}
+              <Checkbox
+                key={category.id}
+                checked={category.knowledge_published || false}
+                onCheckedChange={(e) =>
+                  save(() =>
+                    request(
+                      `/knowledge/categories/${category.id}/publication`,
+                      {
+                        method: "PATCH",
+                        body: { published: e.checked === true },
+                      },
+                    ),
+                  )
+                }
+              >
                 Publish {category.name} as an AI scope
-              </label>
+              </Checkbox>
             ))}
             <Text fontSize="sm">
-              AI scope publication is independent of learning category
-              publication.
+              Configure AI scope publication separately. The learning category
+              must also be published for its chat scope to be visible.
             </Text>
-            <label>
-              Supplementary videos{" "}
-              <select
+            <Field.Root>
+              <Field.Label>Supplementary videos — choose a scope </Field.Label>
+              <AdminSelect
                 value={videoScope}
                 onChange={(e) => {
                   const value = e.target.value;
@@ -284,17 +301,23 @@ export default function KnowledgeScopes({ documents, onChanged }) {
                     {c.name}
                   </option>
                 ))}
-              </select>
-            </label>
+              </AdminSelect>
+            </Field.Root>
             {videoScope && (
               <>
-                <label>
-                  Indexed YouTube video IDs, separated by spaces
-                  <Input
+                <Field.Root>
+                  <Field.Label>
+                    Indexed YouTube video IDs, one per line
+                  </Field.Label>
+                  <Textarea
                     value={videoIds}
                     onChange={(e) => setVideoIds(e.target.value)}
                   />
-                </label>
+                  <Field.HelperText>
+                    Add or remove eligible indexed videos for this scope. The
+                    chatbot ranks matching recommendations by relevance.
+                  </Field.HelperText>
+                </Field.Root>
                 <Button
                   onClick={() =>
                     save(() =>
@@ -315,7 +338,7 @@ export default function KnowledgeScopes({ documents, onChanged }) {
               </>
             )}
           </Stack>
-        </fieldset>
+        </Fieldset.Root>
       )}
     </Box>
   );

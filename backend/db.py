@@ -29,9 +29,11 @@ def get(table, record_id):
     return rows[0]
 
 
-def list_rows(table, *, offset=0, limit=None, **filters):
+def list_rows(table, *, offset=0, limit=None, order_by=("created_at", "id"), **filters):
     limit = limit or settings.API_PAGE_SIZE
-    query = client().table(table).select("*").order("created_at").order("id")
+    query = client().table(table).select("*")
+    for field in order_by:
+        query = query.order(field)
     for field, value in filters.items():
         query = query.in_(field, value) if isinstance(value, list) else query.eq(field, value)
     return query.range(offset, offset + limit - 1).execute().data

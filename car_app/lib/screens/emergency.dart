@@ -1,17 +1,16 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
-import 'dart:io';
-import 'package:url_launcher/url_launcher.dart';
 import '../app_state.dart';
 import '../data/content_repository.dart';
 import '../data/accident_repository.dart';
 import '../models/content.dart';
+import '../widgets/emergency_widgets.dart';
 import 'accident_form.dart';
-import 'profile.dart';
 import 'incident_history.dart';
-import 'nearby_assistance.dart';
-import '../data/nearby_repository.dart';
-import '../data/api_client.dart';
-import 'dart:async';
+import 'emergency_guide.dart';
+import 'emergency_help.dart';
+import 'emergency_downloads.dart';
+export 'emergency_guide.dart' show EmergencyGuidePage;
 
 class Emergency extends StatefulWidget {
   final AppState state;
@@ -28,15 +27,12 @@ class _EmergencyState extends State<Emergency> {
   Timer? _syncTimer;
   bool _syncing = false;
   bool _wasSignedIn = false;
+  bool _hasGuestRecords = false;
   List<EmergencyGuide> _guides = [];
   bool _loading = true;
   String? _error;
   String? _photoWarning;
-  List<Map<String, dynamic>> _contacts = [];
-  String? _contactError;
   bool _refreshing = false;
-  String? _savingId;
-  ApiClient? _nearbyApi;
   @override
   void initState() {
     super.initState();
@@ -51,10 +47,9 @@ class _EmergencyState extends State<Emergency> {
     _sync();
     _wasSignedIn = widget.state.signedIn;
     if (_wasSignedIn) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _offerGuestImport());
+      _checkGuestRecords();
     }
     _load();
-    _loadContacts();
     _recoverPhotos();
   }
 
@@ -72,7 +67,7 @@ class _EmergencyState extends State<Emergency> {
       _sync();
     }
     if (!_wasSignedIn && widget.state.signedIn) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _offerGuestImport());
+      _checkGuestRecords();
     }
     _wasSignedIn = widget.state.signedIn;
   }
@@ -80,7 +75,6 @@ class _EmergencyState extends State<Emergency> {
   @override
   void dispose() {
     _syncTimer?.cancel();
-    _nearbyApi?.close();
     super.dispose();
   }
 
@@ -93,6 +87,15 @@ class _EmergencyState extends State<Emergency> {
       /* Local records stay pending; retry while the app is running. */
     } finally {
       _syncing = false;
+    }
+  }
+
+  Future<void> _checkGuestRecords() async {
+    try {
+      final guest = await AccidentRepository(widget.state.store).records();
+      if (mounted) setState(() => _hasGuestRecords = guest.isNotEmpty);
+    } catch (_) {
+      // History provides an explicit retry without interrupting emergency help.
     }
   }
 
@@ -123,12 +126,13 @@ class _EmergencyState extends State<Emergency> {
       );
       if (associate == true && mounted && owner == _owner) {
         await _accidents.importGuestRecords();
+        if (mounted) setState(() => _hasGuestRecords = false);
       }
     } catch (error) {
       if (mounted) {
         setState(
           () => _photoWarning =
-              'Guest incidents could not be associated. Local files have been kept. $error',
+              'Guest incidents could not be associated. Local files have been kept. Please retry from Incident records.',
         );
       }
     }
@@ -148,18 +152,19 @@ class _EmergencyState extends State<Emergency> {
   }
 
   Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
     try {
       final guides = await _content.emergencyGuides();
-      if (mounted) setState(() => _guides = guides);
+      if (mounted) {
+        setState(() {
+          _guides = guides;
+          _error = null;
+        });
+      }
     } catch (_) {
       if (mounted) {
         setState(
           () => _error =
-              'Bundled emergency catalogue could not be opened. Please retry.',
+              'Safety guides could not be opened. You can still call for help. Retry loading below.',
         );
       }
     } finally {
@@ -168,522 +173,364 @@ class _EmergencyState extends State<Emergency> {
     if (mounted && _content.api != null) _refresh();
   }
 
-  Future<void> _loadContacts({bool refresh = false}) async {
-    try {
-      final contacts = await _content.emergencyContacts(refresh: refresh);
-      if (mounted) {
-        setState(() {
-          _contacts = contacts;
-          _contactError = null;
-        });
-      }
-    } catch (_) {
-      if (mounted) {
-        setState(
-          () => _contactError =
-              'Shared contacts could not be refreshed. Any saved directory is shown.',
-        );
-      }
-    }
-  }
-
   Future<void> _refresh() async {
     if (_refreshing) return;
-    setState(() => _refreshing = true);
-    _loadContacts(refresh: true);
+    _refreshing = true;
     try {
       final guides = await _content.refreshEmergency();
       if (mounted) setState(() => _guides = guides);
-    } catch (error) {
-      if (mounted) setState(() => _error = error.toString());
+    } catch (_) {
+      // Keep the local catalogue visible; downloads has an explicit retry action.
     } finally {
-      if (mounted) setState(() => _refreshing = false);
+      _refreshing = false;
     }
   }
 
-  Future<void> _save(EmergencyGuide guide, {bool remove = false}) async {
-    setState(() => _savingId = guide.id);
-    try {
-      List<EmergencyGuide> guides;
-      if (remove) {
-        await _content.removeOfflineGuide(guide.id);
-        guides = await _content.refreshEmergency();
-      } else {
-        guides = await _content.saveOfflineGuide(guide.id);
-      }
-      if (mounted) {
-        setState(() {
-          _guides = guides;
-          _error = null;
-        });
-      }
-    } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not change the offline copy. $error')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _savingId = null);
-    }
-  }
+  void _help() => openEmergencyHelp(context, widget.state, _content);
 
-  @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: const Text('Emergency'),
-      backgroundColor: Colors.red[50],
-      foregroundColor: Colors.red[900],
-      actions: [
-        IconButton(
-          tooltip: 'Refresh emergency content',
-          onPressed: _refreshing || _savingId != null ? null : _refresh,
-          icon: const Icon(Icons.refresh),
-        ),
-      ],
-    ),
-    body: ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        Card.outlined(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Nearby assistance',
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                const Text(
-                  'Find workshop phone numbers or search for towing. Requires internet; no account needed.',
-                ),
-                const SizedBox(height: 8),
-                FilledButton.icon(
-                  onPressed: () {
-                    final api = _content.api ?? (_nearbyApi ??= ApiClient());
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) =>
-                            NearbyAssistance(repository: NearbyRepository(api)),
-                      ),
-                    );
-                  },
-                  icon: const Icon(Icons.location_on_outlined),
-                  label: const Text('Find nearby help · Online'),
-                ),
-              ],
-            ),
-          ),
-        ),
-        Card.outlined(
-          color: Colors.red[50],
-          child: Padding(
-            padding: EdgeInsets.all(16),
-            child: Text(
-              _guides.any((guide) => guide.available)
-                  ? 'Essential safety guides are bundled and work offline immediately. Download published updates when connected. Calling requires phone service.'
-                  : 'Reviewed emergency instructions have not been supplied yet. The offline catalogue below identifies the missing guides; it does not provide repair or safety instructions.',
-            ),
-          ),
-        ),
-        if (_photoWarning != null)
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: Text(_photoWarning!),
-          ),
-        if (_content.warning != null)
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: Text(_content.warning!),
-          ),
-        const SizedBox(height: 12),
-        if (_refreshing) const LinearProgressIndicator(),
-        Text(
-          'Offline catalogue',
-          style: Theme.of(context).textTheme.titleLarge,
-        ),
-        const SizedBox(height: 12),
-        if (_loading)
-          const Center(child: CircularProgressIndicator())
-        else if (_error != null)
-          Column(
-            children: [
-              Text(_error!),
-              TextButton(onPressed: _load, child: const Text('Retry')),
-            ],
-          )
-        else
-          ..._guides.map(
-            (guide) => Card.outlined(
-              child: Column(
-                children: [
-                  ListTile(
-                    leading: const Icon(Icons.warning_amber),
-                    title: Text(guide.title),
-                    subtitle: Text(
-                      guide.available
-                          ? '${guide.savedOffline ? 'Available offline' : 'Online guide'} • ${guide.bundled ? 'bundled safety guidance' : 'reviewed ${guide.reviewedAt}'}'
-                          : 'Instructions unavailable • review required',
-                    ),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => EmergencyGuidePage(
-                          guide: guide,
-                          state: widget.state,
-                          accidents: _accidents,
-                        ),
-                      ),
-                    ),
-                  ),
-                  if (guide.available && !guide.legacy)
-                    Padding(
-                      padding: const EdgeInsets.only(
-                        left: 16,
-                        right: 16,
-                        bottom: 8,
-                      ),
-                      child: Wrap(
-                        spacing: 8,
-                        children: [
-                          TextButton.icon(
-                            onPressed: _savingId == null
-                                ? () => _save(guide)
-                                : null,
-                            icon: const Icon(Icons.download),
-                            label: Text(
-                              _savingId == guide.id
-                                  ? 'Saving...'
-                                  : guide.savedOffline
-                                  ? (_content.hasUpdate(guide)
-                                        ? 'Download updated guide'
-                                        : 'Update offline copy')
-                                  : 'Save offline',
-                            ),
-                          ),
-                          if (guide.savedOffline)
-                            TextButton(
-                              onPressed: _savingId == null
-                                  ? () => _save(guide, remove: true)
-                                  : null,
-                              child: const Text('Remove offline copy'),
-                            ),
-                        ],
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
-        const SizedBox(height: 16),
-        Text(
-          'Shared emergency contacts',
-          style: Theme.of(context).textTheme.titleMedium,
-        ),
-        if (_contactError != null) Text(_contactError!),
-        if (_contacts.isEmpty)
-          const Text('No shared contacts are available yet.'),
-        for (final contact in _contacts)
-          Card.outlined(
-            child: ListTile(
-              title: Text(contact['name'] as String),
-              subtitle: SelectableText(contact['phone'] as String),
-              trailing: IconButton(
-                tooltip: 'Open dialer',
-                icon: const Icon(Icons.call),
-                onPressed: () async {
-                  final phone = contact['phone'] as String;
-                  try {
-                    if (!await launchUrl(
-                      Uri(
-                        scheme: 'tel',
-                        path: phone.replaceAll(RegExp(r'[^+0-9]'), ''),
-                      ),
-                    )) {
-                      throw StateError('No dialer');
-                    }
-                  } catch (_) {
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            'Could not open the phone app. Dial $phone manually.',
-                          ),
-                        ),
-                      );
-                    }
-                  }
-                },
-              ),
-            ),
-          ),
-        RoadsideContact(state: widget.state),
-        const SizedBox(height: 12),
-        OutlinedButton.icon(
-          icon: const Icon(Icons.assignment_outlined),
-          label: const Text('Continue incident draft'),
-          onPressed: () => Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => AccidentForm(repository: _accidents),
-            ),
-          ),
-        ),
-        OutlinedButton.icon(
-          icon: const Icon(Icons.add),
-          label: const Text('Start new incident'),
-          onPressed: () async {
-            final confirmed = await showDialog<bool>(
-              context: context,
-              builder: (_) => AlertDialog(
-                title: const Text('Start a new incident?'),
-                content: const Text(
-                  'The current draft will be kept in incident history before a new draft starts.',
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(context, false),
-                    child: const Text('Cancel'),
-                  ),
-                  TextButton(
-                    onPressed: () => Navigator.pop(context, true),
-                    child: const Text('Continue'),
-                  ),
-                ],
-              ),
-            );
-            if (confirmed != true) return;
-            try {
-              final old = await _accidents.load();
-              if ((old['details'] as String).isNotEmpty ||
-                  (old['photos'] as List).isNotEmpty ||
-                  (old['name'] as String).isNotEmpty) {
-                await _accidents.saveRecord({
-                  ...old,
-                  'id':
-                      old['id'] ??
-                      DateTime.now().microsecondsSinceEpoch.toString(),
-                });
-              }
-              await _accidents.save({
-                'version': 1,
-                'id': DateTime.now().microsecondsSinceEpoch.toString(),
-                'name': '',
-                'plate': '',
-                'phone': '',
-                'insurer': '',
-                'details': '',
-                'photos': <String>[],
-                'type': 'Road accident',
-                'location': '',
-                'occurredAt': DateTime.now().toIso8601String(),
-              });
-              if (context.mounted) {
-                await Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => AccidentForm(repository: _accidents),
-                  ),
-                );
-              }
-            } catch (error) {
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Could not start a new incident. $error'),
-                  ),
-                );
-              }
-            }
-          },
-        ),
-        OutlinedButton.icon(
-          icon: const Icon(Icons.history),
-          label: const Text('Incident records and backup'),
-          onPressed: () => Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => IncidentHistory(repository: _accidents),
-            ),
-          ),
-        ),
-      ],
+  void _openGuide(EmergencyGuide guide) => Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (_) => EmergencyGuidePage(
+        guide: guide,
+        state: widget.state,
+        accidents: _accidents,
+        content: _content,
+      ),
     ),
   );
-}
 
-class EmergencyGuidePage extends StatefulWidget {
-  final EmergencyGuide guide;
-  final AppState state;
-  final AccidentRepository accidents;
-  const EmergencyGuidePage({
-    super.key,
-    required this.guide,
-    required this.state,
-    required this.accidents,
-  });
-  @override
-  State<EmergencyGuidePage> createState() => _EmergencyGuidePageState();
-}
+  Future<void> _downloads() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => EmergencyDownloads(content: _content, guides: _guides),
+      ),
+    );
+    if (!mounted) return;
+    // Reuse the catalogue already resolved by the downloads screen, including
+    // online-only entries. This does not issue another network request.
+    final guides = await _content.currentEmergencyCatalogue();
+    if (mounted) setState(() => _guides = guides);
+  }
 
-class _EmergencyGuidePageState extends State<EmergencyGuidePage> {
-  late final List<bool> _checked;
-  @override
-  void initState() {
-    super.initState();
-    _checked = List.filled(widget.guide.steps.length, false);
+  Future<void> _startIncident() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Start a new incident?'),
+        content: const Text(
+          'Your current draft will be kept in incident history before a new draft starts.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Start new incident'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      final old = await _accidents.load();
+      if ([
+            'details',
+            'name',
+            'plate',
+            'phone',
+            'insurer',
+            'location',
+          ].any((key) => (old[key] as String? ?? '').isNotEmpty) ||
+          (old['photos'] as List).isNotEmpty) {
+        await _accidents.saveRecord(old);
+      }
+      await _accidents.save({
+        'version': 1,
+        'id': DateTime.now().microsecondsSinceEpoch.toString(),
+        'name': '',
+        'plate': '',
+        'phone': '',
+        'insurer': '',
+        'details': '',
+        'photos': <String>[],
+        'type': 'Road accident',
+        'location': '',
+        'occurredAt': DateTime.now().toIso8601String(),
+      });
+      if (mounted) {
+        await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => AccidentForm(repository: _accidents, onHelp: _help),
+          ),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Could not start a new incident. Your saved files have been kept. Please retry.',
+            ),
+          ),
+        );
+      }
+    }
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: Text(widget.guide.title),
-      backgroundColor: Colors.red[50],
-    ),
-    body: ListenableBuilder(
-      listenable: widget.state,
-      builder: (context, _) => ListView(
+  Widget build(BuildContext context) {
+    final general = _guides
+        .where((g) => g.scenarioKey == 'breakdown' && g.available)
+        .firstOrNull;
+    final accidents = _guides
+        .where((g) => g.scenarioKey == 'minor-accident')
+        .toList();
+    return Scaffold(
+      appBar: AppBar(title: const Text('Emergency')),
+      bottomNavigationBar: EmergencyHelpBar(onHelp: _help),
+      body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          if (!widget.guide.available)
-            const Card.outlined(
-              child: Padding(
-                padding: EdgeInsets.all(20),
-                child: Text(
-                  'No reviewed instructions are available for this scenario. This notice is accessible offline.',
-                ),
-              ),
-            )
-          else ...[
-            Text(
-              '${widget.guide.savedOffline ? 'Available offline' : 'Online guide'} • ${widget.guide.bundled ? 'Sources checked ${widget.guide.reviewedAt}' : 'reviewed ${widget.guide.reviewedAt}'}',
-            ),
-            if (widget.guide.legacy && !widget.guide.bundled)
-              const Text(
-                'Legacy local copy; backend publication has not been confirmed.',
-              ),
-            Text('Source: ${widget.guide.source}'),
-            if (widget.guide.bundled)
-              const Text(
-                'General safety guidance compiled from the linked sources. This is not a vehicle-specific repair procedure.',
-              ),
-            const SizedBox(height: 16),
-            for (var i = 0; i < widget.guide.steps.length; i++)
-              Card.outlined(
+          const EmergencyNotice(
+            title: 'First, protect yourself',
+            message:
+                'If you are driving, put the phone down. Use the app only once stopped in a safe place.',
+          ),
+          const SizedBox(height: 12),
+          if (general != null) ...[
+            // Reuse the resolved, reviewed general-breakdown content verbatim.
+            // There is no universal safety content role in the current contract.
+            if (general.safetyWarnings.isNotEmpty) ...[
+              Text(general.safetyWarnings),
+              const SizedBox(height: 12),
+            ],
+            for (final step in general.steps.take(2))
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
                 child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    CheckboxListTile(
-                      title: Text('${i + 1}. ${widget.guide.steps[i].title}'),
-                      subtitle: Text(widget.guide.steps[i].description),
-                      value: _checked[i],
-                      onChanged: (value) =>
-                          setState(() => _checked[i] = value!),
-                      controlAffinity: ListTileControlAffinity.leading,
+                    Text(
+                      step.title,
+                      style: Theme.of(context).textTheme.titleMedium,
                     ),
-                    if (widget.guide.steps[i].localImagePath != null)
-                      Image.file(
-                        File(widget.guide.steps[i].localImagePath!),
-                        errorBuilder: (_, _, _) => const Text(
-                          'Saved image is unavailable. Download the guide again.',
-                        ),
-                      )
-                    else if (widget.guide.steps[i].imageUrl.isNotEmpty)
-                      Image.network(
-                        widget.guide.steps[i].imageUrl,
-                        errorBuilder: (_, _, _) =>
-                            const Text('Image could not be loaded.'),
-                      ),
+                    const SizedBox(height: 4),
+                    Text(step.description),
                   ],
                 ),
               ),
           ],
+          Wrap(
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 8,
+            children: [
+              const Text('Injuries, fire or immediate danger?'),
+              TextButton.icon(
+                onPressed: () => dialAssistance(context, '999'),
+                icon: const Icon(Icons.call_outlined),
+                label: const Text('Call 999'),
+              ),
+            ],
+          ),
           const SizedBox(height: 16),
-          RoadsideContact(state: widget.state),
-          if (widget.guide.scenarioKey == 'minor-accident')
-            OutlinedButton.icon(
-              icon: const Icon(Icons.assignment),
-              label: const Text('Collect accident information'),
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => AccidentForm(repository: widget.accidents),
+          Text(
+            'Help for your situation',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          const SizedBox(height: 12),
+          EmergencyAction(
+            icon: Icons.car_repair_outlined,
+            title: 'Car stopped or something wrong',
+            subtitle: 'Get help without knowing the cause.',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => EmergencySituations(
+                  guides: _guides
+                      .where((g) => g.scenarioKey != 'minor-accident')
+                      .toList(),
+                  onOpen: _openGuide,
+                  onHelp: _help,
                 ),
               ),
             ),
-          const SizedBox(height: 20),
-          FilledButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Back to scenarios'),
           ),
-        ],
-      ),
-    ),
-  );
-}
-
-class RoadsideContact extends StatelessWidget {
-  final AppState state;
-  const RoadsideContact({super.key, required this.state});
-  Future<void> _dial(BuildContext context) async {
-    final number = state.contactPhone.replaceAll(RegExp(r'[^+0-9]'), '');
-    try {
-      if (!await launchUrl(Uri(scheme: 'tel', path: number))) {
-        throw StateError('Phone handler unavailable');
-      }
-    } catch (_) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Could not open the phone app. Dial ${state.contactPhone} manually.',
+          EmergencyAction(
+            icon: Icons.car_crash_outlined,
+            title: 'Minor road accident',
+            subtitle:
+                'Property damage with no injuries. Safety first, details later.',
+            onTap: () {
+              if (accidents.length == 1) {
+                _openGuide(accidents.first);
+              } else {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => EmergencySituations(
+                      guides: accidents,
+                      onOpen: _openGuide,
+                      onHelp: _help,
+                      accident: true,
+                    ),
+                  ),
+                );
+              }
+            },
+          ),
+          if (_loading)
+            const Text(
+              'Opening saved safety guides. Calling help is available now.',
             ),
-          ),
-        );
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) => Card.outlined(
-    child: Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Your roadside contact',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          const SizedBox(height: 8),
-          if (state.contactPhone.isEmpty)
-            const Text('No personal assistance number saved yet.')
-          else ...[
-            Text(state.contactName),
-            SelectableText(state.contactPhone),
-            FilledButton.icon(
-              onPressed: () => _dial(context),
-              icon: const Icon(Icons.call),
-              label: const Text('Open dialer'),
+          if (_error != null) ...[
+            Text(_error!),
+            TextButton(
+              onPressed: _load,
+              child: const Text('Retry loading guides'),
             ),
           ],
-          TextButton(
-            onPressed: state.loading
-                ? null
-                : () => Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => Profile(state: state)),
-                  ),
-            child: Text(
-              state.contactPhone.isEmpty
-                  ? 'Add roadside contact'
-                  : 'Edit contact',
+          if (_content.warning != null)
+            const Text(
+              'Some content could not be updated. Available local guidance is kept. Open Offline guides to retry.',
             ),
+          const SizedBox(height: 24),
+          Text(
+            'When you can record details',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Save what you know on this device. You can finish later.',
+          ),
+          const SizedBox(height: 12),
+          if (_photoWarning != null) Text(_photoWarning!),
+          if (_hasGuestRecords && widget.state.signedIn)
+            TextButton(
+              onPressed: _offerGuestImport,
+              child: const Text('Associate guest incident records'),
+            ),
+          OutlinedButton.icon(
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) =>
+                    AccidentForm(repository: _accidents, onHelp: _help),
+              ),
+            ),
+            icon: const Icon(Icons.edit_note),
+            label: const Text('Continue incident draft'),
+          ),
+          TextButton.icon(
+            onPressed: _startIncident,
+            icon: const Icon(Icons.add),
+            label: const Text('Start new incident'),
+          ),
+          EmergencyAction(
+            icon: Icons.history,
+            title: 'Incident records and backup',
+            subtitle:
+                'Review saved records. Optional account backup covers text only.',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) =>
+                    IncidentHistory(repository: _accidents, onHelp: _help),
+              ),
+            ),
+          ),
+          TextButton.icon(
+            onPressed: _downloads,
+            icon: const Icon(Icons.download_outlined),
+            label: const Text('Offline guides'),
           ),
         ],
       ),
-    ),
-  );
+    );
+  }
+}
+
+class EmergencySituations extends StatelessWidget {
+  final List<EmergencyGuide> guides;
+  final ValueChanged<EmergencyGuide> onOpen;
+  final VoidCallback onHelp;
+  final bool accident;
+  const EmergencySituations({
+    super.key,
+    required this.guides,
+    required this.onOpen,
+    required this.onHelp,
+    this.accident = false,
+  });
+  @override
+  Widget build(BuildContext context) {
+    final unknown = guides.where((g) => g.scenarioKey == 'breakdown').toList();
+    final specific = guides.where((g) => g.scenarioKey != 'breakdown').toList();
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(accident ? 'Minor road accident' : 'Car trouble'),
+      ),
+      bottomNavigationBar: EmergencyHelpBar(onHelp: onHelp),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Text(
+            accident ? 'Safety comes first' : 'You do not need to diagnose it',
+            style: Theme.of(context).textTheme.headlineSmall,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            accident
+                ? 'For injuries, fire or immediate danger, contact emergency services. The incident form is for minor property damage.'
+                : 'Choose what you notice, or use general breakdown guidance. You can call for help at any time.',
+          ),
+          const SizedBox(height: 24),
+          if (!accident) ...[
+            if (unknown.isEmpty)
+              EmergencyAction(
+                icon: Icons.call_outlined,
+                title: "I'm not sure what's wrong",
+                subtitle: 'Contact assistance without choosing a guide.',
+                onTap: onHelp,
+              ),
+            for (final guide in unknown)
+              EmergencyAction(
+                icon: Icons.help_outline,
+                title: "I'm not sure what's wrong",
+                subtitle: guide.title,
+                onTap: () => onOpen(guide),
+              ),
+          ],
+          if (specific.isNotEmpty)
+            Text(
+              accident ? 'Available guidance' : 'Or choose a situation',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+          const SizedBox(height: 12),
+          for (final guide in specific)
+            EmergencyAction(
+              icon: Icons.format_list_numbered,
+              title: guide.title,
+              subtitle: !guide.available
+                  ? 'Reviewed instructions unavailable. Call for help.'
+                  : [
+                      if (guide.category.isNotEmpty) guide.category,
+                      guide.savedOffline
+                          ? 'Guidance available offline'
+                          : 'Online guide',
+                    ].join(' · '),
+              onTap: () => onOpen(guide),
+            ),
+          if (guides.isEmpty)
+            const Text(
+              'No reviewed guides are available here yet. Call for help below; you do not need to choose a situation.',
+            ),
+        ],
+      ),
+    );
+  }
 }

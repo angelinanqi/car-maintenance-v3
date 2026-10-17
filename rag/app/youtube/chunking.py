@@ -3,7 +3,7 @@ from hashlib import sha256
 import json
 import math
 
-from .config import CHUNK_TOKENS, OVERLAP_TOKENS
+from rag.config.settings import YOUTUBE_CHUNK_TOKENS as CHUNK_TOKENS, YOUTUBE_OVERLAP_TOKENS as OVERLAP_TOKENS
 
 
 def chunk_transcript(

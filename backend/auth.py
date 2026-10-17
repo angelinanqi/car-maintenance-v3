@@ -44,7 +44,10 @@ def limit_account_requests(request: Request):
 def check_origin(request: Request):
     origin = request.headers.get("origin")
     if not origin:
-        referer = urlsplit(request.headers.get("referer", ""))
+        try:
+            referer = urlsplit(request.headers.get("referer", ""))
+        except ValueError:
+            raise HTTPException(403, "Request origin is not allowed.") from None
         origin = f"{referer.scheme}://{referer.netloc}" if referer.netloc else ""
     if origin not in settings.CORS_ORIGINS:
         raise HTTPException(403, "Request origin is not allowed.")
@@ -115,7 +118,7 @@ def check_csrf(request: Request, identity):
     if identity["transport"] == "cookie":
         check_origin(request)
         supplied = request.headers.get("x-csrf-token", "")
-        if not secrets.compare_digest(supplied, identity["session"]["csrf_token"]):
+        if not secrets.compare_digest(supplied.encode(), identity["session"]["csrf_token"].encode()):
             raise HTTPException(403, "Invalid CSRF token. Reload and try again.")
 
 

@@ -101,7 +101,7 @@ export default function EditorToolbar({ editor, uploadImage }) {
           <Button
             type="button"
             size="xs"
-            variant={editor.isActive("bold") ? "solid" : "ghost"}
+            variant={editor.isActive("bold") ? "solid" : "outline"}
             colorPalette={editor.isActive("bold") ? "blue" : "gray"}
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => {
@@ -114,7 +114,7 @@ export default function EditorToolbar({ editor, uploadImage }) {
           <Button
             type="button"
             size="xs"
-            variant={editor.isActive("italic") ? "solid" : "ghost"}
+            variant={editor.isActive("italic") ? "solid" : "outline"}
             colorPalette={editor.isActive("italic") ? "blue" : "gray"}
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => {
@@ -127,7 +127,7 @@ export default function EditorToolbar({ editor, uploadImage }) {
           <Button
             type="button"
             size="xs"
-            variant={editor.isActive("strike") ? "solid" : "ghost"}
+            variant={editor.isActive("strike") ? "solid" : "outline"}
             colorPalette={editor.isActive("strike") ? "blue" : "gray"}
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => {
@@ -153,7 +153,7 @@ export default function EditorToolbar({ editor, uploadImage }) {
                 key={level}
                 type="button"
                 size="xs"
-                variant={active ? "solid" : "ghost"}
+                variant={active ? "solid" : "outline"}
                 colorPalette={active ? "blue" : "gray"}
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => {
@@ -176,7 +176,7 @@ export default function EditorToolbar({ editor, uploadImage }) {
           <Button
             type="button"
             size="xs"
-            variant={editor.isActive("bulletList") ? "solid" : "ghost"}
+            variant={editor.isActive("bulletList") ? "solid" : "outline"}
             colorPalette={editor.isActive("bulletList") ? "blue" : "gray"}
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => {
@@ -189,7 +189,7 @@ export default function EditorToolbar({ editor, uploadImage }) {
           <Button
             type="button"
             size="xs"
-            variant={editor.isActive("orderedList") ? "solid" : "ghost"}
+            variant={editor.isActive("orderedList") ? "solid" : "outline"}
             colorPalette={editor.isActive("orderedList") ? "blue" : "gray"}
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => {
@@ -212,7 +212,7 @@ export default function EditorToolbar({ editor, uploadImage }) {
             colorPalette="teal"
             onClick={() => { setMediaError(""); setIsImageOpen(true); }}
           >
-            📷 Insert Image
+            Insert image
           </Button>
 
           <Button
@@ -256,10 +256,10 @@ export default function EditorToolbar({ editor, uploadImage }) {
                 <Button
                   type="button"
                   size="xs"
-                  variant="ghost"
+                  variant="outline"
                   onClick={closeYoutubeDialog}
                 >
-                  ✕
+                  Close
                 </Button>
               </Dialog.Header>
 
@@ -327,10 +327,10 @@ export default function EditorToolbar({ editor, uploadImage }) {
                 <Button
                   type="button"
                   size="xs"
-                  variant="ghost"
+                  variant="outline"
                   onClick={closeImageDialog}
                 >
-                  ✕
+                  Close
                 </Button>
               </Dialog.Header>
 
@@ -367,7 +367,7 @@ export default function EditorToolbar({ editor, uploadImage }) {
                     </FileUpload.ItemGroup>
                   </FileUpload.Root>
 
-                  <Text fontSize="xs" color="gray.500">
+                  <Text fontSize="sm" color="muted">
                     Images are stored persistently. Save the guide after inserting an image.
                   </Text>
                 </Stack>

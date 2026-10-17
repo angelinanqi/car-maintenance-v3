@@ -4,7 +4,7 @@ from typing import Literal
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from backend import auth, db, settings
 from backend.locks import content_lock
@@ -64,6 +64,11 @@ class TaskInput(InputModel):
     lessonIds: list[UUID] = Field(default_factory=list)
     isCustom: bool = True
 
+    @field_validator('id', 'vehicleId')
+    @classmethod
+    def valid_identifiers(cls, value):
+        return valid_id(value)
+
     @model_validator(mode='after')
     def check_custom(self):
         if self.customRule:
@@ -87,6 +92,11 @@ class RecordInput(InputModel):
     notes: str = Field(default='', max_length=10000)
     cost: float | None = Field(default=None, ge=0, allow_inf_nan=False)
 
+    @field_validator('id', 'vehicleId', 'taskId')
+    @classmethod
+    def valid_identifiers(cls, value):
+        return valid_id(value) if value is not None else None
+
 
 class ProgressInput(InputModel):
     completed: bool
@@ -108,6 +118,11 @@ class IncidentInput(InputModel):
     updatedAt: datetime
     pendingSync: bool = True
     cloudRevision: int | None = Field(default=None, ge=1)
+
+    @field_validator('id')
+    @classmethod
+    def valid_identifier(cls, value):
+        return valid_id(value)
 
 
 def task_view(row, schedules, items):
@@ -158,8 +173,8 @@ def snapshot(user=Depends(require_user)):
                 item = items[entry['itemId']]
                 task_id = 'm:' + str(uuid5(NAMESPACE_URL, f"{owner}/{vehicle['id']}/{item['id']}"))
                 tasks.append(put('user_tasks', owner, task_id, {
-                    'vehicle_id': vehicle['id'], 'item_id': item['id'], 'title': item['title'],
-                    'category': item['category'], 'action': item['action'], 'schedule_source': 'manufacturer', 'custom_rule': None}))
+                    'vehicle_id': vehicle['id'], 'item_id': item['id'], 'title': None,
+                    'category': None, 'action': None, 'schedule_source': 'manufacturer', 'custom_rule': None}))
         records = [record_view(r) for r in db.all_rows('service_records', user_id=owner)]
         output = []
         for vehicle in vehicles:
@@ -227,7 +242,8 @@ def save_task(record_id: str, request: TaskInput, user=Depends(require_user)):
         vehicle = owned('user_vehicles', user['id'], request.vehicleId)
         old = owned('user_tasks', user['id'], record_id, optional=True)
         item_id = str(request.itemId) if request.itemId else None
-        if old and (old['vehicle_id'] != request.vehicleId or old.get('item_id') != item_id or old['action'] != request.action):
+        if old and (old['vehicle_id'] != request.vehicleId or old.get('item_id') != item_id
+                    or (not item_id and old['action'] != request.action)):
             raise HTTPException(409, 'Create a separate item to change its vehicle, catalogue identity or action.')
         item = db.get('maintenance_items', item_id) if item_id else None
         if item and (not old and not item['active'] or item['action'] != request.action):
@@ -237,8 +253,8 @@ def save_task(record_id: str, request: TaskInput, user=Depends(require_user)):
             if not item or not any(e['itemId'] == item_id for e in entries):
                 raise HTTPException(422, 'No published manufacturer rule exists for this item and vehicle.')
         row = put('user_tasks', user['id'], record_id, {'vehicle_id': request.vehicleId, 'item_id': item_id,
-            'title': item['title'] if item else request.title, 'category': item['category'] if item else request.category,
-            'action': request.action, 'schedule_source': request.scheduleSource,
+            'title': None if item else request.title, 'category': None if item else request.category,
+            'action': None if item else request.action, 'schedule_source': request.scheduleSource,
             'custom_rule': request.customRule.model_dump(mode='json') if request.customRule else None})
         return {'id': row['id']}
 
@@ -266,9 +282,15 @@ def save_record(record_id: str, request: RecordInput, user=Depends(require_user)
         task = owned('user_tasks', user['id'], request.taskId) if request.taskId else None
         if (task and task['vehicle_id'] != request.vehicleId) or (not task and not old):
             raise HTTPException(422, 'Select an item belonging to this vehicle.')
+        if old:
+            title = old['title']
+        elif task.get('item_id'):
+            title = db.get('maintenance_items', task['item_id'])['title']
+        else:
+            title = task['title']
         row = put('service_records', user['id'], record_id, {'vehicle_id': request.vehicleId, 'task_id': request.taskId,
-            'title': task['title'] if task else old['title'], 'category': request.category,
-            'mileage': request.mileage, 'performed_at': request.date.isoformat(), 'notes': request.notes, 'cost': request.cost})
+            'title': title, 'category': request.category,
+            'mileage': request.mileage, 'performed_at': request.date.date().isoformat(), 'notes': request.notes, 'cost': request.cost})
         return record_view(row)
 
 
@@ -283,7 +305,7 @@ def save_progress(guide_id: UUID, request: ProgressInput, user=Depends(require_u
 
 @router.get('/incidents')
 def incidents(offset: int = Query(0, ge=0), limit: int = Query(settings.API_PAGE_SIZE, ge=1, le=1000), user=Depends(require_user)):
-    return [{**r['payload'], 'cloudRevision': r['revision'], 'pendingSync': False}
+    return [{**r['payload'], 'id': r['id'], 'cloudRevision': r['revision'], 'pendingSync': False}
             for r in db.list_rows('incident_records', user_id=user['id'], offset=offset, limit=limit)]
 
 
@@ -293,10 +315,10 @@ def save_incident(record_id: str, request: IncidentInput, user=Depends(require_u
         raise HTTPException(422, 'The request and path identifiers must match.')
     with content_lock('mobile:' + user['id']):
         old = owned('incident_records', user['id'], record_id, optional=True)
-        values = request.model_dump(mode='json', exclude={'cloudRevision', 'pendingSync'})
+        values = request.model_dump(mode='json', exclude={'id', 'cloudRevision', 'pendingSync'})
         if old and values == old['payload']:
-            return {**old['payload'], 'cloudRevision': old['revision'], 'pendingSync': False}
+            return {**old['payload'], 'id': old['id'], 'cloudRevision': old['revision'], 'pendingSync': False}
         if old and request.cloudRevision != old['revision']:
             raise HTTPException(409, 'This incident changed on another device. Your local copy is kept; review the cloud copy before replacing it.')
         row = put('incident_records', user['id'], record_id, {'payload': values, 'revision': old['revision'] + 1 if old else 1})
-        return {**row['payload'], 'cloudRevision': row['revision'], 'pendingSync': False}
+        return {**row['payload'], 'id': row['id'], 'cloudRevision': row['revision'], 'pendingSync': False}

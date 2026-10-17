@@ -1,569 +1,425 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import NextLink from "next/link";
 import {
+  Badge,
   Box,
   Button,
   Flex,
+  Grid,
   Heading,
   Input,
   Stack,
-  Table,
+  Tabs,
   Text,
 } from "@chakra-ui/react";
 import AdminLayout from "@/components/layouts/AdminLayout";
+import ListFilters from "@/components/admin/ListFilters";
 import FormField from "@/components/admin/FormField";
+import { AdminSelect } from "@/components/admin/NativeControls";
+import {
+  ManufacturerEditor,
+  ModelEditor,
+  VehicleEditor,
+} from "@/components/admin/CatalogueEditors";
 import {
   loadCatalogue,
-  saveManufacturer,
-  saveModel,
-  saveVehicle,
   type Catalogue,
+  type Manufacturer,
+  type VehicleModel,
   type Vehicle,
 } from "@/api/admin";
+import { vehicleAvailability } from "@/lib/catalogue.mjs";
 
-const emptyVehicle = {
-  code: "",
-  name: "",
-  model_id: "",
-  year: "",
-  engine: "",
-  variant: "",
-  powertrain: "petrol" as Vehicle["powertrain"],
-  active: true,
-  published: false,
-};
+type Section = "vehicles" | "models" | "manufacturers";
+type Editor =
+  | { kind: "vehicles"; row?: Vehicle }
+  | { kind: "models"; row?: VehicleModel }
+  | { kind: "manufacturers"; row?: Manufacturer };
 
 export default function VehiclesPage() {
   const [data, setData] = useState<Catalogue | null>(null);
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [section, setSection] = useState<Section>("vehicles");
+  const [editor, setEditor] = useState<Editor | null>(null);
   const [query, setQuery] = useState("");
   const [manufacturerId, setManufacturerId] = useState("");
-  const [manufacturer, setManufacturer] = useState({ name: "", active: true });
-  const [modelId, setModelId] = useState("");
-  const [model, setModel] = useState({
-    name: "",
-    manufacturer_id: "",
-    active: true,
-  });
-  const [vehicleId, setVehicleId] = useState("");
-  const [vehicle, setVehicle] = useState(emptyVehicle);
-  const [manufacturerFilter, setManufacturerFilter] = useState("");
-  const [activeFilter, setActiveFilter] = useState("all");
-  const reload = useCallback(async () => {
-    setData(await loadCatalogue());
-  }, []);
+  const [status, setStatus] = useState("all");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+
   useEffect(() => {
     let active = true;
     loadCatalogue()
       .then((result) => {
         if (active) setData(result);
       })
-      .catch((failure: Error) => {
-        if (active) setError(failure.message);
+      .catch((cause: Error) => {
+        if (active) setError(cause.message);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
       });
     return () => {
       active = false;
     };
   }, []);
-
-  async function save(action: () => Promise<unknown>, reset: () => void) {
-    if (busy) return;
-    setBusy(true);
+  async function reload() {
+    if (loading) return;
+    setLoading(true);
     setError("");
     try {
-      await action();
-      reset();
-      await reload();
-    } catch (failure) {
-      setError((failure as Error).message);
+      setData(await loadCatalogue());
+    } catch (cause) {
+      setError((cause as Error).message);
     } finally {
-      setBusy(false);
+      setLoading(false);
     }
   }
-  const models = data?.models || [];
-  const manufacturers = data?.manufacturers || [];
-  const vehicles = (data?.vehicles || []).filter((row) => {
-    const model = models.find((m) => m.id === row.model_id);
-    const maker = manufacturers.find((m) => m.id === model?.manufacturer_id);
-    return (
-      (!manufacturerFilter || maker?.id === manufacturerFilter) &&
-      (activeFilter === "all" || row.active === (activeFilter === "active")) &&
-      `${row.name} ${maker?.name || ""} ${model?.name || ""} ${row.year} ${row.variant} ${row.code}`
-        .toLowerCase()
-        .includes(query.toLowerCase())
+  function chooseSection(next: Section) {
+    setSection(next);
+    setQuery("");
+    setStatus("all");
+    setManufacturerId("");
+  }
+  function saved<T extends Manufacturer | VehicleModel | Vehicle>(
+    kind: Section,
+    row: T,
+  ) {
+    setData((current) =>
+      current
+        ? {
+            ...current,
+            [kind]: [
+              ...current[kind].filter((entry) => entry.id !== row.id),
+              row,
+            ],
+          }
+        : current,
     );
-  });
+    setEditor(null);
+    setNotice(`${row.name} saved.`);
+    setQuery("");
+    setManufacturerId("");
+    setStatus("all");
+  }
+  const matchesQuery = (text: string) =>
+    text.toLowerCase().includes(query.trim().toLowerCase());
+  const matchesStatus = (active: boolean) =>
+    status === "all" || (status === "active" ? active : !active);
+  const manufacturerName = (id?: string) =>
+    data?.manufacturers.find((row) => row.id === id)?.name ||
+    "Manufacturer unavailable";
+  const vehicles = (data?.vehicles || [])
+    .filter((row) => {
+      const model = data?.models.find((m) => m.id === row.model_id);
+      const availability = vehicleAvailability(
+        row,
+        data?.models || [],
+        data?.manufacturers || [],
+      );
+      return (
+        (!manufacturerId || model?.manufacturer_id === manufacturerId) &&
+        matchesStatus(availability === "Available in Roadie") &&
+        matchesQuery(
+          `${row.name} ${manufacturerName(model?.manufacturer_id)} ${model?.name || ""} ${row.year} ${row.engine} ${row.variant} ${row.code}`,
+        )
+      );
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const models = (data?.models || [])
+    .filter(
+      (row) =>
+        (!manufacturerId || row.manufacturer_id === manufacturerId) &&
+        matchesStatus(row.active) &&
+        matchesQuery(`${row.name} ${manufacturerName(row.manufacturer_id)}`),
+    )
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const manufacturers = (data?.manufacturers || [])
+    .filter((row) => matchesStatus(row.active) && matchesQuery(row.name))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const count =
+    section === "vehicles"
+      ? vehicles.length
+      : section === "models"
+        ? models.length
+        : manufacturers.length;
+  const total = data?.[section].length || 0;
+  const singular =
+    section === "vehicles"
+      ? "vehicle variant"
+      : section === "models"
+        ? "model"
+        : "manufacturer";
+  function add() {
+    setEditor({ kind: section });
+  }
 
   return (
     <AdminLayout
-      title="Vehicle Catalogue"
-      description="Manage central ICE vehicle identities used by mobile registration and document scopes."
+      title="Vehicle catalogue"
+      description="Manage vehicle choices for Roadie, from manufacturer to model and year."
     >
       <Stack gap={5}>
+        {notice && <Text role="status">{notice}</Text>}
         {error && (
-          <Text role="alert" color="red.700">
-            {error}
-          </Text>
+          <Box role="alert">
+            <Text>{error}</Text>
+            <Button
+              variant="outline"
+              mt={3}
+              onClick={reload}
+              disabled={loading}
+            >
+              Retry catalogue
+            </Button>
+          </Box>
         )}
-        <Button
-          alignSelf="start"
-          variant="outline"
-          onClick={() =>
-            reload()
-              .then(() => setError(""))
-              .catch((e: Error) => setError(e.message))
-          }
+        <Tabs.Root
+          value={section}
+          onValueChange={({ value }) => chooseSection(value as Section)}
         >
-          Reload catalogue
-        </Button>
-        {!data && !error && <Text>Loading catalogue…</Text>}
-        {data && (
-          <>
-            <Flex gap={4} wrap="wrap">
-              <Box
-                flex="1"
-                minW="260px"
-                p={4}
-                borderWidth="1px"
-                borderRadius="md"
-              >
-                <Heading size="md" mb={3}>
-                  Manufacturers
+          <Tabs.List overflowX="auto" mb={6}>
+            <Tabs.Trigger value="vehicles">
+              Vehicles {data ? `(${data.vehicles.length})` : ""}
+            </Tabs.Trigger>
+            <Tabs.Trigger value="models">
+              Models {data ? `(${data.models.length})` : ""}
+            </Tabs.Trigger>
+            <Tabs.Trigger value="manufacturers">
+              Manufacturers {data ? `(${data.manufacturers.length})` : ""}
+            </Tabs.Trigger>
+          </Tabs.List>
+          <Tabs.Content value={section} p={0}>
+            <Flex
+              justify="space-between"
+              gap={4}
+              align="start"
+              wrap="wrap"
+              mb={5}
+            >
+              <Box>
+                <Heading as="h2" size="xl">
+                  {section === "vehicles"
+                    ? "Vehicle variants"
+                    : section === "models"
+                      ? "Models"
+                      : "Manufacturers"}
                 </Heading>
-                <form
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    void save(
-                      () => saveManufacturer(manufacturerId, manufacturer),
-                      () => {
-                        setManufacturerId("");
-                        setManufacturer({ name: "", active: true });
-                      },
-                    );
-                  }}
-                >
-                  <fieldset disabled={busy}>
-                    <Stack gap={3}>
-                      <FormField label="Manufacturer to edit">
-                        <select
-                          value={manufacturerId}
-                          onChange={(e) => {
-                            const row = manufacturers.find(
-                              (r) => r.id === e.target.value,
-                            );
-                            setManufacturerId(e.target.value);
-                            setManufacturer(
-                              row
-                                ? { name: row.name, active: row.active }
-                                : { name: "", active: true },
-                            );
-                          }}
-                        >
-                          <option value="">New manufacturer</option>
-                          {manufacturers.map((r) => (
-                            <option key={r.id} value={r.id}>
-                              {r.name}
-                            </option>
-                          ))}
-                        </select>
-                      </FormField>
-                      <FormField label="Name">
-                        <Input
-                          required
-                          value={manufacturer.name}
-                          onChange={(e) =>
-                            setManufacturer({
-                              ...manufacturer,
-                              name: e.target.value,
-                            })
-                          }
-                        />
-                      </FormField>
-                      <label>
-                        <input
-                          type="checkbox"
-                          checked={manufacturer.active}
-                          onChange={(e) =>
-                            setManufacturer({
-                              ...manufacturer,
-                              active: e.target.checked,
-                            })
-                          }
-                        />{" "}
-                        Active manufacturer
-                      </label>
-                      <Button type="submit">Save manufacturer</Button>
-                    </Stack>
-                  </fieldset>
-                </form>
+                <Text color="muted" mt={2}>
+                  {section === "vehicles"
+                    ? "A variant is one model year and configuration."
+                    : section === "models"
+                      ? "Model families such as Myvi or City. Each belongs to one manufacturer."
+                      : "Vehicle makes such as Perodua or Honda. Inactive makes and their vehicles are hidden from new selections."}
+                </Text>
               </Box>
-              <Box
-                flex="1"
-                minW="260px"
-                p={4}
-                borderWidth="1px"
-                borderRadius="md"
-              >
-                <Heading size="md" mb={3}>
-                  Models
-                </Heading>
-                <form
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    void save(
-                      () => saveModel(modelId, model),
-                      () => {
-                        setModelId("");
-                        setModel({
-                          name: "",
-                          manufacturer_id: "",
-                          active: true,
-                        });
-                      },
-                    );
-                  }}
+              <Flex gap={2} wrap="wrap">
+                <Button variant="outline" loading={loading} onClick={reload}>
+                  Refresh
+                </Button>
+                <Button
+                  disabled={
+                    !data ||
+                    loading ||
+                    (section === "vehicles" && !data.models.length) ||
+                    (section === "models" && !data.manufacturers.length)
+                  }
+                  onClick={add}
                 >
-                  <fieldset disabled={busy}>
-                    <Stack gap={3}>
-                      <FormField label="Model to edit">
-                        <select
-                          value={modelId}
-                          onChange={(e) => {
-                            const row = models.find(
-                              (r) => r.id === e.target.value,
-                            );
-                            setModelId(e.target.value);
-                            setModel(
-                              row
-                                ? {
-                                    name: row.name,
-                                    manufacturer_id: row.manufacturer_id,
-                                    active: row.active,
-                                  }
-                                : {
-                                    name: "",
-                                    manufacturer_id: "",
-                                    active: true,
-                                  },
-                            );
-                          }}
-                        >
-                          <option value="">New model</option>
-                          {models.map((r) => (
-                            <option key={r.id} value={r.id}>
-                              {
-                                manufacturers.find(
-                                  (m) => m.id === r.manufacturer_id,
-                                )?.name
-                              }{" "}
-                              {r.name}
-                            </option>
-                          ))}
-                        </select>
-                      </FormField>
-                      <FormField label="Manufacturer">
-                        <select
-                          required
-                          disabled={Boolean(modelId)}
-                          value={model.manufacturer_id}
-                          onChange={(e) =>
-                            setModel({
-                              ...model,
-                              manufacturer_id: e.target.value,
-                            })
-                          }
-                        >
-                          <option value="">Select manufacturer</option>
-                          {manufacturers.map((r) => (
-                            <option key={r.id} value={r.id}>
-                              {r.name}
-                            </option>
-                          ))}
-                        </select>
-                      </FormField>
-                      <FormField label="Model name">
-                        <Input
-                          required
-                          value={model.name}
-                          onChange={(e) =>
-                            setModel({ ...model, name: e.target.value })
-                          }
-                        />
-                      </FormField>
-                      <label>
-                        <input
-                          type="checkbox"
-                          checked={model.active}
-                          onChange={(e) =>
-                            setModel({ ...model, active: e.target.checked })
-                          }
-                        />{" "}
-                        Active model
-                      </label>
-                      <Button type="submit">Save model</Button>
-                    </Stack>
-                  </fieldset>
-                </form>
-              </Box>
+                  Add {singular}
+                </Button>
+              </Flex>
             </Flex>
-            <Box p={4} borderWidth="1px" borderRadius="md">
-              <Heading size="md" mb={3}>
-                {vehicleId ? "Edit vehicle variant" : "Add vehicle variant"}
-              </Heading>
-              <form
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  void save(
-                    () =>
-                      saveVehicle(vehicleId, {
-                        ...vehicle,
-                        model_id: vehicle.model_id || null,
-                      }),
-                    () => {
-                      setVehicleId("");
-                      setVehicle(emptyVehicle);
-                    },
-                  );
-                }}
-              >
-                <fieldset disabled={busy}>
-                  <Stack gap={3}>
-                    <FormField label="Model">
-                      <select
-                        required
-                        value={vehicle.model_id}
-                        disabled={Boolean(
-                          vehicleId &&
-                          data.vehicles.find((r) => r.id === vehicleId)
-                            ?.model_id,
-                        )}
-                        onChange={(e) =>
-                          setVehicle({ ...vehicle, model_id: e.target.value })
-                        }
-                      >
-                        <option value="">Select model</option>
-                        {models.map((r) => (
-                          <option key={r.id} value={r.id}>
-                            {
-                              manufacturers.find(
-                                (m) => m.id === r.manufacturer_id,
-                              )?.name
-                            }{" "}
-                            {r.name}
-                          </option>
-                        ))}
-                      </select>
-                    </FormField>
-                    <Flex gap={3} wrap="wrap">
-                      <FormField label="Display name">
-                        <Input
-                          required
-                          value={vehicle.name}
-                          onChange={(e) =>
-                            setVehicle({ ...vehicle, name: e.target.value })
-                          }
-                        />
-                      </FormField>
-                      <FormField label="Stable code">
-                        <Input
-                          required
-                          pattern="[a-z0-9]+(-[a-z0-9]+)*"
-                          value={vehicle.code}
-                          onChange={(e) =>
-                            setVehicle({ ...vehicle, code: e.target.value })
-                          }
-                        />
-                      </FormField>
-                      <FormField label="Model year">
-                        <Input
-                          required
-                          type="number"
-                          min={1900}
-                          max={2100}
-                          value={vehicle.year}
-                          onChange={(e) =>
-                            setVehicle({ ...vehicle, year: e.target.value })
-                          }
-                        />
-                      </FormField>
-                    </Flex>
-                    <Flex gap={3} wrap="wrap">
-                      <FormField label="Engine">
-                        <Input
-                          value={vehicle.engine}
-                          onChange={(e) =>
-                            setVehicle({ ...vehicle, engine: e.target.value })
-                          }
-                        />
-                      </FormField>
-                      <FormField label="Variant / transmission">
-                        <Input
-                          value={vehicle.variant}
-                          onChange={(e) =>
-                            setVehicle({ ...vehicle, variant: e.target.value })
-                          }
-                        />
-                      </FormField>
-                      <FormField label="Powertrain">
-                        <select
-                          value={vehicle.powertrain}
-                          onChange={(e) =>
-                            setVehicle({
-                              ...vehicle,
-                              powertrain: e.target
-                                .value as Vehicle["powertrain"],
-                            })
-                          }
-                        >
-                          <option value="petrol">Petrol ICE</option>
-                          <option value="diesel">Diesel ICE</option>
-                        </select>
-                      </FormField>
-                    </Flex>
-                    <label>
-                      <input
-                        type="checkbox"
-                        checked={vehicle.active}
-                        onChange={(e) =>
-                          setVehicle({ ...vehicle, active: e.target.checked })
-                        }
-                      />{" "}
-                      Available for new mobile registrations
-                    </label>
-                    <label>
-                      <input
-                        type="checkbox"
-                        checked={vehicle.published}
-                        onChange={(e) =>
-                          setVehicle({
-                            ...vehicle,
-                            published: e.target.checked,
-                          })
-                        }
-                      />{" "}
-                      Publish vehicle knowledge scope for chat
-                    </label>
-                    <Flex gap={3}>
-                      <Button type="submit">Save vehicle</Button>
-                      {vehicleId && (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={() => {
-                            setVehicleId("");
-                            setVehicle(emptyVehicle);
-                          }}
-                        >
-                          Cancel edit
-                        </Button>
-                      )}
-                    </Flex>
-                  </Stack>
-                </fieldset>
-              </form>
-            </Box>
-            <Flex gap={3} wrap="wrap">
-              <Input
-                maxW="360px"
-                aria-label="Search vehicles"
-                placeholder="Search vehicle, year or variant"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-              />
-              <FormField label="Manufacturer filter">
-                <select
-                  value={manufacturerFilter}
-                  onChange={(e) => setManufacturerFilter(e.target.value)}
+            {data && section === "vehicles" && !data.models.length && (
+              <Box bg="brand.100" p={5} borderRadius="8px" mb={5}>
+                <Text fontWeight="600">
+                  Set up a model before adding a vehicle
+                </Text>
+                <Text mt={1}>
+                  Add the manufacturer first, then its model. You can then add
+                  year and trim variants here.
+                </Text>
+                <Button
+                  variant="outline"
+                  mt={3}
+                  onClick={() =>
+                    chooseSection(
+                      data.manufacturers.length ? "models" : "manufacturers",
+                    )
+                  }
                 >
-                  <option value="">All manufacturers</option>
-                  {manufacturers.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {r.name}
+                  Go to {data.manufacturers.length ? "models" : "manufacturers"}
+                </Button>
+              </Box>
+            )}
+            {data && section === "models" && !data.manufacturers.length && (
+              <Box bg="brand.100" p={5} borderRadius="8px" mb={5}>
+                <Text>Add a manufacturer before creating a model.</Text>
+                <Button
+                  variant="outline"
+                  mt={3}
+                  onClick={() => chooseSection("manufacturers")}
+                >
+                  Go to manufacturers
+                </Button>
+              </Box>
+            )}
+            <Box mb={5}>
+              <ListFilters
+                columns={
+                  section === "manufacturers" ? "2fr 1fr" : "2fr 1fr 1fr"
+                }
+                activeCount={
+                  Number(Boolean(manufacturerId)) + Number(status !== "all")
+                }
+                search={
+                  <FormField label={`Search ${section}`}>
+                    <Input
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value)}
+                      placeholder={
+                        section === "vehicles"
+                          ? "Name, make, model, year, engine or code"
+                          : "Name or manufacturer"
+                      }
+                      disabled={!data}
+                    />
+                  </FormField>
+                }
+              >
+                {section !== "manufacturers" && (
+                  <FormField label="Manufacturer">
+                    <AdminSelect
+                      value={manufacturerId}
+                      onChange={(e) => setManufacturerId(e.target.value)}
+                      disabled={!data}
+                    >
+                      <option value="">All manufacturers</option>
+                      {data?.manufacturers.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name}
+                        </option>
+                      ))}
+                    </AdminSelect>
+                  </FormField>
+                )}
+                <FormField
+                  label={
+                    section === "vehicles" ? "Roadie selection" : "Entry status"
+                  }
+                >
+                  <AdminSelect
+                    value={status}
+                    onChange={(e) => setStatus(e.target.value)}
+                    disabled={!data}
+                  >
+                    <option value="all">All entries</option>
+                    <option value="active">
+                      {section === "vehicles"
+                        ? "Available in Roadie"
+                        : "Active"}
                     </option>
-                  ))}
-                </select>
-              </FormField>
-              <FormField label="Status filter">
-                <select
-                  value={activeFilter}
-                  onChange={(e) => setActiveFilter(e.target.value)}
-                >
-                  <option value="all">All statuses</option>
-                  <option value="active">Active</option>
-                  <option value="inactive">Inactive</option>
-                </select>
-              </FormField>
-            </Flex>
-            <Table.ScrollArea>
-              <Table.Root minW="700px">
-                <Table.Header>
-                  <Table.Row>
-                    {[
-                      "Vehicle",
-                      "Catalogue",
-                      "Owner's manual",
-                      "Manufacturer schedule",
-                      "Actions",
-                    ].map((label) => (
-                      <Table.ColumnHeader key={label}>
-                        {label}
-                      </Table.ColumnHeader>
-                    ))}
-                  </Table.Row>
-                </Table.Header>
-                <Table.Body>
-                  {vehicles.map((row) => (
-                    <Table.Row key={row.id}>
-                      <Table.Cell>
-                        {row.name}
-                        <Text fontSize="xs">
-                          {row.year} · {row.engine} · {row.variant} ·{" "}
-                          {row.powertrain}
-                        </Text>
-                        {!row.model_id && (
-                          <Text fontSize="xs" color="orange.700">
-                            Link this legacy scope to a model to enable mobile
-                            registration.
+                    <option value="inactive">
+                      {section === "vehicles"
+                        ? "Unavailable in Roadie"
+                        : "Inactive"}
+                    </option>
+                  </AdminSelect>
+                </FormField>
+              </ListFilters>
+            </Box>
+            {loading && !data && <Text role="status">Loading catalogue…</Text>}
+            {data && (
+              <Text fontSize="sm" color="muted" mb={3}>
+                {count} of {total} {section}
+                {section === "vehicles"
+                  ? ". Vehicle selection and chat publication are independent."
+                  : ". Deactivate entries to preserve existing records."}
+              </Text>
+            )}
+            <Stack as="ul" gap={3} listStyleType="none" m={0} p={0}>
+              {section === "vehicles" &&
+                vehicles.map((row) => {
+                  const model = data?.models.find((m) => m.id === row.model_id);
+                  const availability = vehicleAvailability(
+                    row,
+                    data?.models || [],
+                    data?.manufacturers || [],
+                  );
+                  return (
+                    <Box
+                      as="li"
+                      key={row.id}
+                      bg="white"
+                      p={5}
+                      borderRadius="10px"
+                    >
+                      <Grid
+                        templateColumns={{
+                          base: "1fr",
+                          xl: "minmax(0, 1.4fr) minmax(0, 1fr) auto",
+                        }}
+                        gap={5}
+                        alignItems="start"
+                      >
+                        <Box>
+                          <Heading as="h3" size="md">
+                            {row.name}
+                          </Heading>
+                          <Text color="muted" mt={1}>
+                            {model
+                              ? `${manufacturerName(model.manufacturer_id)} · ${model.name}`
+                              : "Model not linked"}{" "}
+                            · {row.year || "Year not set"}
                           </Text>
-                        )}
-                      </Table.Cell>
-                      <Table.Cell>
-                        {row.active ? "Active" : "Inactive"}
-                      </Table.Cell>
-                      <Table.Cell>
-                        {row.manual_available ? "Published" : "Not available"}
-                      </Table.Cell>
-                      <Table.Cell>
-                        {row.manufacturer_schedule_available
-                          ? "Published"
-                          : "Not configured"}
-                      </Table.Cell>
-                      <Table.Cell>
-                        <Flex gap={2}>
+                          <Text fontSize="sm" mt={1}>
+                            {[
+                              row.engine,
+                              row.variant,
+                              row.powertrain === "diesel" ? "Diesel" : "Petrol",
+                            ]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          </Text>
+                        </Box>
+                        <Stack gap={2} align="start">
+                          <Badge
+                            colorPalette={
+                              availability === "Available in Roadie"
+                                ? "green"
+                                : "orange"
+                            }
+                          >
+                            {availability}
+                          </Badge>
+                          <Text fontSize="sm">
+                            Chat scope:{" "}
+                            {row.published ? "Published" : "Unpublished"}
+                          </Text>
+                          <Text fontSize="sm" color="muted">
+                            Owner’s manual:{" "}
+                            {row.manual_available
+                              ? "Available"
+                              : "Not published"}
+                            <br />
+                            Service schedule:{" "}
+                            {row.manufacturer_schedule_available
+                              ? "Published"
+                              : "Not published"}
+                          </Text>
+                        </Stack>
+                        <Flex gap={2} wrap="wrap">
                           <Button
-                            disabled={busy}
+                            variant="outline"
                             size="sm"
-                            onClick={() => {
-                              setVehicleId(row.id);
-                              setVehicle({
-                                code: row.code,
-                                name: row.name,
-                                model_id: row.model_id || "",
-                                year: row.year,
-                                engine: row.engine,
-                                variant: row.variant,
-                                powertrain: row.powertrain,
-                                active: row.active,
-                                published: row.published,
-                              });
-                            }}
+                            onClick={() => setEditor({ kind: "vehicles", row })}
+                            aria-label={`Edit ${row.name}`}
                           >
                             Edit
                           </Button>
-                          <Button size="sm" variant="outline" asChild>
+                          <Button variant="outline" size="sm" asChild>
                             <NextLink
                               href={`/user/schedules?vehicle=${row.id}`}
                             >
@@ -571,21 +427,155 @@ export default function VehiclesPage() {
                             </NextLink>
                           </Button>
                         </Flex>
-                      </Table.Cell>
-                    </Table.Row>
-                  ))}
-                </Table.Body>
-              </Table.Root>
-            </Table.ScrollArea>
-            {!vehicles.length && (
-              <Text>
-                No matching vehicles. Add manufacturers and models above to
-                create a variant.
-              </Text>
+                      </Grid>
+                    </Box>
+                  );
+                })}
+              {section === "models" &&
+                models.map((row) => (
+                  <Box
+                    as="li"
+                    key={row.id}
+                    bg="white"
+                    p={5}
+                    borderRadius="10px"
+                  >
+                    <Flex
+                      gap={4}
+                      justify="space-between"
+                      align="start"
+                      wrap="wrap"
+                    >
+                      <Box flex={1}>
+                        <Heading as="h3" size="md">
+                          {manufacturerName(row.manufacturer_id)} · {row.name}
+                        </Heading>
+                        <Text color="muted" mt={2}>
+                          {
+                            data?.vehicles.filter((v) => v.model_id === row.id)
+                              .length
+                          }{" "}
+                          vehicle variants
+                        </Text>
+                        {!data?.manufacturers.find(
+                          (m) => m.id === row.manufacturer_id,
+                        )?.active && (
+                          <Text fontSize="sm" color="orange.700" mt={1}>
+                            Manufacturer inactive: variants remain unavailable
+                            in Roadie.
+                          </Text>
+                        )}
+                      </Box>
+                      <Badge colorPalette={row.active ? "green" : "gray"}>
+                        {row.active ? "Active model" : "Inactive model"}
+                      </Badge>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        aria-label={`Edit ${row.name}`}
+                        onClick={() => setEditor({ kind: "models", row })}
+                      >
+                        Edit
+                      </Button>
+                    </Flex>
+                  </Box>
+                ))}
+              {section === "manufacturers" &&
+                manufacturers.map((row) => (
+                  <Box
+                    as="li"
+                    key={row.id}
+                    bg="white"
+                    p={5}
+                    borderRadius="10px"
+                  >
+                    <Flex
+                      gap={4}
+                      justify="space-between"
+                      align="start"
+                      wrap="wrap"
+                    >
+                      <Box flex={1}>
+                        <Heading as="h3" size="md">
+                          {row.name}
+                        </Heading>
+                        <Text color="muted" mt={2}>
+                          {
+                            data?.models.filter(
+                              (m) => m.manufacturer_id === row.id,
+                            ).length
+                          }{" "}
+                          models
+                        </Text>
+                      </Box>
+                      <Badge colorPalette={row.active ? "green" : "gray"}>
+                        {row.active ? "Active" : "Inactive"}
+                      </Badge>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        aria-label={`Edit ${row.name}`}
+                        onClick={() =>
+                          setEditor({ kind: "manufacturers", row })
+                        }
+                      >
+                        Edit
+                      </Button>
+                    </Flex>
+                  </Box>
+                ))}
+            </Stack>
+            {data && !count && (
+              <Box bg="white" p={8} borderRadius="10px" mt={3}>
+                <Heading as="h3" size="md">
+                  {total ? "No matching entries" : `No ${section} yet`}
+                </Heading>
+                <Text mt={2} color="muted">
+                  {total
+                    ? "Try another search or clear the filters."
+                    : `Use Add ${singular} to create your first entry. Nothing is created until you save.`}
+                </Text>
+                {total > 0 && (
+                  <Button
+                    variant="outline"
+                    mt={4}
+                    onClick={() => {
+                      setQuery("");
+                      setManufacturerId("");
+                      setStatus("all");
+                    }}
+                  >
+                    Clear filters
+                  </Button>
+                )}
+              </Box>
             )}
-          </>
-        )}
+          </Tabs.Content>
+        </Tabs.Root>
       </Stack>
+      {data && editor?.kind === "vehicles" && (
+        <VehicleEditor
+          data={data}
+          row={editor.row}
+          onClose={() => setEditor(null)}
+          onSaved={(row) => saved("vehicles", row)}
+        />
+      )}
+      {data && editor?.kind === "models" && (
+        <ModelEditor
+          data={data}
+          row={editor.row}
+          onClose={() => setEditor(null)}
+          onSaved={(row) => saved("models", row)}
+        />
+      )}
+      {editor?.kind === "manufacturers" && (
+        <ManufacturerEditor
+          row={editor.row}
+          onClose={() => setEditor(null)}
+          onSaved={(row) => saved("manufacturers", row)}
+        />
+      )}
     </AdminLayout>
   );
 }

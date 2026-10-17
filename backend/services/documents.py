@@ -129,8 +129,13 @@ def reset_processing():
 
 def replace(document_id, file):
     filename, source_type, data = validate_upload(file)
-    with document_lock(document_id):
+    with document_lock('schedule-sources'), document_lock(document_id):
         row = editable(document_id)
+        if referencing_schedules(document_id):
+            raise HTTPException(409, "A maintenance schedule references this original. Stage a replacement to preserve its reviewed source.")
+        if (row.get('superseded_by_id') or db.all_rows('documents', replacement_for_id=str(document_id))
+                or db.all_rows('documents', superseded_by_id=str(document_id))):
+            raise HTTPException(409, "Document revision history references this original. Stage a replacement to preserve it.")
         if row.get("published"):
             raise HTTPException(409, "Stage a replacement to preserve the current published document until the replacement is ready.")
         # Stage in the alternate slot so a failed upload cannot overwrite the active source.
@@ -155,15 +160,20 @@ def replace(document_id, file):
             raise
 
 
+def referencing_schedules(document_id):
+    return [schedule for schedule in db.all_rows('manufacturer_schedules')
+            if any(entry.get('rule', {}).get('sourceDocumentId') == str(document_id)
+                   for entry in schedule['entries'])]
+
+
 def delete(document_id):
-    with document_lock(document_id):
+    with document_lock('schedule-sources'), document_lock(document_id):
         editable(document_id)
-        schedules = db.all_rows("manufacturer_schedules")
-        if any(entry.get("rule", {}).get("sourceDocumentId") == str(document_id)
-               for schedule in schedules for entry in schedule["entries"]):
+        if referencing_schedules(document_id):
             raise HTTPException(409, "A maintenance schedule references this source PDF. Preserve it for source traceability.")
-        if db.all_rows("documents", replacement_for_id=str(document_id)):
-            raise HTTPException(409, "A staged replacement references this document. Remove that draft first, or retain the source for revision history.")
+        if (db.all_rows("documents", replacement_for_id=str(document_id))
+                or db.all_rows("documents", superseded_by_id=str(document_id))):
+            raise HTTPException(409, "Document revision history references this source. Remove an unpublished staged replacement first, or retain the original for traceability.")
         db.update("documents", document_id, dict(status="failed", error="Deletion in progress; retry deletion if interrupted.", chunk_count=0, processed_at=None, mobile_visible=False, published=False, indexed_revision=None, indexed_at=None))
         remove_artifacts(document_id)
         db.bucket(settings.SUPABASE_DOCUMENT_BUCKET).remove(source_paths(document_id) + [extraction_path(document_id)])

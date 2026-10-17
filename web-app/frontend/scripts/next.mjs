@@ -5,10 +5,10 @@ import nextEnv from "@next/env";
 const frontendDir = fileURLToPath(new URL("../", import.meta.url));
 const rootDir = fileURLToPath(new URL("../../../", import.meta.url));
 const command = process.argv[2];
-nextEnv.loadEnvConfig(rootDir, command === "dev");
+nextEnv.loadEnvConfig(rootDir, false);
 
 const args = [command, ...process.argv.slice(3)];
-if (command === "dev" || command === "start") {
+if (command === "start") {
   args.push("--port", process.env.FRONTEND_PORT || "3000");
 }
 

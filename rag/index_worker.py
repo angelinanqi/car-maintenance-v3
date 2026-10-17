@@ -123,7 +123,7 @@ def run_once(client, work_dir):
                     source = unpack(response.content, document, Path(directory))
                     result = run_pipeline(source, settings.OUTPUT_DIR, settings.CHROMA_PATH,
                         metadata={'document_id': document['id'], 'index_revision': document['source_revision'],
-                                  'document_title': document['name'], 'car_model': document.get('car_model', ''),
+                                  'document_title': document['name'],
                                   'source_fidelity_verified': document.get('source_fidelity_verified', False)})
                     count = result['documents'][0]['chunks']
                 if count < 1:

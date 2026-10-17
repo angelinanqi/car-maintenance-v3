@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../app_state.dart';
 import '../models/maintenance.dart';
 import '../models/vehicle.dart';
+import '../widgets/module_widgets.dart';
 
 class ServiceLogDialog extends StatefulWidget {
   final AppState state;
@@ -21,18 +22,19 @@ class ServiceLogDialog extends StatefulWidget {
 
 class _ServiceLogDialogState extends State<ServiceLogDialog> {
   final _form = GlobalKey<FormState>();
-  final _title = TextEditingController();
-  final _mileage = TextEditingController();
-  final _cost = TextEditingController();
-  final _notes = TextEditingController();
+  final _title = TextEditingController(), _mileage = TextEditingController();
+  final _cost = TextEditingController(), _notes = TextEditingController();
   late String _category;
+  late final String? _owner;
   DateTime _date = DateTime.now();
   bool _busy = false;
   String? _error;
   MaintenanceTask? _task;
+
   @override
   void initState() {
     super.initState();
+    _owner = widget.state.accountId;
     _task = widget.task;
     final record = widget.record;
     _title.text = record?.title ?? widget.task?.title ?? '';
@@ -59,8 +61,14 @@ class _ServiceLogDialogState extends State<ServiceLogDialog> {
     if (!_form.currentState!.validate()) return;
     if (_task == null && widget.record == null) {
       setState(
-        () => _error =
-            'Choose a maintenance item. Add an item first if none is available.',
+        () => _error = 'Choose the maintenance item this work belongs to.',
+      );
+      return;
+    }
+    if (!widget.state.signedIn || widget.state.accountId != _owner) {
+      setState(
+        () =>
+            _error = 'Your account changed. Close this form and open it again.',
       );
       return;
     }
@@ -84,12 +92,12 @@ class _ServiceLogDialogState extends State<ServiceLogDialog> {
           cost: double.tryParse(_cost.text.trim()),
         ),
       );
-      if (mounted) Navigator.of(context).pop(true);
+      if (mounted) Navigator.pop(context, true);
     } catch (_) {
       if (mounted) {
         setState(
           () => _error =
-              'Record could not be saved. Your entries have been kept.',
+              'Record could not be saved. Your entries have been kept. Please try again.',
         );
       }
     } finally {
@@ -97,151 +105,215 @@ class _ServiceLogDialogState extends State<ServiceLogDialog> {
     }
   }
 
+  Future<void> _addItem() async {
+    final id = await showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) =>
+          AddTaskDialog(state: widget.state, vehicle: widget.vehicle),
+    );
+    if (!mounted || id == null) return;
+    final matches = widget.state
+        .tasksFor(widget.vehicle.id)
+        .where((t) => t.id == id);
+    if (matches.isNotEmpty) {
+      setState(() {
+        _task = matches.first;
+        _title.text = _task!.title;
+        _category = _task!.category;
+      });
+    } else {
+      setState(
+        () => _error =
+            'The item was saved, but the updated list could not be loaded. Close this form and refresh before recording work.',
+      );
+    }
+  }
+
   @override
-  Widget build(BuildContext context) => AlertDialog(
-    title: Text(
-      widget.record == null ? 'Record maintenance' : 'Edit service record',
-    ),
-    content: SizedBox(
-      width: 420,
-      child: SingleChildScrollView(
-        child: Form(
-          key: _form,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text('${widget.vehicle.name} • ${widget.vehicle.model}'),
-              const SizedBox(height: 16),
-              if (_error != null)
-                Text(
-                  _error!,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
-                ),
-              if (widget.task == null && widget.record == null)
-                DropdownButtonFormField<String>(
-                  isExpanded: true,
-                  decoration: const InputDecoration(
-                    labelText: 'Maintenance item',
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: widget.state,
+    builder: (context, _) => MaintenanceForm(
+      title: widget.record == null
+          ? 'Record maintenance'
+          : 'Edit service record',
+      busy: _busy,
+      onSave: _save,
+      saveLabel: 'Save record',
+      child: Form(
+        key: _form,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              widget.vehicle.name,
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            Text(widget.vehicle.model),
+            const SizedBox(height: 12),
+            const Text(
+              'Record work that has already been done. This becomes part of this vehicle’s service history.',
+            ),
+            if (_error != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: Semantics(
+                  liveRegion: true,
+                  child: Text(
+                    _error!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
                   ),
-                  items: widget.state
-                      .tasksFor(widget.vehicle.id)
-                      .map(
-                        (t) => DropdownMenuItem(
-                          value: t.id,
-                          child: Text(
-                            '${t.title} (${t.action})',
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: _busy
-                      ? null
-                      : (id) => setState(() {
-                          _task = widget.state
-                              .tasksFor(widget.vehicle.id)
-                              .firstWhere((t) => t.id == id);
-                          _title.text = _task!.title;
-                          _category = _task!.category;
-                        }),
                 ),
-              TextFormField(
-                controller: _title,
-                readOnly: true,
-                decoration: const InputDecoration(labelText: 'Service or task'),
-                validator: (value) => value == null || value.trim().isEmpty
-                    ? 'Enter the service performed'
-                    : null,
               ),
-              const SizedBox(height: 12),
+            const ModuleSection(title: 'Work performed'),
+            if (widget.task == null && widget.record == null) ...[
               DropdownButtonFormField<String>(
-                key: ValueKey(_category),
-                initialValue: _category,
+                key: ValueKey(_task?.id),
+                initialValue: _task?.id,
                 isExpanded: true,
-                decoration: const InputDecoration(labelText: 'Category'),
-                items: {...maintenanceCategories, _category}
+                decoration: const InputDecoration(
+                  labelText: 'Maintenance item',
+                  helperText: 'Choose what was serviced, checked or replaced.',
+                ),
+                items: widget.state
+                    .tasksFor(widget.vehicle.id)
                     .map(
-                      (v) => DropdownMenuItem(
-                        value: v,
-                        child: Text(v, overflow: TextOverflow.ellipsis),
+                      (t) => DropdownMenuItem(
+                        value: t.id,
+                        child: Text(
+                          '${t.title} (${maintenanceActionLabel(t.action)})',
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
                     )
                     .toList(),
                 onChanged: _busy
                     ? null
-                    : (value) => setState(() => _category = value!),
+                    : (id) => setState(() {
+                        _task = widget.state
+                            .tasksFor(widget.vehicle.id)
+                            .firstWhere((t) => t.id == id);
+                        _title.text = _task!.title;
+                        _category = _task!.category;
+                      }),
+                validator: (v) =>
+                    v == null ? 'Select an item, or add one below' : null,
               ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _mileage,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'Mileage (km)'),
-                validator: (value) {
-                  final number = int.tryParse(value?.trim() ?? '');
-                  return number == null || number < 0
-                      ? 'Enter zero or more kilometres'
-                      : null;
-                },
-              ),
-              const SizedBox(height: 12),
-              OutlinedButton.icon(
-                icon: const Icon(Icons.calendar_month),
-                label: Text('Performed: ${formatDate(_date)}'),
-                onPressed: _busy
-                    ? null
-                    : () async {
-                        final date = await showDatePicker(
-                          context: context,
-                          initialDate: _date,
-                          firstDate: DateTime(2000),
-                          lastDate: DateTime.now(),
-                        );
-                        if (date != null && mounted) {
-                          setState(() => _date = date);
-                        }
-                      },
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _cost,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                decoration: const InputDecoration(
-                  labelText: 'Cost (RM, optional)',
-                ),
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) return null;
-                  final cost = double.tryParse(value.trim());
-                  return cost == null || !cost.isFinite || cost < 0
-                      ? 'Enter a valid amount'
-                      : null;
-                },
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _notes,
-                maxLines: 3,
-                decoration: const InputDecoration(
-                  labelText: 'Notes (optional)',
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: _busy ? null : _addItem,
+                  icon: const Icon(Icons.add),
+                  label: const Text('Add maintenance item'),
                 ),
               ),
+            ] else ...[
+              Text(_title.text, style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 12),
             ],
-          ),
+            DropdownButtonFormField<String>(
+              key: ValueKey(_category),
+              initialValue: _category,
+              isExpanded: true,
+              decoration: const InputDecoration(labelText: 'Category'),
+              items:
+                  {
+                        ...maintenanceCategories,
+                        ...widget.state
+                            .tasksFor(widget.vehicle.id)
+                            .map((task) => task.category),
+                        _category,
+                      }
+                      .map(
+                        (v) => DropdownMenuItem(
+                          value: v,
+                          child: Text(
+                            v.isEmpty ? 'Uncategorised' : v,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      )
+                      .toList(),
+              onChanged: _busy ? null : (v) => setState(() => _category = v!),
+            ),
+            const ModuleSection(title: 'When was it done?'),
+            OutlinedButton.icon(
+              icon: const Icon(Icons.calendar_month_outlined),
+              label: Text('Service date: ${formatDate(_date)}'),
+              onPressed: _busy
+                  ? null
+                  : () async {
+                      final today = DateTime.now();
+                      final date = await showDatePicker(
+                        context: context,
+                        initialDate: _date.isAfter(today) ? today : _date,
+                        firstDate: _date.year < 2000
+                            ? DateTime(_date.year)
+                            : DateTime(2000),
+                        lastDate: today,
+                      );
+                      if (date != null && mounted) setState(() => _date = date);
+                    },
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _mileage,
+              enabled: !_busy,
+              keyboardType: TextInputType.number,
+              textInputAction: TextInputAction.next,
+              decoration: const InputDecoration(
+                labelText: 'Odometer at service',
+                suffixText: 'km',
+                helperText:
+                    'The total kilometres shown on the car when this work was done. This does not update the current odometer.',
+              ),
+              validator: (v) {
+                final number = int.tryParse(v?.trim() ?? '');
+                return number == null || number < 0 || number > 2147483647
+                    ? 'Enter kilometres from 0 to 2,147,483,647'
+                    : null;
+              },
+            ),
+            const ModuleSection(
+              title: 'Additional details',
+              description: 'Optional',
+            ),
+            TextFormField(
+              controller: _cost,
+              enabled: !_busy,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              textInputAction: TextInputAction.next,
+              decoration: const InputDecoration(
+                labelText: 'Cost',
+                prefixText: 'RM ',
+              ),
+              validator: (v) {
+                if (v == null || v.trim().isEmpty) return null;
+                final cost = double.tryParse(v.trim());
+                return cost == null || !cost.isFinite || cost < 0
+                    ? 'Enter a valid amount of zero or more'
+                    : null;
+              },
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _notes,
+              enabled: !_busy,
+              maxLines: 4,
+              maxLength: 10000,
+              decoration: const InputDecoration(
+                labelText: 'Notes',
+                helperText: 'For example, details from your service receipt.',
+              ),
+            ),
+          ],
         ),
       ),
     ),
-    actions: [
-      TextButton(
-        onPressed: _busy ? null : () => Navigator.pop(context),
-        child: const Text('Cancel'),
-      ),
-      FilledButton(
-        onPressed: _busy ? null : _save,
-        child: Text(_busy ? 'Saving...' : 'Save record'),
-      ),
-    ],
   );
 }
 
@@ -263,19 +335,23 @@ class AddTaskDialog extends StatefulWidget {
 
 class _AddTaskDialogState extends State<AddTaskDialog> {
   final _form = GlobalKey<FormState>();
-  final _title = TextEditingController();
-  String _category = maintenanceCategories.first;
-  bool _busy = false;
-  String? _error;
-  final _distance = TextEditingController(), _months = TextEditingController();
+  final _title = TextEditingController(),
+      _distance = TextEditingController(),
+      _months = TextEditingController();
+  String _category = maintenanceCategories.first,
+      _source = 'none',
+      _action = 'service';
+  late final String? _owner;
+  bool _busy = false, _loading = true;
+  String? _error, _catalogueError;
   List<Map<String, dynamic>> _items = [];
+  List<String> _categories = [];
   Map<String, dynamic>? _item;
-  String _source = 'none';
-  String _action = 'service';
-  bool _loading = true;
+
   @override
   void initState() {
     super.initState();
+    _owner = widget.state.accountId;
     final task = widget.task;
     _title.text = task?.title ?? '';
     _category = task?.category ?? maintenanceCategories.first;
@@ -287,30 +363,52 @@ class _AddTaskDialogState extends State<AddTaskDialog> {
   }
 
   Future<void> _loadItems() async {
+    setState(() {
+      _loading = true;
+      _catalogueError = null;
+    });
     try {
       final rows = await widget.state.repository!.items();
-      if (mounted) {
-        setState(() {
-          _items = rows;
-          final matches = rows.where((r) => r['id'] == widget.initialItemId);
-          if (widget.task == null && matches.isNotEmpty) {
+      if (!mounted) return;
+      setState(() {
+        _categories = rows
+            .map((row) => row['category'] as String? ?? '')
+            .where((category) => category.isNotEmpty)
+            .toSet()
+            .toList();
+        final existing = widget.state
+            .tasksFor(widget.vehicle.id)
+            .map((t) => t.itemId)
+            .toSet();
+        _items = rows.where((r) => !existing.contains(r['id'])).toList();
+        final matches = rows.where(
+          (r) => r['id'] == (widget.task?.itemId ?? widget.initialItemId),
+        );
+        if (matches.isNotEmpty) {
+          if (widget.task != null) {
             _item = matches.first;
-            _title.text = _item!['title'] as String;
-            _category = _item!['category'] as String;
-            _action = _item!['action'] as String;
+          } else if (!existing.contains(widget.initialItemId)) {
+            _selectItem(matches.first);
           }
-        });
-      }
-    } catch (error) {
+        }
+      });
+    } catch (_) {
       if (mounted) {
         setState(
-          () => _error =
-              'Standard items could not be loaded. You can still define a personal item. $error',
+          () => _catalogueError =
+              'Standard items could not be loaded. You can retry or create a personal item.',
         );
       }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  void _selectItem(Map<String, dynamic>? item) {
+    _item = item;
+    _title.text = item?['title'] as String? ?? '';
+    _category = item?['category'] as String? ?? maintenanceCategories.first;
+    _action = item?['action'] as String? ?? 'service';
   }
 
   @override
@@ -323,28 +421,44 @@ class _AddTaskDialogState extends State<AddTaskDialog> {
 
   Future<void> _save() async {
     if (!_form.currentState!.validate()) return;
+    if (_source == 'manufacturer' && widget.task?.manufacturerRule == null) {
+      setState(
+        () => _error =
+            'The manufacturer schedule is unavailable. Choose History only or your own schedule.',
+      );
+      return;
+    }
+    if (!widget.state.signedIn || widget.state.accountId != _owner) {
+      setState(
+        () =>
+            _error = 'Your account changed. Close this form and open it again.',
+      );
+      return;
+    }
     setState(() {
       _busy = true;
       _error = null;
     });
     try {
+      final id =
+          widget.task?.id ?? DateTime.now().microsecondsSinceEpoch.toString();
       await widget.state.addTask(
         MaintenanceTask(
-          id:
-              widget.task?.id ??
-              DateTime.now().microsecondsSinceEpoch.toString(),
+          id: id,
           vehicleId: widget.vehicle.id,
           title: _title.text.trim(),
           category: _category,
           itemId: widget.task?.itemId ?? _item?['id'] as String?,
-          action: _item?['action'] as String? ?? _action,
+          action: widget.task?.action ?? _action,
           isCustom: widget.task?.isCustom ?? _item == null,
           manufacturerRule: widget.task?.manufacturerRule,
           customRule: _source == 'custom'
-              ? MaintenanceRule(
-                  distanceKm: int.tryParse(_distance.text.trim()),
-                  months: int.tryParse(_months.text.trim()),
-                )
+              ? MaintenanceRule.fromJson({
+                  ...?widget.task?.customRule?.toJson(),
+                  'type': 'recurring',
+                  'distanceKm': int.tryParse(_distance.text.trim()),
+                  'months': int.tryParse(_months.text.trim()),
+                })
               : widget.task?.customRule,
           scheduleSource: _source,
           lessonIds:
@@ -352,10 +466,13 @@ class _AddTaskDialogState extends State<AddTaskDialog> {
               (_item?['lessonIds'] as List? ?? []).cast<String>(),
         ),
       );
-      if (mounted) Navigator.pop(context);
+      if (mounted) Navigator.pop(context, id);
     } catch (_) {
       if (mounted) {
-        setState(() => _error = 'Task could not be saved. Please retry.');
+        setState(
+          () => _error =
+              'Item could not be saved. Your entries have been kept. Please try again.',
+        );
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -363,27 +480,64 @@ class _AddTaskDialogState extends State<AddTaskDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
-    title: Text(
-      widget.task == null
-          ? 'Add item / custom schedule'
+  Widget build(BuildContext context) {
+    final standard = _item != null || widget.task?.isCustom == false;
+    return MaintenanceForm(
+      title: widget.task == null
+          ? 'Add maintenance item'
           : 'Edit maintenance item',
-    ),
-    content: SingleChildScrollView(
+      busy: _busy,
+      onSave: _save,
+      saveLabel: 'Save item',
       child: Form(
         key: _form,
         child: Column(
-          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (_error != null) Text(_error!),
-            if (_loading) const LinearProgressIndicator(),
-            if (widget.task == null)
+            Text(
+              widget.vehicle.name,
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'An item describes work you want to keep track of. You can record its history with or without a schedule.',
+            ),
+            if (_error != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: Semantics(
+                  liveRegion: true,
+                  child: Text(
+                    _error!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                ),
+              ),
+            const ModuleSection(title: 'Maintenance item'),
+            if (_loading)
+              const LinearProgressIndicator(
+                semanticsLabel: 'Loading standard maintenance items',
+              ),
+            if (_catalogueError != null) ...[
+              Text(_catalogueError!),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton(
+                  onPressed: _loadItems,
+                  child: const Text('Retry standard items'),
+                ),
+              ),
+            ],
+            if (widget.task == null) ...[
               DropdownButtonFormField<String>(
                 key: ValueKey(_item?['id']),
-                initialValue: _item?['id'] as String?,
+                initialValue: _item?['id'] as String? ?? '',
                 isExpanded: true,
                 decoration: const InputDecoration(
-                  labelText: 'Standard item or personal item',
+                  labelText: 'Choose an item',
+                  helperText: 'Use a standard item, or name your own.',
                 ),
                 items: [
                   const DropdownMenuItem(
@@ -394,7 +548,7 @@ class _AddTaskDialogState extends State<AddTaskDialog> {
                     (i) => DropdownMenuItem(
                       value: i['id'] as String,
                       child: Text(
-                        '${i['title']} (${i['action']})',
+                        '${i['title']} (${maintenanceActionLabel(i['action'] as String)})',
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
@@ -402,114 +556,179 @@ class _AddTaskDialogState extends State<AddTaskDialog> {
                 ],
                 onChanged: _busy
                     ? null
-                    : (id) => setState(() {
-                        _item = id == ''
-                            ? null
-                            : _items.firstWhere((i) => i['id'] == id);
-                        _title.text = _item?['title'] as String? ?? '';
-                        _category =
-                            _item?['category'] as String? ??
-                            maintenanceCategories.first;
-                      }),
+                    : (id) => setState(
+                        () => _selectItem(
+                          id == ''
+                              ? null
+                              : _items.firstWhere((i) => i['id'] == id),
+                        ),
+                      ),
               ),
+              const SizedBox(height: 16),
+            ],
             TextFormField(
               controller: _title,
-              readOnly: _item != null || widget.task?.isCustom == false,
-              decoration: const InputDecoration(labelText: 'Task name'),
-              validator: (value) => value == null || value.trim().isEmpty
-                  ? 'Enter a task name'
-                  : null,
+              enabled: !_busy,
+              readOnly: standard,
+              maxLength: 200,
+              textInputAction: TextInputAction.next,
+              decoration: const InputDecoration(labelText: 'Item name'),
+              validator: (v) =>
+                  v == null || v.trim().isEmpty ? 'Enter an item name' : null,
+            ),
+            if ((_item?['description'] as String? ?? '').isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: Text(_item!['description'] as String),
+              ),
+            DropdownButtonFormField<String>(
+              key: ValueKey(_action),
+              initialValue: _action,
+              isExpanded: true,
+              decoration: InputDecoration(
+                labelText: 'Type of work',
+                helperText: widget.task != null
+                    ? 'The type stays with this item and its history.'
+                    : null,
+              ),
+              items: ['service', 'inspect', 'replace']
+                  .map(
+                    (v) => DropdownMenuItem(
+                      value: v,
+                      child: Text(maintenanceActionLabel(v)),
+                    ),
+                  )
+                  .toList(),
+              onChanged: _busy || standard || widget.task != null
+                  ? null
+                  : (v) => setState(() => _action = v!),
             ),
             const SizedBox(height: 16),
-            if (_item == null && widget.task?.isCustom != false)
-              DropdownButtonFormField<String>(
-                initialValue: _action,
-                decoration: const InputDecoration(labelText: 'Action'),
-                items: ['service', 'inspect', 'replace']
-                    .map((v) => DropdownMenuItem(value: v, child: Text(v)))
-                    .toList(),
-                onChanged: _busy ? null : (v) => setState(() => _action = v!),
-              ),
             DropdownButtonFormField<String>(
               key: ValueKey(_category),
               initialValue: _category,
               isExpanded: true,
-              items: {...maintenanceCategories, _category}
+              decoration: const InputDecoration(labelText: 'Category'),
+              items: {...maintenanceCategories, ..._categories, _category}
                   .map(
                     (v) => DropdownMenuItem(
                       value: v,
-                      child: Text(v, overflow: TextOverflow.ellipsis),
+                      child: Text(
+                        v.isEmpty ? 'Uncategorised' : v,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
                   )
                   .toList(),
-              onChanged: _busy
+              onChanged: _busy || standard
                   ? null
-                  : (value) => setState(() => _category = value!),
+                  : (v) => setState(() => _category = v!),
             ),
-            const SizedBox(height: 16),
+            const ModuleSection(
+              title: 'Schedule',
+              description: 'Choose how this item’s next service is calculated.',
+            ),
             DropdownButtonFormField<String>(
+              key: ValueKey(_source),
               initialValue: _source,
-              decoration: const InputDecoration(
-                labelText: 'Active schedule source',
-              ),
+              isExpanded: true,
+              decoration: const InputDecoration(labelText: 'Schedule source'),
               items: [
                 const DropdownMenuItem(
                   value: 'none',
-                  child: Text('History only — no schedule'),
+                  child: Text(
+                    'History only · no schedule',
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
                 const DropdownMenuItem(
                   value: 'custom',
-                  child: Text('User-defined recurring schedule'),
+                  child: Text(
+                    'My own recurring schedule',
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
                 if (widget.task?.manufacturerRule != null)
                   const DropdownMenuItem(
                     value: 'manufacturer',
-                    child: Text('Verified manufacturer schedule'),
+                    child: Text(
+                      'Manufacturer schedule',
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                if (_source == 'manufacturer' &&
+                    widget.task?.manufacturerRule == null)
+                  const DropdownMenuItem(
+                    value: 'manufacturer',
+                    enabled: false,
+                    child: Text(
+                      'Manufacturer schedule unavailable',
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
               ],
               onChanged: _busy ? null : (v) => setState(() => _source = v!),
             ),
+            const SizedBox(height: 12),
+            if (_source == 'none')
+              const Text(
+                'Keep service records without calculating a next service date or distance.',
+              ),
+            if (_source == 'manufacturer' &&
+                widget.task?.manufacturerRule != null)
+              const Text(
+                'Uses the published, verified schedule for this vehicle. Your personal interval is kept if you switch back.',
+              ),
+            if (_source == 'manufacturer' &&
+                widget.task?.manufacturerRule == null)
+              const Text(
+                'The previously selected manufacturer schedule is no longer available. Choose History only or your own schedule.',
+              ),
             if (_source == 'custom') ...[
               const Text(
-                'Your own reminder interval; this is not a manufacturer recommendation. Due when either limit is reached.',
+                'Your interval is a personal reminder, not a manufacturer recommendation. Enter a distance, a number of months, or both. With both, work is due when either limit is reached.',
               ),
+              const SizedBox(height: 16),
               TextFormField(
                 controller: _distance,
+                enabled: !_busy,
                 keyboardType: TextInputType.number,
+                textInputAction: TextInputAction.next,
                 decoration: const InputDecoration(
-                  labelText: 'Every distance (km, optional)',
+                  labelText: 'Repeat every distance',
+                  suffixText: 'km',
+                  helperText: 'Optional if you enter a time interval below.',
                 ),
-                validator: (v) => _intervalError(v),
+                validator: _intervalError,
               ),
+              const SizedBox(height: 16),
               TextFormField(
                 controller: _months,
+                enabled: !_busy,
                 keyboardType: TextInputType.number,
+                textInputAction: TextInputAction.done,
                 decoration: const InputDecoration(
-                  labelText: 'Every time interval (months, optional)',
+                  labelText: 'Repeat every time interval',
+                  suffixText: 'months',
+                  helperText: 'Optional if you enter a distance above.',
                 ),
-                validator: (v) => _intervalError(v),
+                validator: _intervalError,
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Record a known service to give this recurring schedule a starting point.',
               ),
             ],
           ],
         ),
       ),
-    ),
-    actions: [
-      TextButton(
-        onPressed: _busy ? null : () => Navigator.pop(context),
-        child: const Text('Cancel'),
-      ),
-      FilledButton(
-        onPressed: _busy ? null : _save,
-        child: Text(_busy ? 'Saving...' : 'Save item'),
-      ),
-    ],
-  );
+    );
+  }
 
   String? _intervalError(String? value) {
     if (value == null || value.trim().isEmpty) {
       return _distance.text.trim().isEmpty && _months.text.trim().isEmpty
-          ? 'Enter at least one interval'
+          ? 'Enter a distance or a number of months'
           : null;
     }
     return (int.tryParse(value.trim()) ?? 0) <= 0

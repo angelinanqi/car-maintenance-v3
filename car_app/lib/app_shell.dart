@@ -56,6 +56,7 @@ class _AppShellState extends State<AppShell> {
 
   int _selectedIndex = 0;
   int _logRequest = 0;
+  int _scheduleRequest = 0;
   int _chatRequest = 0;
   String? _topic;
   String? _prompt;
@@ -71,7 +72,11 @@ class _AppShellState extends State<AppShell> {
       if (!mounted) return;
       setState(() {
         _selectedIndex = 1;
-        if (logService) _logRequest++;
+        if (logService) {
+          _logRequest++;
+        } else {
+          _scheduleRequest++;
+        }
       });
     } catch (_) {
       if (mounted) {
@@ -106,18 +111,48 @@ class _AppShellState extends State<AppShell> {
         padding: const EdgeInsets.all(24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Icon(Icons.directions_car, size: 64),
+            FilledButton.icon(
+              style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.error,
+                foregroundColor: Theme.of(context).colorScheme.onError,
+              ),
+              onPressed: () => setState(() {
+                _entered = true;
+                _selectedIndex = 4;
+              }),
+              icon: const Icon(Icons.emergency),
+              label: const Text('Emergency help - no sign-in needed'),
+            ),
+            const SizedBox(height: 24),
+            Align(
+              child: Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(24),
+                ),
+                child: const Icon(Icons.directions_car_outlined, size: 56),
+              ),
+            ),
             const SizedBox(height: 20),
             Text(
-              'Learn, maintain and get roadside help',
+              'A little more confidence on the road.',
+              textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.headlineSmall,
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 12),
+            const Text(
+              'Learn about your car and keep emergency guides close, even offline. Sign in to manage vehicles and maintenance.',
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
             FilledButton(
               onPressed: () => setState(() => _entered = true),
-              child: const Text('Continue as Guest'),
+              child: const Text('Continue as guest'),
             ),
+            const SizedBox(height: 12),
             OutlinedButton(
               onPressed: () => Navigator.push(
                 context,
@@ -125,29 +160,18 @@ class _AppShellState extends State<AppShell> {
                   builder: (_) => const AccountForm(register: false),
                 ),
               ),
-              child: const Text('Log In'),
+              child: const Text('Sign in'),
             ),
-            OutlinedButton(
+            TextButton(
               onPressed: () => Navigator.push(
                 context,
                 MaterialPageRoute(
                   builder: (_) => const AccountForm(register: true),
                 ),
               ),
-              child: const Text('Create Account'),
+              child: const Text('Create account'),
             ),
             const SizedBox(height: 20),
-            FilledButton.icon(
-              style: FilledButton.styleFrom(
-                backgroundColor: Colors.red.shade700,
-              ),
-              onPressed: () => setState(() {
-                _entered = true;
-                _selectedIndex = 4;
-              }),
-              icon: const Icon(Icons.emergency),
-              label: const Text('Emergency — available offline'),
-            ),
           ],
         ),
       ),
@@ -166,11 +190,16 @@ class _AppShellState extends State<AppShell> {
                   const LinearProgressIndicator(
                     semanticsLabel: 'Loading saved preferences',
                   ),
-                if (widget.state.loadError != null)
+                if (widget.state.loadError != null &&
+                    (_selectedIndex != 0 || !widget.state.signedIn))
                   SafeArea(
                     bottom: false,
                     child: MaterialBanner(
-                      content: Text(widget.state.loadError!),
+                      content: Text(
+                        widget.state.signedIn
+                            ? 'Your account could not refresh. Check your connection and try again.'
+                            : widget.state.loadError!,
+                      ),
                       actions: [
                         TextButton(
                           onPressed: widget.state.loading
@@ -192,6 +221,7 @@ class _AppShellState extends State<AppShell> {
                           onMaintenance: _openMaintenance,
                           onEmergency: () => setState(() => _selectedIndex = 4),
                           onLearn: () => setState(() => _selectedIndex = 2),
+                          onAsk: () => setState(() => _selectedIndex = 3),
                         ),
                       ),
                       TickerMode(
@@ -199,6 +229,7 @@ class _AppShellState extends State<AppShell> {
                         child: MyCar(
                           state: widget.state,
                           logRequest: _logRequest,
+                          scheduleRequest: _scheduleRequest,
                           requestedItemId: _maintenanceItemId,
                           itemRequestNumber: _maintenanceRequest,
                           onAsk: _askContext,
@@ -249,35 +280,75 @@ class _AppShellState extends State<AppShell> {
                 ),
               ],
             ),
-            bottomNavigationBar: BottomNavigationBar(
-              currentIndex: _selectedIndex,
-              onTap: (index) {
+            bottomNavigationBar: NavigationBar(
+              selectedIndex: _selectedIndex,
+              onDestinationSelected: (index) {
                 FocusManager.instance.primaryFocus?.unfocus();
                 setState(() => _selectedIndex = index);
               },
-              items: const [
-                BottomNavigationBarItem(
+              destinations: [
+                NavigationDestination(
                   icon: Icon(Icons.home_rounded),
                   label: 'Home',
                 ),
-                BottomNavigationBarItem(
+                NavigationDestination(
                   icon: Icon(Icons.directions_car_rounded),
-                  label: 'Maintenance',
+                  label: 'My Car',
                 ),
-                BottomNavigationBarItem(
+                NavigationDestination(
                   icon: Icon(Icons.menu_book_rounded),
                   label: 'Learn',
                 ),
-                BottomNavigationBarItem(
+                NavigationDestination(
                   icon: Icon(Icons.auto_awesome_rounded),
                   label: 'Ask AI',
                 ),
-                BottomNavigationBarItem(
-                  icon: Icon(Icons.emergency_share_rounded),
-                  label: 'Emergency',
+                NavigationBarTheme(
+                  data: NavigationBarThemeData(
+                    labelTextStyle: WidgetStatePropertyAll(
+                      TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: Theme.of(context).colorScheme.onErrorContainer,
+                      ),
+                    ),
+                  ),
+                  child: MediaQuery.withClampedTextScaling(
+                    // Keep the complete label legible within a fixed-width
+                    // navigation target. Emergency content still scales fully.
+                    maxScaleFactor: MediaQuery.sizeOf(context).width < 360
+                        ? 1
+                        : 1.3,
+                    child: NavigationDestination(
+                      icon: _EmergencyNavIcon(selected: _selectedIndex == 4),
+                      tooltip: 'Emergency help - no sign-in needed',
+                      label: 'Emergency',
+                    ),
+                  ),
                 ),
               ],
             ),
           ),
   );
+}
+
+class _EmergencyNavIcon extends StatelessWidget {
+  final bool selected;
+  const _EmergencyNavIcon({required this.selected});
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      width: 60,
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      decoration: BoxDecoration(
+        color: selected ? colors.error : colors.errorContainer,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Icon(
+        Icons.emergency_outlined,
+        color: selected ? colors.onError : colors.onErrorContainer,
+      ),
+    );
+  }
 }

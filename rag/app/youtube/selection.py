@@ -13,7 +13,7 @@ def is_instruction_request(question):
                 or re.match(r"(?:please )?(?:check|inspect|replace|change|clean|adjust)\b", question, re.I))
 
 
-def matches_explicit_variant(question, title, vehicle):
+def matches_explicit_variant(question, title):
     engines = re.findall(r"\b(\d\.\d)\s*(?:litres?|liters?|l|auto|manual)\b", question, re.I)
     if any(engine not in title for engine in engines):
         return False
@@ -23,12 +23,10 @@ def matches_explicit_variant(question, title, vehicle):
     return True
 
 
-async def select_videos(question, candidates, vehicle, client, diagnostics):
-    diagnostics.update(video_llm_calls=0, relevant=False, selected_videos=[])
+async def select_videos(question, candidates, vehicle, metric):
     if policy_risk(question) in {"high_risk", "emergency", "caution"} or not is_instruction_request(question):
         return []
     selected = []
-    metric = diagnostics.get("metric") or "l2"
     for candidate in candidates:
         m = candidate["metadata"]
         title = m.get("video_title", "")
@@ -39,7 +37,7 @@ async def select_videos(question, candidates, vehicle, client, diagnostics):
             continue
         if vehicle and not re.search(r"\b" + re.escape(vehicle) + r"\b", title, re.I):
             continue
-        if not matches_explicit_variant(question, title, vehicle):
+        if not matches_explicit_variant(question, title):
             continue
         years = set(re.findall(r"\b(?:19|20)\d{2}\b", question))
         if not years.issubset(set(re.findall(r"\b(?:19|20)\d{2}\b", title))):
@@ -59,6 +57,4 @@ async def select_videos(question, candidates, vehicle, client, diagnostics):
             continue
         selected.append(candidate)
     selected = group_by_video(selected)
-    diagnostics.update(selected_videos=selected, relevant=bool(selected),
-                       reason="Assigned clips with matching transcript terms; supplementary only.")
     return selected

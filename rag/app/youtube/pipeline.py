@@ -1,6 +1,6 @@
 import argparse
 from pathlib import Path
-from rag.app.youtube.config import OUTPUT_DIR
+from rag.config.settings import YOUTUBE_OUTPUT_DIR as OUTPUT_DIR
 from rag.app.youtube.discovery import read_channel, discover_videos
 from rag.app.youtube.transcripts import save_json
 from rag.app.youtube.ingestion import ingest_videos
@@ -48,7 +48,7 @@ def run_youtube_ingestion(
 
     if summary["videos_failed"]:
         raise RuntimeError(
-            f"YouTube ingestion had video failures; see {output_dir / 'failures.json'}. Rerun to retry."
+            "YouTube ingestion had video failures; see the console output. Rerun to retry."
         )
 
     return summary

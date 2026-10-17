@@ -79,7 +79,7 @@ async def classify_query(query, history=None, *, diagnostics=None):
     resolved = build_retrieval_query(query, history, expand=False)
     risk = policy_risk(resolved)
     if diagnostics is not None:
-        diagnostics.update(risk=risk, routing_llm_calls=0)
+        diagnostics['risk'] = risk
     if risk == "emergency":
         return "emergency"
     if risk == "high_risk":
@@ -100,8 +100,7 @@ def prepare_retrieval(query):
     return embed_query(query)
 
 
-def retrieve_manual(query_embedding, top_k, *, scope,
-                    query=None, diagnostics=None):
+def retrieve_manual(query_embedding, top_k, *, scope, query):
     from rag.app.embedding.vector_store import VectorStore
     from rag.app.retrieval.hybrid import search
     ids = scope["document_ids"]
@@ -112,20 +111,11 @@ def retrieve_manual(query_embedding, top_k, *, scope,
         from rag.app.embedding.vector_store import IndexConfigurationError
         raise IndexConfigurationError("The prepared manual collection is empty")
     # Independent budgets keep source descriptions from displacing passages.
-    results = search(store, query or "", query_embedding, ids, top_k=top_k,
-                     diagnostics=diagnostics, content_type='paragraph')
+    results = search(store, query, query_embedding, ids, top_k=top_k, content_type='paragraph')
     for kind, limit in (('table', 2), ('image', 3)):
         results += search(store, query or '', query_embedding, ids, top_k=limit, content_type=kind)
-    if scope:
-        results = [replace(r, metadata={**r.metadata, **scope["document_metadata"].get(r.metadata["document_name"], {})})
-                   for r in results]
-    if diagnostics is not None:
-        diagnostics.update(status="ok", collection=store.collection.name,
-                           metric=(store.collection.configuration.get("hnsw") or {}).get("space", "l2"),
-                           threshold=None, indexed_chunks=store.collection.count(),
-                           chunks=[{"id": r.chunk_id, "rank": r.rank, "distance": r.distance,
-                                    "text": r.text, "metadata": r.metadata} for r in results])
-    return results
+    return [replace(r, metadata={**r.metadata, **scope["document_metadata"].get(r.metadata["document_name"], {})})
+            for r in results]
 
 
 
@@ -140,9 +130,8 @@ async def handle_query(query, *, scope, history=None, vehicle_profile=None, top_
         raise ValueError('The personal vehicle profile does not match the knowledge scope')
     history = recent_context(history)
     start = perf_counter()
-    timings, routing, manual, youtube, generation = {}, {}, {}, {}, {}
+    routing, youtube, generation = {}, {}, {}
     route = await classify_query(query, history, diagnostics=routing)
-    timings["routing"] = round((perf_counter() - start) * 1000, 1)
     question = build_retrieval_query(query, history, expand=False)
     videos, records, eligible = [], [], []
     useful = False
@@ -166,8 +155,6 @@ async def handle_query(query, *, scope, history=None, vehicle_profile=None, top_
         answer, response_type = NO_MANUAL, "insufficient_information"
     else:
         retrieval_query = build_retrieval_query(query, history)
-        routing["retrieval_query"] = retrieval_query
-        started = perf_counter()
         embedding = None
         embedding_error = None
         if scope['document_ids'] or scope.get('video_ids'):
@@ -178,14 +165,6 @@ async def handle_query(query, *, scope, history=None, vehicle_profile=None, top_
                 # when the optional manual/video embedding service is unavailable.
                 embedding_error = error
                 logger.warning('Query embedding failed (%s)', type(error).__name__)
-        timings["embedding"] = round((perf_counter() - started) * 1000, 1)
-
-        def timed(name, function, *args, **kwargs):
-            started = perf_counter()
-            try:
-                return function(*args, **kwargs)
-            finally:
-                timings[name] = round((perf_counter() - started) * 1000, 1)
 
         def search_manuals():
             if not scope['document_ids']:
@@ -193,7 +172,7 @@ async def handle_query(query, *, scope, history=None, vehicle_profile=None, top_
             if embedding_error is not None:
                 raise embedding_error
             return retrieve_manual(embedding, max(top_k, settings.RAG_CANDIDATES),
-                                   scope=scope, query=retrieval_query, diagnostics=manual)
+                                   scope=scope, query=retrieval_query)
 
         def search_videos():
             if not scope.get('video_ids'):
@@ -204,26 +183,22 @@ async def handle_query(query, *, scope, history=None, vehicle_profile=None, top_
                                     video_ids=scope['video_ids'], diagnostics=youtube)
 
         records, candidates = await asyncio.gather(
-            asyncio.to_thread(timed, "manual_retrieval", search_manuals),
-            asyncio.to_thread(timed, "youtube_retrieval", search_videos),
+            asyncio.to_thread(search_manuals),
+            asyncio.to_thread(search_videos),
             return_exceptions=True)
         manual_failed, video_failed = isinstance(records, Exception), isinstance(candidates, Exception)
         if manual_failed:
-            manual.update(status="error", error_type=type(records).__name__)
             records = []
         if video_failed:
-            youtube.update(status="error", error_type=type(candidates).__name__)
             candidates = []
         eligible, excluded = applicable(question, records, scope)
         media = [r for r in eligible if r.metadata.get('content_type') in {'table', 'image'}]
         eligible = [r for r in eligible if r.metadata.get('content_type') == 'paragraph'][:top_k]
         attachments = resolve_attachments(media, eligible, question=question)
         eligible += retrieve_content(retrieval_query, scope.get('content_sources', []), top_k)
-        generation.update(excluded_sources=excluded, generation_llm_calls=0, evidence_llm_calls=0)
         from rag.app.youtube.selection import select_videos
         vehicle_code = (scope.get("vehicle") or {}).get("code")
-        videos = await select_videos(question, candidates, vehicle_code, None, youtube)
-        started = perf_counter()
+        videos = await select_videos(question, candidates, vehicle_code, youtube.get('metric') or 'l2')
         answer = NO_MANUAL + (" " + CLARIFY if excluded else "")
         if eligible or vehicle_profile:
             generator = GenerationClient()
@@ -231,15 +206,12 @@ async def handle_query(query, *, scope, history=None, vehicle_profile=None, top_
                 answer, useful = await asyncio.to_thread(generate, question, eligible, generator,
                                                          scope=scope, risk=routing["risk"],
                                                          vehicle_profile=vehicle_profile, diagnostics=generation)
-            except Exception as error:
+            except Exception:
                 answer = MODEL_UNAVAILABLE
-                generation.update(error_type=type(error).__name__, decision_reason="generation_error")
-            if isinstance(generator, GenerationClient):
-                generation.update(provider=generator.provider, model=generator.model,
-                                  fallback_reason=generator.fallback_reason)
-                if generator.provider == "ollama" and generator.fallback_reason:
-                    answer += "\n\n" + FALLBACK_NOTICE
-        timings["generation"] = round((perf_counter() - started) * 1000, 1)
+                generation['decision_reason'] = 'generation_error'
+            generation.update(provider=generator.provider, model=generator.model)
+            if generator.provider == "ollama" and generator.fallback_reason:
+                answer += "\n\n" + FALLBACK_NOTICE
         if manual_failed:
             attachments = []
             answer = answer + '\n\n' + MANUAL_UNAVAILABLE if useful else MANUAL_UNAVAILABLE
@@ -267,7 +239,6 @@ async def handle_query(query, *, scope, history=None, vehicle_profile=None, top_
         elif manual_failed and not videos and not useful:
             response_type = "retrieval_error"
     manual_relevant = generation.get('manual_relevant', useful)
-    generation["manual_relevant"] = manual_relevant
     public_videos = [{"title": v["metadata"].get("video_title", v["metadata"]["video_id"]),
                       "url": timestamp_url(v["metadata"]["video_id"], v["metadata"].get("start_seconds")),
                       "timestamp": v["metadata"].get("start_seconds")} for v in videos]
@@ -278,9 +249,9 @@ async def handle_query(query, *, scope, history=None, vehicle_profile=None, top_
                            else {"label": f"S{i}", "source_type": "manual", "chunk_id": r.chunk_id,
                                  "document_id": r.metadata.get("document_id", r.metadata.get("document_name"))})
                           for i, r in enumerate(eligible, 1) if f"[S{i}]" in answer] if useful else []}
-    timings["total"] = round((perf_counter() - start) * 1000, 1)
+    total_ms = round((perf_counter() - start) * 1000, 1)
     logger.info("rag_query scope=%s type=%s provider=%s model=%s total_ms=%s",
-                scope["scope_id"], response_type, generation.get("provider"), generation.get("model"), timings["total"])
+                scope["scope_id"], response_type, generation.get("provider"), generation.get("model"), total_ms)
     return result
 
 

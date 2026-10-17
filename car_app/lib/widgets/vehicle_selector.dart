@@ -10,7 +10,7 @@ class VehicleSelector extends StatelessWidget {
     if (state.vehicles.isEmpty) {
       return const Padding(
         padding: EdgeInsets.all(16),
-        child: Text('No vehicle selected. Add a vehicle in Home.'),
+        child: Text('No vehicle selected. Add a vehicle from Home.'),
       );
     }
     return Padding(
@@ -21,7 +21,7 @@ class VehicleSelector extends StatelessWidget {
         isExpanded: true,
         decoration: const InputDecoration(
           labelText: 'Selected vehicle',
-          border: OutlineInputBorder(),
+          prefixIcon: Icon(Icons.directions_car_outlined),
         ),
         items: state.vehicles
             .map(

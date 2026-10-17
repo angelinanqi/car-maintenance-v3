@@ -1,10 +1,12 @@
 "use client";
 
+import { AdminSelect } from "@/components/admin/NativeControls";
+
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useContent } from "@/components/ContentProvider";
 import { toaster } from "@/components/ui/toaster";
-import TiptapEditor from "@/components/editor/TipTapEditor";
+import dynamic from "next/dynamic";
 import DeleteConfirmModal from "@/components/modals/DeleteConfirmModal";
 import { hasGuideContent } from "@/lib/guideContent.mjs";
 import {
@@ -20,10 +22,13 @@ import {
   HStack,
   Stack,
   Dialog,
+  Input,
 } from "@chakra-ui/react";
 
 // Adjust path based on your folder structure
 import AdminLayout from "../../../components/layouts/AdminLayout";
+
+const TiptapEditor = dynamic(() => import("@/components/editor/TipTapEditor"), { loading: () => <Text role="status">Opening guide preview…</Text> });
 
 export default function ContentPage() {
   const router = useRouter();
@@ -31,6 +36,8 @@ export default function ContentPage() {
   const [preview, setPreview] = useState(null);
   const [deleteCard, setDeleteCard] = useState(null);
   const [publishingId, setPublishingId] = useState(null);
+  const [query, setQuery] = useState("");
+  const [status, setStatus] = useState("");
 
   const { cards, categories: guideCategories, saveGuide, publishGuide, deleteGuide } = useContent();
   const categories = [{ id: "all", name: "All" }, { id: "uncategorized", name: "Uncategorized" }, ...guideCategories];
@@ -54,16 +61,15 @@ export default function ContentPage() {
   };
 
   // Filter cards based on active tab selection
-  const filteredCards =
-    selectedTab === "all"
-      ? cards
-      : cards.filter(
-          (card) => (card.category_id || "uncategorized") === selectedTab,
-        );
+  const filteredCards = cards.filter((card) =>
+    (selectedTab === "all" || (card.category_id || "uncategorized") === selectedTab) &&
+    (!status || card.status === status) &&
+    `${card.title} ${card.description || ""}`.toLowerCase().includes(query.toLowerCase())
+  );
 
   return (
     <AdminLayout
-      title="Learn Cards"
+      title="Learning guides"
       description="Write, preview, and manage maintenance guides."
     >
       <Stack gap={6}>
@@ -71,16 +77,16 @@ export default function ContentPage() {
         <Flex justify="space-between" align="center" wrap="wrap" gap={4}>
           <Box>
             <Heading size="md">All Guides</Heading>
-            <Text fontSize="sm" color="gray.500">
+            <Text fontSize="sm" color="muted">
               Drafts and published guides are saved to the database.
             </Text>
           </Box>
 
-          <HStack gap={2}>
+          <HStack gap={2} wrap="wrap">
             <Button variant="outline" onClick={() => router.push("/user/learn-cards/manage-cat")}>Manage categories</Button>
             {/* Create Button */}
             <Button
-              colorPalette="blue"
+              colorPalette="brand"
               onClick={() => router.push("/user/learn-cards/create")}
             >
               Create Guide
@@ -88,6 +94,11 @@ export default function ContentPage() {
           </HStack>
         </Flex>
 
+        <Flex gap={4} wrap="wrap" align="end">
+          <Box as="label" flex={1} minW="180px">Search guides<Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search title or introduction" /></Box>
+          <Box as="label" minW="180px">Publication<AdminSelect value={status} onChange={(e) => setStatus(e.target.value)}><option value="">All statuses</option><option value="draft">Draft</option><option value="published">Published</option></AdminSelect></Box>
+        </Flex>
+        <Text fontSize="sm" color="muted">Published guides are available in Roadie when their learning category is visible. Text becomes available to chat without document indexing.</Text>
         {/* CHAKRA UI V3 TABS */}
         <Tabs.Root
           defaultValue="all"
@@ -142,7 +153,7 @@ export default function ContentPage() {
                           <Heading size="sm">{card.title}</Heading>
 
                           {/* Updated Date */}
-                          <Text fontSize="xs" color="gray.500">
+                          <Text fontSize="sm" color="muted">
                             Updated {card.updatedAt}
                           </Text>
                         </Stack>
@@ -199,7 +210,8 @@ export default function ContentPage() {
             {/* Empty state */}
             {filteredCards.length === 0 && (
               <Box py={10} textAlign="center">
-                <Text color="gray.500">No guides found in this category.</Text>
+                <Text color="muted">{cards.length ? "No guides match these filters." : "No learning guides yet. Create a guide, save a draft, then publish when it is ready."}</Text>
+                {cards.length > 0 && <Button mt={3} variant="outline" onClick={() => { setQuery(""); setStatus(""); setSelectedTab("all"); }}>Clear filters</Button>}
               </Box>
             )}
           </Tabs.Content>

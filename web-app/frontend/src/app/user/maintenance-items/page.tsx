@@ -3,294 +3,340 @@
 import { useEffect, useState } from "react";
 import NextLink from "next/link";
 import {
+  Badge,
   Box,
   Button,
   Flex,
   Heading,
   Input,
   Stack,
-  Table,
   Text,
-  Textarea,
 } from "@chakra-ui/react";
 import AdminLayout from "@/components/layouts/AdminLayout";
+import ListFilters from "@/components/admin/ListFilters";
 import FormField from "@/components/admin/FormField";
-import { loadItems, saveItem, type MaintenanceItem } from "@/api/admin";
-import { listAll } from "@/api/client.mjs";
+import { AdminSelect } from "@/components/admin/NativeControls";
+import MaintenanceItemEditor from "@/components/admin/MaintenanceItemEditor";
+import { loadItems, type MaintenanceItem } from "@/api/admin";
+import { useContent } from "@/components/ContentProvider";
 
-type Guide = { id: string; title: string; maintenance_item_ids: string[] };
-const empty = {
-  title: "",
-  category: "",
-  description: "",
-  action: "replace" as MaintenanceItem["action"],
-  active: true,
+const actionLabels = {
+  inspect: "Inspect",
+  replace: "Replace",
+  service: "Service",
 };
 
 export default function MaintenanceItemsPage() {
+  const {
+    cards: guides,
+    error: contentError,
+    loading: contentLoading,
+  } = useContent();
   const [items, setItems] = useState<MaintenanceItem[]>([]);
-  const [guides, setGuides] = useState<Guide[]>([]);
+  const [loading, setLoading] = useState(true);
   const [loaded, setLoaded] = useState(false);
-  const [id, setId] = useState("");
-  const [draft, setDraft] = useState(empty);
+  const [editor, setEditor] = useState<{ row?: MaintenanceItem } | null>(null);
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("");
+  const [action, setAction] = useState("");
+  const [status, setStatus] = useState("all");
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  async function reload() {
-    const result = await Promise.all([
-      loadItems(),
-      listAll("/guides", { include_drafts: "true" }),
-    ]);
-    setItems(result[0]);
-    setGuides(result[1]);
-    setLoaded(true);
-  }
+  const [notice, setNotice] = useState("");
   useEffect(() => {
     let active = true;
-    Promise.all([loadItems(), listAll("/guides", { include_drafts: "true" })])
-      .then(([rows, cards]) => {
+    loadItems()
+      .then((rows) => {
         if (active) {
           setItems(rows);
-          setGuides(cards);
           setLoaded(true);
         }
       })
-      .catch((e: Error) => {
-        if (active) setError(e.message);
+      .catch((cause: Error) => {
+        if (active) setError(cause.message);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
       });
     return () => {
       active = false;
     };
   }, []);
-  const visible = items.filter(
-    (row) =>
-      (!category || row.category === category) &&
-      `${row.title} ${row.description}`
-        .toLowerCase()
-        .includes(query.toLowerCase()),
-  );
-
+  async function reload() {
+    if (loading) return;
+    setLoading(true);
+    setError("");
+    try {
+      setItems(await loadItems());
+      setLoaded(true);
+    } catch (cause) {
+      setError((cause as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }
+  const categories = [
+    ...new Set(items.map((row) => row.category).filter(Boolean)),
+  ].sort();
+  const visible = items
+    .filter(
+      (row) =>
+        (!category ||
+          (category === "__uncategorized"
+            ? !row.category
+            : row.category === category)) &&
+        (!action || row.action === action) &&
+        (status === "all" || row.active === (status === "active")) &&
+        `${row.title} ${row.description} ${row.category}`
+          .toLowerCase()
+          .includes(query.trim().toLowerCase()),
+    )
+    .sort((a, b) => a.title.localeCompare(b.title));
+  function saved(row: MaintenanceItem) {
+    setItems((previous) => [
+      ...previous.filter((item) => item.id !== row.id),
+      row,
+    ]);
+    setEditor(null);
+    setNotice(`${row.title} saved.`);
+    setQuery("");
+    setCategory("");
+    setAction("");
+    setStatus("all");
+  }
   return (
     <AdminLayout
-      title="Standard Maintenance Items"
-      description="Manage shared operations. Personal custom items and service histories remain separate."
+      title="Maintenance items"
+      description="The shared library of operations drivers can track, such as inspecting tyres or replacing engine oil. Set vehicle-specific intervals in Service schedules."
     >
       <Stack gap={5}>
+        {notice && <Text role="status">{notice}</Text>}
         {error && (
-          <Text role="alert" color="red.700">
-            {error}
-          </Text>
+          <Box role="alert">
+            <Text>{error}</Text>
+            <Button
+              variant="outline"
+              mt={3}
+              onClick={reload}
+              disabled={loading}
+            >
+              Retry items
+            </Button>
+          </Box>
         )}
-        <Button
-          alignSelf="start"
-          variant="outline"
-          onClick={() =>
-            reload()
-              .then(() => setError(""))
-              .catch((e: Error) => setError(e.message))
+        <Flex gap={4} justify="space-between" align="center" wrap="wrap">
+          <Text color="muted">
+            {loaded
+              ? `${items.filter((row) => row.active).length} active · ${items.filter((row) => !row.active).length} inactive`
+              : "Loading your item library…"}
+          </Text>
+          <Flex gap={2} wrap="wrap">
+            <Button variant="outline" loading={loading} onClick={reload}>
+              Refresh
+            </Button>
+            <Button disabled={!loaded || loading} onClick={() => setEditor({})}>
+              Add maintenance item
+            </Button>
+          </Flex>
+        </Flex>
+        <ListFilters
+          columns="2fr 1fr"
+          wideColumns="2fr 1fr 1fr 1fr"
+          activeCount={
+            Number(Boolean(category)) +
+            Number(Boolean(action)) +
+            Number(status !== "all")
           }
-        >
-          Reload items
-        </Button>
-        {!loaded && !error && <Text>Loading standard items…</Text>}
-        {loaded && (
-          <>
-            <Box p={4} borderWidth="1px" borderRadius="md">
-              <Heading size="md" mb={3}>
-                {id ? "Edit standard item" : "Create standard item"}
-              </Heading>
-              <form
-                onSubmit={async (event) => {
-                  event.preventDefault();
-                  if (busy) return;
-                  setBusy(true);
-                  setError("");
-                  try {
-                    await saveItem(id, draft);
-                    setId("");
-                    setDraft(empty);
-                    await reload();
-                  } catch (e) {
-                    setError((e as Error).message);
-                  } finally {
-                    setBusy(false);
-                  }
-                }}
-              >
-                <fieldset disabled={busy}>
-                  <Stack gap={3}>
-                    <FormField label="Title">
-                      <Input
-                        required
-                        value={draft.title}
-                        onChange={(e) =>
-                          setDraft({ ...draft, title: e.target.value })
-                        }
-                      />
-                    </FormField>
-                    <FormField label="Category">
-                      <Input
-                        value={draft.category}
-                        onChange={(e) =>
-                          setDraft({ ...draft, category: e.target.value })
-                        }
-                      />
-                    </FormField>
-                    <FormField label="Action">
-                      <select
-                        disabled={Boolean(id)}
-                        value={draft.action}
-                        onChange={(e) =>
-                          setDraft({
-                            ...draft,
-                            action: e.target.value as MaintenanceItem["action"],
-                          })
-                        }
-                      >
-                        <option value="inspect">Inspection</option>
-                        <option value="replace">Replacement</option>
-                        <option value="service">Other service</option>
-                      </select>
-                    </FormField>
-                    <FormField label="Description">
-                      <Textarea
-                        value={draft.description}
-                        onChange={(e) =>
-                          setDraft({ ...draft, description: e.target.value })
-                        }
-                      />
-                    </FormField>
-                    <label>
-                      <input
-                        type="checkbox"
-                        checked={draft.active}
-                        onChange={(e) =>
-                          setDraft({ ...draft, active: e.target.checked })
-                        }
-                      />{" "}
-                      Active for new schedules
-                    </label>
-                    <Text fontSize="sm">
-                      Deactivate obsolete items to preserve their IDs and
-                      history. Edit a learning card to manage its maintenance
-                      relationships.
-                    </Text>
-                    <Flex gap={3}>
-                      <Button type="submit">Save item</Button>
-                      {id && (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={() => {
-                            setId("");
-                            setDraft(empty);
-                          }}
-                        >
-                          Cancel edit
-                        </Button>
-                      )}
-                    </Flex>
-                  </Stack>
-                </fieldset>
-              </form>
-            </Box>
-            <Flex gap={3} wrap="wrap">
+          search={
+            <FormField label="Search items">
               <Input
-                maxW="400px"
-                aria-label="Search items"
-                placeholder="Search standard items"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
+                placeholder="Name, description or category"
+                disabled={!loaded}
               />
-              <FormField label="Category filter">
-                <select
-                  value={category}
-                  onChange={(e) => setCategory(e.target.value)}
-                >
-                  <option value="">All categories</option>
-                  {[...new Set(items.map((r) => r.category))]
-                    .filter(Boolean)
-                    .map((value) => (
-                      <option key={value}>{value}</option>
-                    ))}
-                </select>
-              </FormField>
-            </Flex>
-            <Table.ScrollArea>
-              <Table.Root minW="640px">
-                <Table.Header>
-                  <Table.Row>
-                    {[
-                      "Item",
-                      "Action",
-                      "Status",
-                      "Related learning",
-                      "Edit",
-                    ].map((label) => (
-                      <Table.ColumnHeader key={label}>
-                        {label}
-                      </Table.ColumnHeader>
-                    ))}
-                  </Table.Row>
-                </Table.Header>
-                <Table.Body>
-                  {visible.map((row) => (
-                    <Table.Row key={row.id}>
-                      <Table.Cell>
-                        {row.title}
-                        <Text fontSize="xs">{row.category}</Text>
-                      </Table.Cell>
-                      <Table.Cell>{row.action}</Table.Cell>
-                      <Table.Cell>
-                        {row.active ? "Active" : "Inactive"}
-                      </Table.Cell>
-                      <Table.Cell>
-                        <Stack gap={1}>
-                          {guides
-                            .filter((g) =>
-                              g.maintenance_item_ids?.includes(row.id),
-                            )
-                            .map((guide) => (
-                              <NextLink
-                                key={guide.id}
-                                href={`/user/learn-cards/create?edit=${guide.id}`}
-                                style={{ textDecoration: "underline" }}
-                              >
-                                {guide.title}
-                              </NextLink>
-                            ))}
-                        </Stack>
-                      </Table.Cell>
-                      <Table.Cell>
-                        <Button
-                          disabled={busy}
-                          size="sm"
-                          onClick={() => {
-                            setId(row.id);
-                            setDraft({
-                              title: row.title,
-                              category: row.category,
-                              description: row.description,
-                              action: row.action,
-                              active: row.active,
-                            });
-                          }}
-                        >
-                          Edit
-                        </Button>
-                      </Table.Cell>
-                    </Table.Row>
-                  ))}
-                </Table.Body>
-              </Table.Root>
-            </Table.ScrollArea>
-            {!visible.length && (
-              <Text>No matching standard maintenance items.</Text>
-            )}
-          </>
+            </FormField>
+          }
+        >
+          <FormField label="Category">
+            <AdminSelect
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              disabled={!loaded}
+            >
+              <option value="">All categories</option>
+              <option value="__uncategorized">Uncategorized</option>
+              {categories.map((value) => (
+                <option key={value} value={value}>
+                  {value}
+                </option>
+              ))}
+            </AdminSelect>
+          </FormField>
+          <FormField label="Action">
+            <AdminSelect
+              value={action}
+              onChange={(e) => setAction(e.target.value)}
+              disabled={!loaded}
+            >
+              <option value="">All actions</option>
+              <option value="inspect">Inspect</option>
+              <option value="replace">Replace</option>
+              <option value="service">Service</option>
+            </AdminSelect>
+          </FormField>
+          <FormField label="Status">
+            <AdminSelect
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
+              disabled={!loaded}
+            >
+              <option value="all">All items</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </AdminSelect>
+          </FormField>
+        </ListFilters>
+        {loaded && (
+          <Text fontSize="sm" color="muted">
+            Showing {visible.length} of {items.length} items. Inspection and
+            replacement of the same part should be separate items.
+          </Text>
         )}
+        <Stack as="ul" gap={3} m={0} p={0} listStyleType="none">
+          {visible.map((row) => {
+            const related = guides.filter(
+              (guide: { maintenance_item_ids?: string[] }) =>
+                guide.maintenance_item_ids?.includes(row.id),
+            );
+            return (
+              <Box as="li" key={row.id} bg="white" borderRadius="10px" p={5}>
+                <Flex gap={4} justify="space-between" align="start">
+                  <Box minW={0} flex={1}>
+                    <Heading as="h2" size="md">
+                      {row.title}
+                    </Heading>
+                    <Flex gap={2} align="center" wrap="wrap" mt={2}>
+                      <Badge colorPalette="brand">
+                        {actionLabels[row.action]}
+                      </Badge>
+                      <Badge colorPalette={row.active ? "green" : "gray"}>
+                        {row.active ? "Active" : "Inactive"}
+                      </Badge>
+                      <Text color="muted" fontSize="sm">
+                        {row.category || "Uncategorized"}
+                      </Text>
+                    </Flex>
+                    {row.description && (
+                      <Text mt={3} maxW="80ch">
+                        {row.description}
+                      </Text>
+                    )}
+                  </Box>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    aria-label={`Edit ${row.title}`}
+                    onClick={() => setEditor({ row })}
+                  >
+                    Edit
+                  </Button>
+                </Flex>
+                <Box bg="canvas" px={3} py={2} borderRadius="6px" mt={4}>
+                  <Text fontSize="sm" fontWeight="600">
+                    Related learning guides
+                  </Text>
+                  {related.length ? (
+                    <Flex gap={3} wrap="wrap" mt={1}>
+                      {related.map(
+                        (guide: {
+                          id: string;
+                          title: string;
+                          status: string;
+                        }) => (
+                          <NextLink
+                            key={guide.id}
+                            href={`/user/learn-cards/create?edit=${guide.id}`}
+                            style={{
+                              textDecoration: "underline",
+                              fontSize: 14,
+                            }}
+                          >
+                            {guide.title} ({guide.status})
+                          </NextLink>
+                        ),
+                      )}
+                    </Flex>
+                  ) : (
+                    <Text fontSize="sm" color="muted">
+                      {contentLoading
+                        ? "Loading guide relationships?"
+                        : contentError
+                          ? "Guide relationships could not be confirmed. Retry loading the workspace above."
+                          : "No linked guides. Add this item under related maintenance items when editing a learning guide."}
+                    </Text>
+                  )}
+                </Box>
+              </Box>
+            );
+          })}
+        </Stack>
+        {loaded && !visible.length && (
+          <Box bg="white" p={8} borderRadius="10px">
+            <Heading as="h2" size="md">
+              {items.length
+                ? "No matching items"
+                : "Start your maintenance library"}
+            </Heading>
+            <Text mt={2} color="muted">
+              {items.length
+                ? "Try different filters or clear them to see every item."
+                : "Add one reusable operation at a time. Schedules will refer to these items by their name and action."}
+            </Text>
+            {items.length > 0 && (
+              <Button
+                mt={4}
+                variant="outline"
+                onClick={() => {
+                  setQuery("");
+                  setCategory("");
+                  setAction("");
+                  setStatus("all");
+                }}
+              >
+                Clear filters
+              </Button>
+            )}
+          </Box>
+        )}
+        <Flex
+          bg="brand.100"
+          p={5}
+          borderRadius="10px"
+          justify="space-between"
+          gap={4}
+          wrap="wrap"
+          align="center"
+        >
+          <Box>
+            <Text fontWeight="600">Need to set a service interval?</Text>
+            <Text fontSize="sm" mt={1}>
+              Choose a vehicle in Service schedules, then add these items with
+              reviewed distance or time rules.
+            </Text>
+          </Box>
+          <Button asChild variant="outline">
+            <NextLink href="/user/schedules">Open service schedules</NextLink>
+          </Button>
+        </Flex>
       </Stack>
+      {editor && (
+        <MaintenanceItemEditor
+          row={editor.row}
+          categories={categories}
+          onClose={() => setEditor(null)}
+          onSaved={saved}
+        />
+      )}
     </AdminLayout>
   );
 }

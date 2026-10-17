@@ -70,6 +70,10 @@ class EmergencyGuide {
   final bool savedOffline;
   final bool legacy;
   final bool bundled;
+  final String description;
+  final String safetyWarnings;
+  final String category;
+  final int displayOrder;
   const EmergencyGuide({
     required this.id,
     required this.title,
@@ -82,6 +86,10 @@ class EmergencyGuide {
     this.savedOffline = false,
     this.legacy = false,
     this.bundled = false,
+    this.description = '',
+    this.safetyWarnings = '',
+    this.category = '',
+    this.displayOrder = 0,
   });
 
   bool get available =>
@@ -99,7 +107,7 @@ class EmergencyGuide {
   }) => EmergencyGuide(
     id: json['id'] as String,
     title: json['title'] as String,
-    steps: (json['steps'] as List)
+    steps: _actionSteps(json, remote: remote)
         .asMap()
         .entries
         .map(
@@ -127,7 +135,34 @@ class EmergencyGuide {
     savedOffline: offline,
     legacy: !remote && (json['legacy'] == true || !json.containsKey('status')),
     bundled: !remote && json['bundled'] == true,
+    description: json['description'] as String? ?? '',
+    safetyWarnings: json['safety_warnings'] as String? ?? '',
+    category: json['category'] as String? ?? '',
+    displayOrder: json['display_order'] as int? ?? 0,
   );
+
+  // The public API prepends these exact compatibility steps for older readers.
+  // Only remove a prefix backed by the corresponding structured field. Legacy
+  // caches without metadata retain all their steps, including safety information.
+  static List<dynamic> _actionSteps(
+    Map<String, dynamic> json, {
+    required bool remote,
+  }) {
+    final steps = List<dynamic>.from(json['steps'] as List);
+    if (!remote) return steps;
+    for (final field in ['description', 'safety_warnings']) {
+      final text = json[field] as String? ?? '';
+      final title = field == 'description' ? 'Situation' : 'Safety warnings';
+      if (text.isNotEmpty &&
+          steps.isNotEmpty &&
+          steps.first is Map &&
+          steps.first['title'] == title &&
+          steps.first['description'] == text) {
+        steps.removeAt(0);
+      }
+    }
+    return steps;
+  }
 
   Map<String, dynamic> toJson() => {
     'id': id,
@@ -139,16 +174,21 @@ class EmergencyGuide {
     'scenario_key': scenarioKey,
     'updated_at': updatedAt,
     'legacy': legacy,
+    'description': description,
+    'safety_warnings': safetyWarnings,
+    'category': category,
+    'display_order': displayOrder,
   };
 }
 
 class OwnerManual {
-  final String id, name, scope, sourceType;
+  final String id, name, sourceType;
+  final bool vehicleIndependent;
   final int sizeBytes;
   const OwnerManual({
     required this.id,
     required this.name,
-    required this.scope,
+    required this.vehicleIndependent,
     required this.sourceType,
     required this.sizeBytes,
   });
@@ -156,7 +196,7 @@ class OwnerManual {
   factory OwnerManual.fromJson(Map<String, dynamic> data) => OwnerManual(
     id: data['id'] as String,
     name: data['name'] as String,
-    scope: data['car_model'] as String,
+    vehicleIndependent: data['vehicle_independent'] as bool,
     sourceType: data['source_type'] as String,
     sizeBytes: data['size_bytes'] as int,
   );

@@ -254,6 +254,9 @@ class AppState extends ChangeNotifier {
   Future<void> completeLesson(String id) => _change((remote) async {
     await remote.save('progress', id, {'completed': true});
   });
+  Future<void> markLessonUnread(String id) => _change((remote) async {
+    await remote.save('progress', id, {'completed': false});
+  });
   Future<void> saveContact(String name, String phone) async {
     if (!_localLoaded) {
       throw const ApiException('Retry loading device preferences first.');

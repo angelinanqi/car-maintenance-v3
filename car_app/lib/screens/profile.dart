@@ -114,7 +114,7 @@ class _ProfileState extends State<Profile> {
                             builder: (_) => const AccountForm(register: true),
                           ),
                         ),
-                  child: const Text('Register'),
+                  child: const Text('Create account'),
                 ),
               ],
             ),
@@ -135,7 +135,6 @@ class _ProfileState extends State<Profile> {
                   controller: _name,
                   decoration: const InputDecoration(
                     labelText: 'Provider or contact name',
-                    border: OutlineInputBorder(),
                   ),
                   validator: (value) =>
                       _phone.text.trim().isNotEmpty &&
@@ -147,10 +146,7 @@ class _ProfileState extends State<Profile> {
                 TextFormField(
                   controller: _phone,
                   keyboardType: TextInputType.phone,
-                  decoration: const InputDecoration(
-                    labelText: 'Phone number',
-                    border: OutlineInputBorder(),
-                  ),
+                  decoration: const InputDecoration(labelText: 'Phone number'),
                   validator: (value) {
                     if (value == null || value.trim().isEmpty) {
                       return _name.text.trim().isEmpty
@@ -172,7 +168,7 @@ class _ProfileState extends State<Profile> {
           const SizedBox(height: 16),
           FilledButton(
             onPressed: _busy ? null : _save,
-            child: Text(_busy ? 'Saving...' : 'Save preferences'),
+            child: Text(_busy ? 'Saving...' : 'Save roadside contact'),
           ),
           if (_feedback != null)
             Padding(

@@ -48,12 +48,17 @@ class _AccountFormState extends State<AccountForm> {
     final account = AccountScope.of(context);
     final busy = account?.busy ?? true;
     return Scaffold(
-      appBar: AppBar(title: Text(_register ? 'Register' : 'Sign in')),
+      appBar: AppBar(title: Text(_register ? 'Create account' : 'Sign in')),
       body: Form(
         key: _form,
         child: ListView(
           padding: const EdgeInsets.all(20),
           children: [
+            Text(
+              _register ? 'Start your garage' : 'Welcome back',
+              style: Theme.of(context).textTheme.headlineSmall,
+            ),
+            const SizedBox(height: 8),
             const Text(
               'Continue as a guest for learning and offline emergency assistance. Sign in for your vehicles, maintenance and learning progress.',
             ),
@@ -69,10 +74,10 @@ class _AccountFormState extends State<AccountForm> {
                 controller: _name,
                 enabled: !busy,
                 maxLength: 100,
-                decoration: const InputDecoration(
-                  labelText: 'Name',
-                  border: OutlineInputBorder(),
-                ),
+                textCapitalization: TextCapitalization.words,
+                textInputAction: TextInputAction.next,
+                autofillHints: const [AutofillHints.name],
+                decoration: const InputDecoration(labelText: 'Name'),
                 validator: (value) => value == null || value.trim().isEmpty
                     ? 'Enter your name'
                     : null,
@@ -84,10 +89,9 @@ class _AccountFormState extends State<AccountForm> {
               enabled: !busy,
               keyboardType: TextInputType.emailAddress,
               autocorrect: false,
-              decoration: const InputDecoration(
-                labelText: 'Email',
-                border: OutlineInputBorder(),
-              ),
+              textInputAction: TextInputAction.next,
+              autofillHints: const [AutofillHints.email],
+              decoration: const InputDecoration(labelText: 'Email'),
               validator: (value) =>
                   value != null &&
                       RegExp(
@@ -104,9 +108,15 @@ class _AccountFormState extends State<AccountForm> {
               enableSuggestions: false,
               autocorrect: false,
               maxLength: 1024,
+              textInputAction: TextInputAction.done,
+              autofillHints: [
+                _register ? AutofillHints.newPassword : AutofillHints.password,
+              ],
+              onFieldSubmitted: busy ? null : (_) => _submit(account!),
               decoration: InputDecoration(
                 labelText: 'Password',
-                border: const OutlineInputBorder(),
+                helperText: _register ? 'Use at least 8 characters.' : null,
+                counterText: '',
                 suffixIcon: IconButton(
                   tooltip: _hidePassword ? 'Show password' : 'Hide password',
                   icon: Icon(
@@ -131,6 +141,20 @@ class _AccountFormState extends State<AccountForm> {
                     : _register
                     ? 'Create account'
                     : 'Sign in',
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextButton(
+              onPressed: busy
+                  ? null
+                  : () => setState(() {
+                      _register = !_register;
+                      _form.currentState?.reset();
+                    }),
+              child: Text(
+                _register
+                    ? 'Already have an account? Sign in'
+                    : 'New here? Create account',
               ),
             ),
             TextButton(

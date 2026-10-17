@@ -23,7 +23,7 @@ def mobile_playbook(row):
 def list_playbooks(request: Request, include_drafts: bool = False, offset: int = Query(0, ge=0), limit: int = Query(settings.API_PAGE_SIZE, ge=1, le=1000)):
     if include_drafts:
         auth.require_draft_access(request)
-    rows = db.list_rows("emergency_playbooks", offset=offset, limit=limit, **({} if include_drafts else {"status": "published"}))
+    rows = db.list_rows("emergency_playbooks", offset=offset, limit=limit, order_by=("display_order", "created_at", "id"), **({} if include_drafts else {"status": "published"}))
     return rows if include_drafts else [mobile_playbook(row) for row in rows]
 
 
@@ -73,7 +73,7 @@ def delete_playbook(playbook_id: UUID):
 
 @router.get("/contacts", response_model=list[Contact])
 def list_contacts(offset: int = Query(0, ge=0), limit: int = Query(settings.API_PAGE_SIZE, ge=1, le=1000)):
-    return db.list_rows("emergency_contacts", offset=offset, limit=limit)
+    return db.list_rows("emergency_contacts", offset=offset, limit=limit, order_by=("display_order", "created_at", "id"))
 
 
 @router.post("/contacts", response_model=Contact, status_code=201, dependencies=[Depends(auth.require_admin)])

@@ -320,11 +320,7 @@ def generate(question, records, client, *, scope, risk, vehicle_profile=None, di
             {"question": question, "knowledge_scope": scope["label"],
              "active_vehicle_profile": vehicle_profile, "sources": sources}, ensure_ascii=False)
     )
-    if diagnostics is not None:
-        diagnostics["generation_llm_calls"] = 1
     raw = client.generate(prompt, schema=answer_schema([s["label"] for s in sources]))
-    if diagnostics is not None:
-        diagnostics["raw_generation"] = raw
     answer = json.loads(raw)
     if not isinstance(answer, dict) or set(answer) != {"blocks"} or not isinstance(answer["blocks"], list):
         raise ValueError("Invalid generated answer schema")

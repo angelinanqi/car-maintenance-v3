@@ -19,16 +19,16 @@ export function ContentProvider({ children }) {
   const generation = useRef(0);
   const resourceVersions = useRef({});
   const resourceErrors = useRef({});
-  const refresh = useCallback(async ({ documentsOnly = false } = {}) => {
+  const refresh = useCallback(async ({ documentsOnly = false, resources = null } = {}) => {
     const version = ++generation.current;
     const fetchers = {
       documents: documentsApi.listDocuments, dashboard: () => request("/dashboard"),
       configuration: () => request("/config"),
-      ...(!documentsOnly ? { cards: guidesApi.listGuides, categories: categoriesApi.listCategories,
-        sops: emergencyApi.listPlaybooks, contacts: emergencyApi.listContacts,
-        } : {}),
+      cards: guidesApi.listGuides, categories: categoriesApi.listCategories,
+      sops: emergencyApi.listPlaybooks, contacts: emergencyApi.listContacts,
     };
-    const entries = Object.entries(fetchers);
+    const wanted = documentsOnly ? ["documents", "dashboard", "configuration"] : resources;
+    const entries = Object.entries(fetchers).filter(([name]) => !wanted || wanted.includes(name));
     entries.forEach(([name]) => { resourceVersions.current[name] = version; });
     const results = await Promise.allSettled(entries.map(([, fetch]) => fetch()));
     if (!entries.some(([name]) => resourceVersions.current[name] === version)) return "";
@@ -43,9 +43,9 @@ export function ContentProvider({ children }) {
     });
     setData((previous) => {
       const next = { ...previous, ...updates };
-      next.documents = next.documents.map((item) => ({ ...item, carModel: item.car_model, date: date(item.created_at) }));
-      next.cards = next.cards.map((item) => ({ ...item, category: next.categories.find((cat) => cat.id === item.category_id)?.name || "Uncategorized", updatedAt: date(item.updated_at) }));
-      next.sops = next.sops.map((item) => ({ ...item, updatedAt: date(item.updated_at) }));
+      if (updates.documents) next.documents = next.documents.map((item) => ({ ...item, date: date(item.created_at) }));
+      if (updates.cards || updates.categories) next.cards = next.cards.map((item) => ({ ...item, category: next.categories.find((cat) => cat.id === item.category_id)?.name || "Uncategorized", updatedAt: date(item.updated_at) }));
+      if (updates.sops) next.sops = next.sops.map((item) => ({ ...item, updatedAt: date(item.updated_at) }));
       return next;
     });
     const message = Object.entries(resourceErrors.current).map(([name, detail]) => `${name}: ${detail}`).join("; ");
@@ -72,9 +72,9 @@ export function ContentProvider({ children }) {
     return () => { stopped = true; clearTimeout(timer); };
   }, [processing, refresh]);
 
-  async function mutate(action) {
+  async function mutate(action, resources) {
     const result = await action();
-    const warning = await refresh();
+    const warning = await refresh({ resources: [...resources, "dashboard", "configuration"] });
     if (warning) setError(`Saved successfully, but some data could not be refreshed. ${warning}`);
     return result;
   }
@@ -98,7 +98,7 @@ export function ContentProvider({ children }) {
       }
     } finally {
       // Reflect partial successes too; failed files remain visible as an error in the dialog.
-      await refresh();
+      await refresh({ documentsOnly: true });
     }
   }
 
@@ -109,22 +109,22 @@ export function ContentProvider({ children }) {
         results.push(...await documentsApi.processDocuments(ids.slice(start, start + DOCUMENT_BATCH_LIMIT), force));
       }
       return results;
-    } finally { await refresh(); }
+    } finally { await refresh({ documentsOnly: true }); }
   }
 
   return <ContentContext.Provider value={{
     ...data, loading, error, refresh, saveDocument, processDocuments,
-    deleteDocument: (id) => mutate(() => documentsApi.deleteDocument(id)),
-    saveGuide: (id, body) => mutate(() => guidesApi.saveGuide(id, body)),
-    deleteGuide: (id) => mutate(() => guidesApi.deleteGuide(id)),
-    publishGuide: (id) => mutate(() => guidesApi.publishGuide(id)),
-    saveCategory: (id, body) => mutate(() => categoriesApi.saveCategory(id, body)),
-    deleteCategory: (id) => mutate(() => categoriesApi.deleteCategory(id)),
-    savePlaybook: (id, body) => mutate(() => emergencyApi.savePlaybook(id, body)),
-    publishPlaybook: (id) => mutate(() => emergencyApi.publishPlaybook(id)),
-    deletePlaybook: (id) => mutate(() => emergencyApi.deletePlaybook(id)),
-    saveContact: (id, body) => mutate(() => emergencyApi.saveContact(id, body)),
-    deleteContact: (id) => mutate(() => emergencyApi.deleteContact(id)),
+    deleteDocument: (id) => mutate(() => documentsApi.deleteDocument(id), ["documents"]),
+    saveGuide: (id, body) => mutate(() => guidesApi.saveGuide(id, body), ["cards"]),
+    deleteGuide: (id) => mutate(() => guidesApi.deleteGuide(id), ["cards"]),
+    publishGuide: (id) => mutate(() => guidesApi.publishGuide(id), ["cards"]),
+    saveCategory: (id, body) => mutate(() => categoriesApi.saveCategory(id, body), ["categories", "cards"]),
+    deleteCategory: (id) => mutate(() => categoriesApi.deleteCategory(id), ["categories", "cards"]),
+    savePlaybook: (id, body) => mutate(() => emergencyApi.savePlaybook(id, body), ["sops"]),
+    publishPlaybook: (id) => mutate(() => emergencyApi.publishPlaybook(id), ["sops"]),
+    deletePlaybook: (id) => mutate(() => emergencyApi.deletePlaybook(id), ["sops"]),
+    saveContact: (id, body) => mutate(() => emergencyApi.saveContact(id, body), ["contacts"]),
+    deleteContact: (id) => mutate(() => emergencyApi.deleteContact(id), ["contacts"]),
   }}>{children}</ContentContext.Provider>;
 }
 

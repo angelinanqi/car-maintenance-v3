@@ -2,7 +2,7 @@ from rag.config.settings import EMBEDDING_MAX_TOKENS
 import json
 from hashlib import sha256
 from .chunking import chunk_transcript, build_metadata_record
-from .config import CHUNK_TOKENS, OVERLAP_TOKENS
+from rag.config.settings import YOUTUBE_CHUNK_TOKENS as CHUNK_TOKENS, YOUTUBE_OVERLAP_TOKENS as OVERLAP_TOKENS
 from .transcripts import fetch_transcript, save_json
 from .retrieval import create_embedder, replace_video
 
@@ -24,7 +24,6 @@ def ingest_videos(videos, output_dir, store, rebuild=False):
         metadata_only_videos=0,
     )
 
-    failures = []
     embedder = None
     settings = {
         "target": CHUNK_TOKENS,
@@ -146,24 +145,12 @@ def ingest_videos(videos, output_dir, store, rebuild=False):
         except Exception as error:
             # isolate every video's fetch/cache/chunk/embed/write failures
             reason = " ".join(str(error).split())[:240] or type(error).__name__
-            failures.append(
-                {
-                    "video_id": video_id,
-                    "title": video.get("title", ""),
-                    "stage": stage,
-                    "reason": reason,
-                }
-            )
-
             summary["videos_failed"] += 1
 
             if stage == "transcript":
                 summary["transcripts_failed"] += 1
 
             print(f"Failed {video_id} ({video.get('title', '')}) [{stage}]: {reason}")
-
-    save_json(output_dir / "failures.json", failures)
-    save_json(output_dir / "summary.json", summary)
 
     print(
         "YouTube summary: "

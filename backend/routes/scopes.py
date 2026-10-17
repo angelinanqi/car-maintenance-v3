@@ -5,6 +5,7 @@ from pydantic import Field
 from backend import auth, db
 from backend.models import InputModel
 from backend.services import scopes
+from backend.services.documents import referencing_schedules
 from backend.locks import content_lock
 
 router = APIRouter(prefix="/knowledge", tags=["Knowledge scopes"])
@@ -51,9 +52,12 @@ def manage_scopes():
 
 @router.post("/vehicles", status_code=201, dependencies=[Depends(auth.require_admin)])
 def create_vehicle(request: VehicleInput):
+    if request.code == 'general':
+        raise HTTPException(422, "The general code is reserved for vehicle-independent manual lookup.")
     if request.model_id:
         db.get("vehicle_models", request.model_id)
-        if not request.year.isdigit() or not 1900 <= int(request.year) <= 2100:
+        if (len(request.year) != 4 or not request.year.isascii() or not request.year.isdigit()
+                or not 1900 <= int(request.year) <= 2100):
             raise HTTPException(422, "Provide a single model year between 1900 and 2100.")
     return db.insert("knowledge_vehicles", request.model_dump(mode="json"))
 
@@ -61,11 +65,14 @@ def create_vehicle(request: VehicleInput):
 @router.patch("/vehicles/{vehicle_id}", dependencies=[Depends(auth.require_admin)])
 def edit_vehicle(vehicle_id: UUID, request: VehicleInput):
     old = db.get("knowledge_vehicles", vehicle_id)
+    if request.code != old["code"]:
+        raise HTTPException(409, "The vehicle code is used by the mobile manual catalogue and must remain stable. Create a new variant for a different identity.")
     if old.get("model_id") and old["model_id"] != str(request.model_id):
         raise HTTPException(409, "Create a new variant to change its model. Existing vehicle identities must remain stable.")
     if request.model_id:
         db.get("vehicle_models", request.model_id)
-        if not request.year.isdigit() or not 1900 <= int(request.year) <= 2100:
+        if (len(request.year) != 4 or not request.year.isascii() or not request.year.isdigit()
+                or not 1900 <= int(request.year) <= 2100):
             raise HTTPException(422, "Provide a single model year between 1900 and 2100.")
     return db.update("knowledge_vehicles", vehicle_id, request.model_dump(mode="json"))
 
@@ -90,8 +97,11 @@ def get_associations(document_id: UUID):
 @router.put("/documents/{document_id}/associations", dependencies=[Depends(auth.require_admin)])
 def set_associations(document_id: UUID, request: Associations):
     # Add before removing; a failed write is explicit and safely retryable.
-    with content_lock(document_id):
+    with content_lock('schedule-sources'), content_lock(document_id):
         db.get("documents", document_id)
+        required_vehicles = {schedule['vehicle_id'] for schedule in referencing_schedules(document_id)}
+        if not required_vehicles.issubset({str(identity) for identity in request.vehicle_ids}):
+            raise HTTPException(409, "A maintenance schedule references this document for a vehicle. Keep its source association for traceability.")
         for kind, table in (("vehicle", "knowledge_vehicles"), ("category", "guide_categories")):
             for identity in getattr(request, kind + "_ids"):
                 db.get(table, identity)
@@ -117,9 +127,11 @@ def set_videos(scope_type: Literal["vehicle", "category"], scope_id: UUID, reque
     with content_lock(scope_id):
         existing = db.all_rows("knowledge_videos", **{field: str(scope_id)})
         current = {r["video_id"] for r in existing}
-        for identity in set(request.video_ids) - current:
-            db.insert("knowledge_videos", {field: str(scope_id), "video_id": identity})
+        desired = list(dict.fromkeys(request.video_ids))
+        for identity in desired:
+            if identity not in current:
+                db.insert("knowledge_videos", {field: str(scope_id), "video_id": identity})
         for row in existing:
-            if row["video_id"] not in request.video_ids:
+            if row["video_id"] not in desired:
                 db.delete("knowledge_videos", row["id"])
-    return {"video_ids": request.video_ids}
+    return {"video_ids": desired}

@@ -1,0 +1,5 @@
+# Separate Python 3.12 environment for the existing MinerU pipeline CLI.
+# MinerU 4 changes the CLI and output contract used by backend/services/ocr.py.
+mineru[pipeline]>=3.1,<4
+# MinerU's bundled OCR code imports six but does not declare it.
+six>=1.16,<2

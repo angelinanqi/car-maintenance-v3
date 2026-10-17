@@ -208,6 +208,7 @@ class _VehicleProfilePageState extends State<VehicleProfilePage> {
                       ),
                       onChanged: (v) => setState(() => _search = v),
                     ),
+                    const SizedBox(height: 12),
                     _filter(
                       'Manufacturer',
                       _manufacturer,
@@ -290,6 +291,7 @@ class _VehicleProfilePageState extends State<VehicleProfilePage> {
                       labelText: 'Nickname (optional)',
                     ),
                   ),
+                  const SizedBox(height: 16),
                   TextFormField(
                     controller: _plate,
                     enabled: !_busy,
@@ -297,6 +299,7 @@ class _VehicleProfilePageState extends State<VehicleProfilePage> {
                       labelText: 'Number plate (optional)',
                     ),
                   ),
+                  const SizedBox(height: 16),
                   TextFormField(
                     controller: _mileage,
                     enabled: !_busy,

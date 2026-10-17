@@ -1,0 +1,3 @@
+# Finder launchers must retain Unix line endings; cmd.exe uses Windows endings.
+*.command text eol=lf
+*.cmd text eol=crlf

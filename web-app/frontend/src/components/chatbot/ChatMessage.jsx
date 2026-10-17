@@ -15,42 +15,42 @@ export default function ChatMessage({ message }) {
       alignSelf={isUser ? "flex-end" : "flex-start"}
       maxW={{ base: "95%", md: "80%" }}
       minW={0}
-      bg={isUser ? "blue.50" : "white"}
+      bg={isUser ? "brand.100" : "white"}
       borderWidth="1px"
-      borderColor={isUser ? "blue.200" : "gray.200"}
+      borderColor={isUser ? "brand.200" : "gray.200"}
       borderRadius="lg"
       p={4}
     >
       <Stack gap={3}>
-        <Text fontSize="xs" fontWeight="semibold" color="gray.600">
+        <Text fontSize="sm" fontWeight="semibold" color="gray.600">
           {isUser ? "You" : "Assistant"}
         </Text>
-        <Text fontSize="sm" whiteSpace="pre-wrap" overflowWrap="anywhere">
+        <Text fontSize="md" whiteSpace="pre-wrap" overflowWrap="anywhere" lineHeight="1.7">
           {message.answer}
         </Text>
         {isUser && message.failed && (
-          <Text fontSize="xs" color="red.600">
+          <Text fontSize="sm" color="red.600">
             No answer received for this message.
           </Text>
         )}
         {!isUser && message.response_type && (
-          <Text role={["generation_error", "retrieval_error"].includes(message.response_type) ? "alert" : undefined} fontSize="xs" color={["generation_error", "retrieval_error"].includes(message.response_type) ? "red.700" : "gray.600"}>
+          <Text role={["generation_error", "retrieval_error"].includes(message.response_type) ? "alert" : undefined} fontSize="sm" color={["generation_error", "retrieval_error"].includes(message.response_type) ? "red.700" : "gray.600"}>
             Response: {message.response_type.replaceAll("_", " ")}
           </Text>
         )}
-        {!isUser && message.route && <Text fontSize="xs" color="gray.600">Route: {message.route}</Text>}
+        {!isUser && message.route && <Text fontSize="sm" color="gray.600">Route: {message.route}</Text>}
         {!isUser && <Box as="section" aria-label="Source references">
           <Text fontSize="sm" fontWeight="semibold">Source references</Text>
           {(Array.isArray(message.sources) ? message.sources : []).filter(Boolean).map((source, index) => (
             <Box key={`${source.chunk_id || source.document_id || "source"}-${index}`} mt={2} pl={3} borderLeftWidth="2px">
               <Text fontSize="sm" overflowWrap="anywhere">{source.label || `Source ${index + 1}`}: {sourceTypes[source.source_type] || "Reference document"} — {source.title || source.document_title || source.document_id || "Reference unavailable"}</Text>
-              {source.reviewed_at && <Text fontSize="xs">Reviewed: {source.reviewed_at}</Text>}
-              {source.source_reference && <Text fontSize="xs" overflowWrap="anywhere">Source reference: {source.source_reference}</Text>}
-              {source.page != null && <Text fontSize="xs">Page: {source.page}</Text>}
-              {source.chunk_id && <Text fontSize="xs" overflowWrap="anywhere">Chunk: {source.chunk_id}</Text>}
+              {source.reviewed_at && <Text fontSize="sm">Reviewed: {source.reviewed_at}</Text>}
+              {source.source_reference && <Text fontSize="sm" overflowWrap="anywhere">Source reference: {source.source_reference}</Text>}
+              {source.page != null && <Text fontSize="sm">Page: {source.page}</Text>}
+              {source.chunk_id && <Text fontSize="sm" overflowWrap="anywhere">Chunk: {source.chunk_id}</Text>}
             </Box>
           ))}
-          {!message.sources?.length && <Text fontSize="xs" color="gray.600">No source references returned for this answer.</Text>}
+          {!message.sources?.length && <Text fontSize="sm" color="gray.600">No source references returned for this answer.</Text>}
         </Box>}
         {!isUser && message.external_warning && (
           <Box
@@ -77,7 +77,7 @@ export default function ChatMessage({ message }) {
                 p={3}
               >
                 <Stack gap={2} align="start">
-                  <Text fontSize="xs" color="gray.600">
+                  <Text fontSize="sm" color="gray.600">
                     Recommended video
                   </Text>
                   <Text
@@ -90,7 +90,7 @@ export default function ChatMessage({ message }) {
                   {typeof video.timestamp === "number" &&
                     Number.isFinite(video.timestamp) &&
                     video.timestamp >= 0 && (
-                      <Text fontSize="xs" color="gray.600">
+                      <Text fontSize="sm" color="gray.600">
                         Starts at {Math.floor(video.timestamp / 60)}:
                         {String(Math.floor(video.timestamp % 60)).padStart(
                           2,
@@ -103,7 +103,7 @@ export default function ChatMessage({ message }) {
                       asChild
                       size="sm"
                       variant="outline"
-                      colorPalette="blue"
+                      colorPalette="brand"
                     >
                       <a
                         href={video.url}
