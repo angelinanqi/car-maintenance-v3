@@ -1,8 +1,13 @@
 "use client";
 
+import { Checkbox } from "@/components/ui/checkbox";
+
+import { AdminSelect } from "@/components/admin/NativeControls";
+
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
+  Fieldset,
   Box,
   Button,
   Flex,
@@ -14,6 +19,7 @@ import {
 } from "@chakra-ui/react";
 import AdminLayout from "@/components/layouts/AdminLayout";
 import FormField from "@/components/admin/FormField";
+import useUnsavedChanges from "@/components/admin/useUnsavedChanges";
 import { request, listAll } from "@/api/client.mjs";
 import { originalDocumentUrl } from "@/api/documents.mjs";
 import {
@@ -23,6 +29,8 @@ import {
   saveSchedule,
   validateSchedule,
   publishSchedule,
+  withdrawSchedule,
+  deleteDraftSchedule,
   type Vehicle,
   type MaintenanceItem,
   type Schedule,
@@ -68,6 +76,7 @@ function ScheduleEditor() {
   const [schedule, setSchedule] = useState<Schedule | null>(null);
   const [entries, setEntries] = useState<ScheduleEntry[]>([]);
   const [dirty, setDirty] = useState(false);
+  useUnsavedChanges(dirty);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -152,7 +161,10 @@ function ScheduleEditor() {
       setEntries(saved.entries);
       setDirty(false);
       setReviewed(false);
-      setSchedules(await loadSchedules(vehicleId));
+      setSchedules((previous) => [
+        ...previous.filter((row) => row.id !== saved.id),
+        saved,
+      ]);
       setNotice(
         "Draft saved. Validate the saved configuration, then verify the source before publishing.",
       );
@@ -176,7 +188,15 @@ function ScheduleEditor() {
         const saved = await publishSchedule(schedule.id);
         setSchedule(saved);
         setReviewed(false);
-        setSchedules(await loadSchedules(vehicleId));
+        setSchedules((previous) =>
+          previous.map((row) =>
+            row.id === saved.id
+              ? saved
+              : row.status === "published"
+                ? { ...row, status: "superseded" }
+                : row,
+          ),
+        );
         setNotice(
           "Verified schedule published. The previous published revision is preserved as superseded.",
         );
@@ -189,10 +209,50 @@ function ScheduleEditor() {
       setBusy(false);
     }
   }
+  async function retireSchedule() {
+    if (!schedule || dirty || busy) return;
+    const removing = schedule.status === "draft";
+    if (
+      !window.confirm(
+        removing
+          ? "Delete this draft revision?"
+          : "Withdraw this schedule? Manufacturer reminders from this revision will stop on the next mobile refresh. Service records and personal tasks are kept.",
+      )
+    )
+      return;
+    setBusy(true);
+    setError("");
+    try {
+      if (removing) {
+        await deleteDraftSchedule(schedule.id);
+        setSchedules((previous) =>
+          previous.filter((row) => row.id !== schedule.id),
+        );
+        setSchedule(null);
+        setEntries([]);
+      } else {
+        const saved = await withdrawSchedule(schedule.id);
+        setSchedule(saved);
+        setSchedules((previous) =>
+          previous.map((row) => (row.id === saved.id ? saved : row)),
+        );
+      }
+      setReviewed(false);
+      setNotice(
+        removing
+          ? "Draft deleted."
+          : "Schedule withdrawn. Personal tasks and service history are kept.",
+      );
+    } catch (failure) {
+      setError((failure as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
     <AdminLayout
-      title="Manufacturer Maintenance Schedules"
-      description="Enter verified rules from the original PDF. Save drafts and publish reviewed revisions."
+      title="Service schedules"
+      description="Choose a vehicle, enter rules from its source PDF, then save, validate and review before publishing."
     >
       <Stack gap={5}>
         {error && (
@@ -215,7 +275,7 @@ function ScheduleEditor() {
         </Button>
         {loading && <Text>Loading vehicle and source catalogues…</Text>}
         <FormField label="Vehicle variant">
-          <select
+          <AdminSelect
             disabled={busy || loading}
             value={vehicleId}
             onChange={(e) => {
@@ -239,12 +299,12 @@ function ScheduleEditor() {
                 {row.name} · {row.year} · {row.variant}
               </option>
             ))}
-          </select>
+          </AdminSelect>
         </FormField>
         {vehicleId && (
           <>
             <FormField label="Schedule revision">
-              <select
+              <AdminSelect
                 disabled={busy}
                 value={schedule?.id || ""}
                 onChange={(e) => chooseSchedule(e.target.value)}
@@ -255,7 +315,7 @@ function ScheduleEditor() {
                     Revision {row.revision} · {row.status}
                   </option>
                 ))}
-              </select>
+              </AdminSelect>
             </FormField>
             {schedule && (
               <Text>
@@ -300,7 +360,7 @@ function ScheduleEditor() {
                 </Heading>
                 <Stack gap={3}>
                   <FormField label="Associated PDF">
-                    <select
+                    <AdminSelect
                       value={pdfId}
                       onChange={(e) => {
                         setPdfId(e.target.value);
@@ -313,7 +373,7 @@ function ScheduleEditor() {
                           {d.name} · {d.document_type.replaceAll("_", " ")}
                         </option>
                       ))}
-                    </select>
+                    </AdminSelect>
                   </FormField>
                   {!sources.length && (
                     <Text>
@@ -354,7 +414,7 @@ function ScheduleEditor() {
                 </Stack>
               </Box>
               <Box flex="1" w="100%" minW={0}>
-                <fieldset disabled={busy}>
+                <Fieldset.Root disabled={busy}>
                   <Stack gap={4}>
                     {entries.map((entry, index) => (
                       <Box
@@ -363,11 +423,11 @@ function ScheduleEditor() {
                         borderRadius="md"
                         p={4}
                       >
-                        <fieldset disabled={!canEdit}>
+                        <Fieldset.Root disabled={!canEdit}>
                           <Stack gap={3}>
                             <Heading size="sm">Rule {index + 1}</Heading>
                             <FormField label="Standard maintenance item">
-                              <select
+                              <AdminSelect
                                 value={entry.itemId || ""}
                                 onChange={(e) => {
                                   const item = items.find(
@@ -390,11 +450,11 @@ function ScheduleEditor() {
                                       {r.title} ({r.action})
                                     </option>
                                   ))}
-                              </select>
+                              </AdminSelect>
                             </FormField>
                             <Text fontSize="sm">Action: {entry.action}</Text>
                             <FormField label="Rule structure">
-                              <select
+                              <AdminSelect
                                 value={entry.rule.type}
                                 onChange={(e) =>
                                   changeEntry(index, {
@@ -421,7 +481,7 @@ function ScheduleEditor() {
                                 <option value="informational">
                                   Conditional / informational guidance
                                 </option>
-                              </select>
+                              </AdminSelect>
                             </FormField>
                             {entry.rule.type === "recurring" && (
                               <>
@@ -454,7 +514,7 @@ function ScheduleEditor() {
                                     </FormField>
                                   ),
                                 )}
-                                <Text fontSize="xs">
+                                <Text fontSize="sm">
                                   When both are set, whichever threshold is
                                   reached first applies.
                                 </Text>
@@ -512,7 +572,7 @@ function ScheduleEditor() {
                               />
                             </FormField>
                             <FormField label="Source document">
-                              <select
+                              <AdminSelect
                                 value={entry.rule.sourceDocumentId || ""}
                                 onChange={(e) =>
                                   changeEntry(index, {
@@ -530,7 +590,7 @@ function ScheduleEditor() {
                                     {d.name}
                                   </option>
                                 ))}
-                              </select>
+                              </AdminSelect>
                             </FormField>
                             <FormField label="Source page">
                               <Input
@@ -551,7 +611,7 @@ function ScheduleEditor() {
                               />
                             </FormField>
                           </Stack>
-                        </fieldset>
+                        </Fieldset.Root>
                         <Flex gap={2} wrap="wrap" mt={3}>
                           <Button
                             variant="outline"
@@ -599,10 +659,22 @@ function ScheduleEditor() {
                       Save draft
                     </Button>
                   </Stack>
-                </fieldset>
+                </Fieldset.Root>
               </Box>
             </Flex>
             <Flex gap={3} wrap="wrap" align="center">
+              {schedule && schedule.status !== "superseded" && (
+                <Button
+                  variant="outline"
+                  colorPalette="red"
+                  disabled={dirty || busy}
+                  onClick={retireSchedule}
+                >
+                  {schedule.status === "draft"
+                    ? "Delete draft revision"
+                    : "Withdraw schedule"}
+                </Button>
+              )}
               <Button
                 variant="outline"
                 disabled={!schedule || dirty || busy}
@@ -610,18 +682,16 @@ function ScheduleEditor() {
               >
                 Validate saved configuration
               </Button>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={reviewed}
-                  disabled={!canEdit || dirty || !schedule || busy}
-                  onChange={(e) => setReviewed(e.target.checked)}
-                />{" "}
+              <Checkbox
+                checked={reviewed}
+                disabled={!canEdit || dirty || !schedule || busy}
+                onCheckedChange={(e) => setReviewed(e.checked === true)}
+              >
                 I verified every rule, action, condition and source page against
                 the original PDF.
-              </label>
+              </Checkbox>
               <Button
-                colorPalette="blue"
+                colorPalette="brand"
                 disabled={!schedule || !canEdit || dirty || busy || !reviewed}
                 onClick={() => validateOrPublish(true)}
               >

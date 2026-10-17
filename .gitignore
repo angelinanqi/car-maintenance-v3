@@ -159,9 +159,10 @@ activemq-data/
 .env
 .env.*
 !.env.example
+!.env.sample
 .envrc
 .venv
-.venv-api/
+.venv-ocr/
 env/
 venv/
 ENV/
@@ -228,8 +229,3 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-# Local verification runtime
-.tools/
-.venv-ocr/
-development_verification/postgres-data/
-development_verification/live-runtime/

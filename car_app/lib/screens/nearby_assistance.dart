@@ -51,7 +51,9 @@ class _NearbyAssistanceState extends State<NearbyAssistance> {
     } catch (error) {
       if (mounted) {
         setState(() {
-          _error = error.toString();
+          _error = error is NearbyLocationException
+              ? error.message
+              : 'Nearby search is unavailable. Check your connection and retry, or search directly in Google Maps below.';
           if (error is NearbyLocationException) {
             _settingsAction = error.settingsAction;
           }

@@ -51,9 +51,8 @@ export default function TiptapEditor({ content, onChange, readOnly = false, uplo
       borderRadius="lg"
       overflow="hidden"
       bg="white"
-      boxShadow="sm"
       w="100%"
-      minH="calc(100vh - 340px)"
+      minH={readOnly ? "auto" : "400px"}
       display="flex"
       flexDirection="column"
     >
@@ -72,7 +71,7 @@ export default function TiptapEditor({ content, onChange, readOnly = false, uplo
       <style jsx global>{`
         .ProseMirror {
           outline: none;
-          min-height: calc(100vh - 470px);
+          min-height: ${readOnly ? "0" : "300px"};
           font-size: 16px;
           line-height: 1.7;
           color: #1a202c;
@@ -200,7 +199,7 @@ export default function TiptapEditor({ content, onChange, readOnly = false, uplo
            ========================= */
 
         .ProseMirror ::selection {
-          background: #bee3f8;
+          background: #ffe08a;
         }
       `}</style>
     </Box>

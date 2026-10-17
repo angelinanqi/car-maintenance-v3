@@ -1,36 +1,15 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../app_state.dart';
 import '../data/chat_repository.dart';
 import '../data/api_client.dart';
+import '../data/content_repository.dart';
 import '../models/chat_message.dart';
 import '../models/mechanic_preparation.dart';
 import 'mechanic_preparation.dart';
 import '../widgets/vehicle_selector.dart';
-import '../widgets/chat_attachment.dart';
-
-String sourceDescription(Map<String, dynamic> source) {
-  final kind = switch (source['source_type']) {
-    'learning_guide' => 'Learning guide',
-    'emergency_protocol' => 'Reviewed emergency protocol',
-    _ => 'Reference document',
-  };
-  final title =
-      source['title'] ??
-      source['document_title'] ??
-      source['document_id'] ??
-      'Reference';
-  final reference = source['source_reference'] as String?;
-  final details = <String>[
-    '${source['label'] ?? 'Source'}: $kind — $title',
-    if (source['reviewed_at'] != null) 'Reviewed: ${source['reviewed_at']}',
-    if (reference != null && reference.isNotEmpty)
-      'Source reference: $reference',
-    if (source['page'] != null) 'Page: ${source['page']}',
-    if (source['chunk_id'] != null) 'Reference: ${source['chunk_id']}',
-  ];
-  return details.join('\n');
-}
+import '../widgets/sign_in_prompt.dart';
+import '../widgets/chat_message_view.dart';
 
 class Chat extends StatefulWidget {
   final AppState state;
@@ -57,6 +36,7 @@ class Chat extends StatefulWidget {
 class _ChatState extends State<Chat> {
   final _text = TextEditingController();
   final _scroll = ScrollController();
+  final _inputFocus = FocusNode();
   final List<ChatMessage> _messages = [];
   final List<ChatMessage> _history = [];
   String? _vehicleId;
@@ -75,6 +55,9 @@ class _ChatState extends State<Chat> {
   final Map<String, Map<String, dynamic>> _conversations = {};
   String _conversationKey = '';
   bool _scopesLoading = false;
+  String? _scopeError;
+  bool _showLatest = false;
+  List<String> _starterQuestions = [];
 
   @override
   void initState() {
@@ -83,12 +66,25 @@ class _ChatState extends State<Chat> {
     _scope = widget.state.selectedVehicle?.effectiveScope ?? 'general';
     _accountId = widget.state.accountId;
     _contextData = widget.contextData;
+    _topic = widget.topic;
+    _text.text = widget.prompt ?? '';
+    _scroll.addListener(_scrollChanged);
     _loadScopes();
   }
 
+  void _scrollChanged() {
+    if (!_scroll.hasClients) return;
+    final show = _scroll.position.extentAfter > 240;
+    if (show != _showLatest) setState(() => _showLatest = show);
+  }
+
   Future<void> _loadScopes() async {
+    unawaited(_loadStarterQuestions());
     if (widget.repository is! FastApiChatRepository) return;
-    setState(() => _scopesLoading = true);
+    setState(() {
+      _scopesLoading = true;
+      _scopeError = null;
+    });
     try {
       final repository = widget.repository as FastApiChatRepository;
       final scopes = await repository.api.getList('/knowledge/scopes');
@@ -104,15 +100,46 @@ class _ChatState extends State<Chat> {
           );
           if (matches.isEmpty) {
             _knowledgeScope = null;
-            _clear();
           }
         }
-        if (_sessionId == null) _selectActiveScope();
+        if (_knowledgeScope == null) {
+          final draft = _text.text;
+          final topic = _topic;
+          _selectActiveScope();
+          if (_text.text.isEmpty) _text.text = draft;
+          _topic ??= topic;
+        }
       });
-    } catch (error) {
-      if (mounted) setState(() => _error = error.toString());
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => _scopeError =
+              'Sources could not refresh. Check your connection and try again.',
+        );
+      }
     } finally {
       if (mounted) setState(() => _scopesLoading = false);
+    }
+  }
+
+  Future<void> _loadStarterQuestions() async {
+    final repository = widget.repository;
+    final content = ContentRepository(
+      widget.state.store,
+      api: repository is FastApiChatRepository ? repository.api : null,
+    );
+    try {
+      final cached = await content.chatStarters();
+      if (mounted) setState(() => _starterQuestions = cached);
+    } catch (_) {
+      // A corrupt local preference must not block source selection or chat.
+    }
+    if (content.api == null) return;
+    try {
+      final current = await content.chatStarters(refresh: true);
+      if (mounted) setState(() => _starterQuestions = current);
+    } catch (_) {
+      // Keep the last synced list, including an intentionally empty list.
     }
   }
 
@@ -142,6 +169,11 @@ class _ChatState extends State<Chat> {
         'history': List<ChatMessage>.of(_history),
         'sessionId': _sessionId,
         'sessionToken': _sessionToken,
+        'draft': _text.text,
+        'error': _error,
+        'failedRequest': _failedRequest,
+        'offset': _scroll.hasClients ? _scroll.offset : 0.0,
+        'topic': _topic,
       };
     }
     final key =
@@ -150,13 +182,24 @@ class _ChatState extends State<Chat> {
     _knowledgeScope = scope;
     _conversationKey = key;
     _topic = _contextData?['title'] as String?;
+    _text.clear();
     final saved = _conversations[key];
     if (saved != null) {
       _messages.addAll(saved['messages'] as List<ChatMessage>);
       _history.addAll(saved['history'] as List<ChatMessage>);
       _sessionId = saved['sessionId'] as String?;
       _sessionToken = saved['sessionToken'] as String?;
+      _text.text = saved['draft'] as String? ?? '';
+      _error = saved['error'] as String?;
+      _failedRequest = saved['failedRequest'] as ChatRequest?;
+      _topic = saved['topic'] as String?;
     }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _scroll.hasClients) {
+        final offset = saved?['offset'] as double? ?? 0;
+        _scroll.jumpTo(offset.clamp(0, _scroll.position.maxScrollExtent));
+      }
+    });
   }
 
   @override
@@ -179,12 +222,11 @@ class _ChatState extends State<Chat> {
       _vehicleId = selected;
       _scope = scope;
       _selectActiveScope();
-      _text.clear();
     }
     if (widget.requestNumber != oldWidget.requestNumber) {
-      _topic = widget.topic;
       _contextData = widget.contextData;
       _selectActiveScope();
+      _topic = widget.topic;
       _text.text = widget.prompt ?? '';
     }
   }
@@ -193,6 +235,7 @@ class _ChatState extends State<Chat> {
   void dispose() {
     _generation++;
     _text.dispose();
+    _inputFocus.dispose();
     _scroll.dispose();
     super.dispose();
   }
@@ -235,7 +278,9 @@ class _ChatState extends State<Chat> {
     if (mounted && _scroll.hasClients) {
       _scroll.animateTo(
         _scroll.position.maxScrollExtent,
-        duration: const Duration(milliseconds: 200),
+        duration: MediaQuery.disableAnimationsOf(context)
+            ? Duration.zero
+            : const Duration(milliseconds: 200),
         curve: Curves.easeOut,
       );
     }
@@ -253,8 +298,8 @@ class _ChatState extends State<Chat> {
     }
     if (_knowledgeScope == null) {
       setState(
-        () =>
-            _error = 'Select an available vehicle or category knowledge scope.',
+        () => _error =
+            'Choose an available vehicle manual or published category in Conversation settings.',
       );
       return;
     }
@@ -298,6 +343,10 @@ class _ChatState extends State<Chat> {
       _failedRequest = null;
     });
     _scrollDown();
+    // Lay out the submitted question before a fast reply can replace the
+    // loading row. Otherwise scrolling may jump to the end of a long answer.
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted || generation != _generation) return;
     try {
       final reply = await widget.repository.send(request);
       if (!mounted || generation != _generation) return;
@@ -315,13 +364,16 @@ class _ChatState extends State<Chat> {
           answer,
         ]);
       });
-      _scrollDown();
+      // Keep the beginning of a long answer in view. Do not interrupt someone
+      // who scrolled back to read an earlier message while waiting.
     } catch (error) {
       if (!mounted || generation != _generation) return;
       setState(() {
         _error = error is ApiException && error.statusCode == 503
-            ? 'The AI service is temporarily unavailable. Your question is kept below; retry when the service is available.'
-            : error.toString();
+            ? 'The AI service is temporarily unavailable. Your question is kept here; try again shortly.'
+            : error is ApiException && [401, 403].contains(error.statusCode)
+            ? 'Your account or source access has changed. Sign in again or choose an available source. Your question is kept here.'
+            : 'The answer could not be loaded. Check your connection and try again. Your question is kept here.';
         _failedRequest = request;
       });
     } finally {
@@ -331,358 +383,472 @@ class _ChatState extends State<Chat> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: const Text('Ask AI'),
-      backgroundColor: Theme.of(context).colorScheme.primaryContainer,
-      actions: [
-        IconButton(
-          tooltip: 'Clear conversation',
-          icon: const Icon(Icons.clear_all),
-          onPressed: _pending
-              ? null
-              : () => setState(() {
-                  _conversations.remove(_conversationKey);
-                  _clear();
-                  _contextData = null;
-                  _selectActiveScope();
-                }),
-        ),
-      ],
-    ),
-    body: !widget.state.signedIn
-        ? const Center(
-            child: Padding(
-              padding: EdgeInsets.all(24),
-              child: Text(
-                'Sign in to use the AI Assistant. Learning and emergency guidance work independently.',
-              ),
-            ),
-          )
-        : SafeArea(
-            child: Column(
+  Future<void> _settings() async {
+    FocusManager.instance.primaryFocus?.unfocus();
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (sheetContext) => FractionallySizedBox(
+        heightFactor: 0.9,
+        child: StatefulBuilder(
+          builder: (context, updateSheet) => ListenableBuilder(
+            listenable: widget.state,
+            builder: (context, _) => Column(
               children: [
-                VehicleSelector(state: widget.state),
-                if (_scopesLoading) const LinearProgressIndicator(),
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  padding: const EdgeInsets.fromLTRB(20, 0, 8, 8),
                   child: Row(
                     children: [
                       Expanded(
-                        child: DropdownButtonFormField<String>(
-                          initialValue: _knowledgeScope == null
-                              ? null
-                              : '${_knowledgeScope!['scope_type']}:${_knowledgeScope!['scope_id']}',
-                          key: ValueKey(_knowledgeScope?['scope_id']),
-                          decoration: const InputDecoration(
-                            labelText: 'Knowledge scope',
-                          ),
-                          items: _knowledgeScopes
-                              .where(
-                                (s) =>
-                                    s['scope_type'] == 'category' ||
-                                    s['scope_id'] ==
-                                        widget
-                                            .state
-                                            .selectedVehicle
-                                            ?.knowledgeScopeId,
-                              )
-                              .map(
-                                (s) => DropdownMenuItem<String>(
-                                  value: '${s['scope_type']}:${s['scope_id']}',
-                                  enabled: s['available'] == true,
-                                  child: Text(
-                                    '${s['label']}${s['available'] == true ? '' : ' (empty)'}',
-                                  ),
-                                ),
-                              )
-                              .toList(),
-                          isExpanded: true,
-                          onChanged: _pending
-                              ? null
-                              : (value) => setState(() {
-                                  final scope = _knowledgeScopes.firstWhere(
-                                    (s) =>
-                                        '${s['scope_type']}:${s['scope_id']}' ==
-                                        value,
-                                  );
-                                  _switchScope(scope);
-                                }),
+                        child: Text(
+                          'Conversation settings',
+                          style: Theme.of(context).textTheme.titleLarge,
                         ),
                       ),
                       IconButton(
-                        onPressed: _pending || _scopesLoading
-                            ? null
-                            : _loadScopes,
-                        icon: const Icon(Icons.refresh),
-                        tooltip: 'Refresh knowledge scopes',
+                        tooltip: 'Close conversation settings',
+                        onPressed: () => Navigator.pop(sheetContext),
+                        icon: const Icon(Icons.close),
                       ),
                     ],
                   ),
                 ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 4,
-                  ),
-                  child: Text(
-                    'Knowledge: ${_knowledgeScope?['label'] ?? 'No indexed sources for this vehicle. Select a published category to ask a general question.'}. Each conversation keeps its original scope.',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ),
-                if (_topic != null)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Text('Topic: $_topic'),
-                  ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 4,
-                  ),
-                  child: Text(
-                    aiReferenceNotice,
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ),
-                if (widget.repository is FastApiChatRepository)
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: TextButton.icon(
-                      onPressed: _pending ? null : _prepareForMechanic,
-                      icon: const Icon(Icons.question_answer_outlined),
-                      label: const Text('Prepare questions for a mechanic'),
-                    ),
-                  ),
                 Expanded(
-                  child: ListView(
-                    controller: _scroll,
-                    padding: const EdgeInsets.all(16),
-                    children: [
-                      if (_messages.isEmpty)
-                        const Text(
-                          'Ask a car question or choose a suggestion below.',
-                        ),
-                      ..._messages.map(
-                        (message) => Align(
-                          alignment: message.isUser
-                              ? Alignment.centerRight
-                              : Alignment.centerLeft,
-                          child: Container(
-                            constraints: BoxConstraints(
-                              maxWidth: MediaQuery.sizeOf(context).width * 0.8,
-                            ),
-                            margin: const EdgeInsets.symmetric(vertical: 6),
-                            padding: const EdgeInsets.all(14),
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(16),
-                              color: message.isUser
-                                  ? Theme.of(
-                                      context,
-                                    ).colorScheme.primaryContainer
-                                  : Theme.of(
-                                      context,
-                                    ).colorScheme.surfaceContainerHigh,
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                SelectableText(message.text),
-                                if (message.reply?.route == 'emergency' &&
-                                    widget.onEmergency != null)
-                                  FilledButton.icon(
-                                    onPressed: widget.onEmergency,
-                                    icon: const Icon(Icons.emergency_outlined),
-                                    label: const Text('Open emergency help'),
-                                  ),
-                                if (widget.repository is FastApiChatRepository)
-                                  for (final attachment
-                                      in message.reply?.attachments ??
-                                          <Map<String, dynamic>>[])
-                                    ChatAttachment(
-                                      key: ValueKey(
-                                        '${attachment['document_id']}:${attachment['source_revision']}:${attachment['element_id']}',
-                                      ),
-                                      attachment: attachment,
-                                      api:
-                                          (widget.repository
-                                                  as FastApiChatRepository)
-                                              .api,
-                                      token:
-                                          (widget.repository
-                                                  as FastApiChatRepository)
-                                              .account
-                                              ?.token,
-                                    ),
-                                if (message.reply?.externalWarning == true)
-                                  const Text(
-                                    'This answer includes information outside the available manuals.',
-                                  ),
-                                if (message.reply?.manualRelevant == true)
-                                  const Text(
-                                    'Relevant manual information was found.',
-                                  ),
-                                if ([
-                                  'generation_error',
-                                  'retrieval_error',
-                                ].contains(message.reply?.responseType))
-                                  const Text(
-                                    'The AI service could not complete this answer. Try again shortly.',
-                                  ),
-                                for (final source
-                                    in message.reply?.sources ??
-                                        <Map<String, dynamic>>[])
-                                  SelectableText(sourceDescription(source)),
-                                for (final video
-                                    in message.reply?.videos ??
-                                        <Map<String, dynamic>>[])
-                                  TextButton(
-                                    onPressed: () async {
-                                      final uri = Uri.tryParse(
-                                        video['url'] as String? ?? '',
-                                      );
-                                      if (uri == null ||
-                                          ![
-                                            'https',
-                                            'http',
-                                          ].contains(uri.scheme)) {
-                                        return;
-                                      }
-                                      final stamp =
-                                          (video['timestamp'] as num? ?? 0)
-                                              .toInt();
-                                      try {
-                                        if (!await launchUrl(
-                                          uri.replace(
-                                            queryParameters: {
-                                              ...uri.queryParameters,
-                                              't': '${stamp}s',
-                                            },
-                                          ),
-                                          mode: LaunchMode.externalApplication,
-                                        )) {
-                                          throw StateError('No video handler');
-                                        }
-                                      } catch (_) {
-                                        if (context.mounted) {
-                                          ScaffoldMessenger.of(
-                                            context,
-                                          ).showSnackBar(
-                                            const SnackBar(
-                                              content: Text(
-                                                'Could not open the video link.',
-                                              ),
-                                            ),
-                                          );
-                                        }
-                                      }
-                                    },
-                                    child: Text(
-                                      video['title'] as String? ?? 'Open video',
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                      if (_pending)
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.only(bottom: 24),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        VehicleSelector(state: widget.state),
                         const Padding(
-                          padding: EdgeInsets.all(12),
-                          child: Row(
-                            children: [
-                              SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              ),
-                              SizedBox(width: 12),
-                              Expanded(child: Text('Waiting for a reply...')),
-                            ],
+                          padding: EdgeInsets.fromLTRB(20, 8, 20, 16),
+                          child: Text(
+                            'Your active vehicle supplies saved vehicle details. Choose published material for the assistant to use below.',
                           ),
                         ),
-                      if (_error != null)
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              _error!,
+                        if (_scopesLoading)
+                          const LinearProgressIndicator(
+                            semanticsLabel: 'Loading knowledge sources',
+                          ),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
+                          child: DropdownButtonFormField<String>(
+                            initialValue: _knowledgeScope == null
+                                ? null
+                                : '${_knowledgeScope!['scope_type']}:${_knowledgeScope!['scope_id']}',
+                            key: ValueKey(
+                              '${_knowledgeScope?['scope_type']}:${_knowledgeScope?['scope_id']}',
+                            ),
+                            decoration: const InputDecoration(
+                              labelText: 'Knowledge source',
+                            ),
+                            items: _knowledgeScopes
+                                .where(
+                                  (s) =>
+                                      s['scope_type'] == 'category' ||
+                                      s['scope_id'] ==
+                                          widget
+                                              .state
+                                              .selectedVehicle
+                                              ?.knowledgeScopeId,
+                                )
+                                .map(
+                                  (s) => DropdownMenuItem<String>(
+                                    value:
+                                        '${s['scope_type']}:${s['scope_id']}',
+                                    enabled: s['available'] == true,
+                                    child: Text(
+                                      '${s['label']}${s['available'] == true ? '' : ' (unavailable)'}',
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                )
+                                .toList(),
+                            isExpanded: true,
+                            onChanged: _pending
+                                ? null
+                                : (value) {
+                                    setState(
+                                      () => _switchScope(
+                                        _knowledgeScopes.firstWhere(
+                                          (s) =>
+                                              '${s['scope_type']}:${s['scope_id']}' ==
+                                              value,
+                                        ),
+                                      ),
+                                    );
+                                    updateSheet(() {});
+                                  },
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+                          child: Text(
+                            _knowledgeScope == null
+                                ? 'No source selected. Choose an available vehicle manual or published category to ask a question.'
+                                : 'Each source has its own conversation. Switching back restores its messages during this visit.',
+                          ),
+                        ),
+                        if (_scopeError != null)
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+                            child: Text(
+                              _scopeError!,
                               style: TextStyle(
                                 color: Theme.of(context).colorScheme.error,
                               ),
                             ),
-                            TextButton(
-                              onPressed: _pending
-                                  ? null
-                                  : () => _send(_failedRequest),
-                              child: const Text('Retry reply'),
-                            ),
-                          ],
-                        ),
-                    ],
-                  ),
-                ),
-                SizedBox(
-                  height: 56,
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    children:
-                        [
-                              'Understanding my service records',
-                              'Finding the correct owner manual',
-                              'Understanding tyre pressure labels',
-                            ]
-                            .map(
-                              (topic) => Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 4,
-                                ),
-                                child: ActionChip(
-                                  label: Text(topic),
-                                  onPressed: _pending
-                                      ? null
-                                      : () {
-                                          _text.text = topic;
-                                        },
-                                ),
-                              ),
-                            )
-                            .toList(),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: _text,
-                          minLines: 1,
-                          maxLines: 3,
-                          textInputAction: TextInputAction.send,
-                          onSubmitted: (_) => _send(),
-                          decoration: const InputDecoration(
-                            labelText: 'Your question',
-                            border: OutlineInputBorder(),
+                          ),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: TextButton.icon(
+                            onPressed: _pending || _scopesLoading
+                                ? null
+                                : () async {
+                                    final future = _loadScopes();
+                                    updateSheet(() {});
+                                    await future;
+                                    if (sheetContext.mounted) {
+                                      updateSheet(() {});
+                                    }
+                                  },
+                            icon: const Icon(Icons.refresh),
+                            label: const Text('Refresh knowledge sources'),
                           ),
                         ),
-                      ),
-                      IconButton(
-                        tooltip: 'Send question',
-                        onPressed: _pending || _knowledgeScope == null
-                            ? null
-                            : () => _send(),
-                        icon: const Icon(Icons.send),
-                      ),
-                    ],
+                        if (_topic != null)
+                          Padding(
+                            padding: const EdgeInsets.all(20),
+                            child: Text('Topic: $_topic'),
+                          ),
+                        const Padding(
+                          padding: EdgeInsets.fromLTRB(20, 12, 20, 0),
+                          child: Text(aiReferenceNotice),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _newConversation() async {
+    if (_pending) return;
+    if (_messages.isNotEmpty) {
+      final start = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Start a new conversation?'),
+          content: const Text(
+            'This clears the messages for the current source. Other conversations are kept during this visit.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Keep conversation'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Start new'),
+            ),
+          ],
+        ),
+      );
+      if (start != true || !mounted) return;
+    }
+    setState(() {
+      _conversations.remove(_conversationKey);
+      _conversationKey = '';
+      _clear();
+      _text.clear();
+      _contextData = null;
+      _selectActiveScope();
+    });
+    _scrollDown();
+  }
+
+  Widget _introduction() => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 24),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'A car question? Start here.',
+          style: Theme.of(context).textTheme.headlineSmall,
+        ),
+        const SizedBox(height: 12),
+        const Text(
+          'Describe what you noticed, or ask about a word in your manual. Everyday language is fine.',
+        ),
+        const SizedBox(height: 20),
+        Text(aiReferenceNotice, style: Theme.of(context).textTheme.bodySmall),
+        const SizedBox(height: 24),
+        if (_starterQuestions.isNotEmpty)
+          Text(
+            'Try a question',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+        if (_starterQuestions.isNotEmpty) const SizedBox(height: 8),
+        for (final prompt in _starterQuestions)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: _pending
+                  ? null
+                  : () {
+                      _text.text = prompt;
+                      _inputFocus.requestFocus();
+                    },
+              icon: const Icon(Icons.north_west, size: 18),
+              label: Text(prompt),
+            ),
+          ),
+      ],
+    ),
   );
+
+  Widget _feedback() => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      if (_scopeError != null || (!_scopesLoading && _knowledgeScope == null))
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(_scopeError ?? 'Choose a published source before sending.'),
+              TextButton(
+                onPressed: _settings,
+                child: const Text('Choose source'),
+              ),
+            ],
+          ),
+        ),
+      if (_pending)
+        Semantics(
+          liveRegion: true,
+          child: const Padding(
+            padding: EdgeInsets.symmetric(vertical: 20),
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+                SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Looking through your selected sources…\nSome answers take a little longer.',
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      if (_error != null)
+        Semantics(
+          liveRegion: true,
+          child: Container(
+            margin: const EdgeInsets.symmetric(vertical: 12),
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.errorContainer,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _error!,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onErrorContainer,
+                  ),
+                ),
+                if (_failedRequest != null)
+                  TextButton.icon(
+                    onPressed: _pending ? null : () => _send(_failedRequest),
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Retry reply'),
+                  ),
+              ],
+            ),
+          ),
+        ),
+    ],
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final signedIn = widget.state.signedIn;
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Ask AI'),
+        actions: [
+          if (signedIn && widget.repository is FastApiChatRepository)
+            IconButton(
+              tooltip: 'Prepare questions for a mechanic',
+              onPressed: _pending ? null : _prepareForMechanic,
+              icon: const Icon(Icons.question_answer_outlined),
+            ),
+          if (signedIn)
+            IconButton(
+              tooltip: 'Clear conversation',
+              onPressed: _pending ? null : _newConversation,
+              icon: const Icon(Icons.edit_square),
+            ),
+        ],
+      ),
+      body: !signedIn
+          ? const SignInPrompt(
+              icon: Icons.chat_bubble_outline,
+              title: 'Make sense of your car questions',
+              message:
+                  'Sign in to use the AI Assistant. Learning and emergency guidance work independently.',
+            )
+          : SafeArea(
+              top: false,
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 760),
+                  child: LayoutBuilder(
+                    builder: (context, constraints) => Column(
+                      children: [
+                        Material(
+                          color: theme.colorScheme.surface,
+                          child: ListTile(
+                            dense: true,
+                            leading: const Icon(Icons.tune),
+                            title: const Text('Conversation settings'),
+                            subtitle: constraints.maxHeight < 500
+                                ? null
+                                : Text(
+                                    _scopesLoading
+                                        ? 'Loading sources…'
+                                        : _topic ??
+                                              _knowledgeScope?['label']
+                                                  as String? ??
+                                              'Choose a source to get started',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                            trailing: const Icon(Icons.chevron_right),
+                            onTap: _settings,
+                          ),
+                        ),
+                        Expanded(
+                          child: Stack(
+                            children: [
+                              ListView.builder(
+                                controller: _scroll,
+                                keyboardDismissBehavior:
+                                    ScrollViewKeyboardDismissBehavior.onDrag,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 20,
+                                  vertical: 8,
+                                ),
+                                itemCount: _messages.isEmpty
+                                    ? 2
+                                    : _messages.length + 1,
+                                itemBuilder: (context, index) {
+                                  if (_messages.isEmpty) {
+                                    return index == 0
+                                        ? _feedback()
+                                        : _introduction();
+                                  }
+                                  if (index == _messages.length) {
+                                    return _feedback();
+                                  }
+                                  return ChatMessageView(
+                                    key: ValueKey('$_conversationKey:$index'),
+                                    message: _messages[index],
+                                    repository: widget.repository,
+                                    onEmergency: widget.onEmergency,
+                                  );
+                                },
+                              ),
+                              if (_showLatest)
+                                Positioned(
+                                  bottom: 8,
+                                  left: 0,
+                                  right: 0,
+                                  child: Center(
+                                    child: FilledButton.tonalIcon(
+                                      onPressed: _scrollDown,
+                                      icon: const Icon(
+                                        Icons.arrow_downward,
+                                        size: 18,
+                                      ),
+                                      label: const Text('Latest messages'),
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                        Material(
+                          color: theme.colorScheme.surface,
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Expanded(
+                                  child: TextField(
+                                    controller: _text,
+                                    focusNode: _inputFocus,
+                                    minLines: 1,
+                                    maxLines: constraints.maxHeight < 500
+                                        ? 2
+                                        : 4,
+                                    textCapitalization:
+                                        TextCapitalization.sentences,
+                                    textInputAction: TextInputAction.send,
+                                    onSubmitted: (_) => _send(),
+                                    decoration: const InputDecoration(
+                                      labelText: 'Your question',
+                                      hintText: 'Ask a question',
+                                      hintMaxLines: 1,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                ValueListenableBuilder<TextEditingValue>(
+                                  valueListenable: _text,
+                                  builder: (context, value, _) =>
+                                      IconButton.filled(
+                                        constraints: const BoxConstraints(
+                                          minWidth: 48,
+                                          minHeight: 48,
+                                        ),
+                                        tooltip: 'Send question',
+                                        onPressed:
+                                            _pending ||
+                                                _knowledgeScope == null ||
+                                                _failedRequest != null ||
+                                                value.text.trim().isEmpty
+                                            ? null
+                                            : () => _send(),
+                                        icon: const Icon(Icons.arrow_upward),
+                                      ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+    );
+  }
 }

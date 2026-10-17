@@ -1,6 +1,6 @@
 from rag.config.settings import RAG_TOP_K
-from .config import COLLECTION_NAME
-from rag.config.settings import VIDEO_RELEVANCE_THRESHOLD, YOUTUBE_WATCH_URL
+from rag.config.settings import YOUTUBE_COLLECTION as COLLECTION_NAME
+from rag.config.settings import YOUTUBE_WATCH_URL
 
 
 def open_store(database_path, *, create=True):
@@ -57,8 +57,6 @@ def retrieve_youtube(
     from rag.app.embedding.vector_store import CHROMA_PATH
 
     if video_ids is not None and not video_ids:
-        if diagnostics is not None:
-            diagnostics.update(raw_chunks=[], relevant=False, reason="No videos assigned to this knowledge scope.")
         return []
 
     if not query.strip() or top_k < 1:
@@ -70,28 +68,14 @@ def retrieve_youtube(
         store = open_store(database_path or CHROMA_PATH, create=False)
     except (FileNotFoundError, NotFoundError):
         # Videos are optional; a manual-only installation can still answer.
-        if diagnostics is not None:
-            diagnostics.update(
-                indexed_chunks=0, raw_chunks=[], grouped_videos=[],
-                selected_videos=[], threshold=VIDEO_RELEVANCE_THRESHOLD,
-                metric=None, relevant=False, reason="No YouTube index prepared.",
-            )
         return []
     count = store.collection.count()
 
     if diagnostics is not None:
         diagnostics.update(
-            collection=store.collection.name,
-            indexed_chunks=count,
-            raw_chunks=[],
-            grouped_videos=[],
-            selected_videos=[],
-            threshold=VIDEO_RELEVANCE_THRESHOLD,
             metric=(store.collection.configuration.get("hnsw") or {}).get(
                 "space", "l2"
             ),
-            relevant=False,
-            reason="No indexed YouTube chunks.",
         )
 
     if not count:
@@ -131,11 +115,6 @@ def retrieve_youtube(
         for i, chunk_id in enumerate(ids[0])
     ]
 
-    if diagnostics is not None:
-        metric = diagnostics["metric"]
-        scored = [dict(r, score=distance_to_similarity(r["distance"], metric)) for r in results]
-        diagnostics.update(raw_chunks=scored, grouped_videos=group_by_video(scored),
-                           reason="Candidates retrieved; instructional relevance not yet assessed.")
     return results
 
 

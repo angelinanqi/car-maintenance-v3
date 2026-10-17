@@ -6,13 +6,12 @@ export function uploadDocument(file, metadata) {
   const body = new FormData();
   body.append("file", file);
   body.append("name", metadata.name);
-  body.append("car_model", metadata.carModel);
   body.append("tags", JSON.stringify(metadata.tags));
   body.append("document_type", metadata.documentType || "other_reference");
   return request("/documents", { method: "POST", body });
 }
 export const editDocument = (id, data) => request(`/documents/${id}`, {
-  method: "PATCH", body: { name: data.name, car_model: data.carModel, tags: data.tags, document_type: data.documentType },
+  method: "PATCH", body: { name: data.name, tags: data.tags, document_type: data.documentType },
 });
 export function replaceDocument(id, file) {
   const body = new FormData();

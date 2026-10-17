@@ -1,5 +1,7 @@
 "use client";
-import KnowledgeScopes from "@/components/KnowledgeScopes";
+
+import { AdminSelect } from "@/components/admin/NativeControls";
+import NextLink from "next/link";
 
 import { useState } from "react";
 import { useContent } from "@/components/ContentProvider";
@@ -17,6 +19,8 @@ import {
   Box,
   Checkbox,
   Input,
+  Menu,
+  Portal,
 } from "@chakra-ui/react";
 
 // Relative Imports
@@ -99,23 +103,26 @@ export default function ProjectsPage() {
 
   return (
     <AdminLayout
-      title="Documents and Manuals"
+      title="Document library"
       description="Upload, associate, process, review and publish reference documents."
     >
       <Stack gap={6}>
-        <KnowledgeScopes documents={items} onChanged={refresh} />
+        <Flex bg="brand.100" p={5} borderRadius="12px" gap={4} align="center" justify="space-between" wrap="wrap">
+          <Box><Heading as="h2" size="md">Make a source available to chat</Heading><Text fontSize="sm" mt={1}>Upload → assign a scope → process → review → publish.</Text></Box>
+          <Button asChild variant="outline"><NextLink href="/user/scopes">Manage scopes & applicability</NextLink></Button>
+        </Flex>
         {/* HEADER ROW */}
         <Flex justify="space-between" align="center" wrap="wrap" gap={4}>
           <Box>
             <Heading size="md">All Documents</Heading>
-            <Text fontSize="sm" color="gray.500">
+            <Text fontSize="sm" color="muted">
               Showing {items.length} records
             </Text>
           </Box>
 
           {/* Upload Trigger */}
           <Button variant="outline" onClick={refresh}>Refresh</Button>
-          <Button colorPalette="blue" onClick={() => setIsUploadOpen(true)}>
+          <Button colorPalette="brand" onClick={() => setIsUploadOpen(true)}>
             Add Documents
           </Button>
         </Flex>
@@ -123,7 +130,7 @@ export default function ProjectsPage() {
         <Text fontSize="sm" color="gray.600">
           Upload and associate sources, then process them. Review extraction and wait for confirmed indexing before publishing. Only indexed, published documents in published scopes are searchable.
         </Text>
-        <Flex gap={3} wrap="wrap"><Input maxW="400px" aria-label="Search documents" value={query} placeholder="Search title or tags" onChange={(e) => setQuery(e.target.value)} /><label>Processing status <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}><option value="">All statuses</option>{["uploaded", "processing", "awaiting_index", "processed", "failed"].map((value) => <option key={value} value={value}>{value.replaceAll("_", " ")}</option>)}</select></label></Flex>
+        <Flex gap={4} wrap="wrap" align="end"><Box as="label" flex="1" minW="180px">Search documents<Input mt={2} value={query} placeholder="Search title or tags" onChange={(e) => setQuery(e.target.value)} /></Box><Box as="label" minW="180px">Processing status <AdminSelect value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}><option value="">All statuses</option>{["uploaded", "processing", "awaiting_index", "processed", "failed"].map((value) => <option key={value} value={value}>{value.replaceAll("_", " ")}</option>)}</AdminSelect></Box></Flex>
         <Flex gap={3} align="center" wrap="wrap">
           <Text fontSize="sm">
             {selected.length} selected ·{" "}
@@ -137,7 +144,7 @@ export default function ProjectsPage() {
             Process selected
           </Button>
           <Button
-            variant="ghost"
+            variant="outline"
             disabled={!selectedIds.length}
             onClick={() => setSelectedIds([])}
           >
@@ -171,7 +178,7 @@ export default function ProjectsPage() {
                     }
                   >
                     <Checkbox.HiddenInput aria-label="Select all documents" />
-                    <Checkbox.Control />
+                    <Checkbox.Control><Checkbox.Indicator /></Checkbox.Control>
                   </Checkbox.Root>
                 </Table.ColumnHeader>
                 <Table.ColumnHeader>Name</Table.ColumnHeader>
@@ -202,16 +209,16 @@ export default function ProjectsPage() {
                       <Checkbox.HiddenInput
                         aria-label={`Select ${item.name}`}
                       />
-                      <Checkbox.Control />
+                      <Checkbox.Control><Checkbox.Indicator /></Checkbox.Control>
                     </Checkbox.Root>
                   </Table.Cell>
                   <Table.Cell fontWeight="medium">
                     {item.name}
-                    <Text fontSize="xs" color="gray.600">
-                      Scope: {item.carModel || "general"}
+                    <Text fontSize="sm" color="gray.600">
+                      {item.vehicle_independent ? "Vehicle-independent reference" : "Vehicle applicability managed in Knowledge scopes"}
                     </Text>
-                    <Text fontSize="xs">{item.document_type?.replaceAll("_", " ") || "Other reference"}</Text>
-                    {item.replacement_for_id && <Text fontSize="xs">Replacement for {item.replacement_for_id}</Text>}
+                    <Text fontSize="sm">{item.document_type?.replaceAll("_", " ") || "Other reference"}</Text>
+                    {item.replacement_for_id && <Text fontSize="sm">Replacement for {item.replacement_for_id}</Text>}
                   </Table.Cell>
                   <Table.Cell>
                     {item.tags.length ? item.tags.join(", ") : "No tags"}
@@ -231,7 +238,7 @@ export default function ProjectsPage() {
                       {item.status === "awaiting_index" ? "Awaiting indexing" : item.status === "processed" ? (item.indexed_revision ? "Indexed" : "Reprocessing required") : item.status}
                     </Badge>
                     {item.error && (
-                      <Text role="alert" fontSize="xs" color="red.600">
+                      <Text role="alert" fontSize="sm" color="red.600">
                         {item.error}
                       </Text>
                     )}
@@ -241,7 +248,7 @@ export default function ProjectsPage() {
 
                   {/* Action Buttons */}
                   <Table.Cell textAlign="right">
-                    <Group attached={false} gap={2} justify="flex-end">
+                    <Group attached={false} gap={2} justify="flex-end" flexWrap="wrap" maxW="360px" minW="230px" ml="auto">
                       <Button
                         size="xs"
                         loading={item.status === "processing"}
@@ -253,36 +260,17 @@ export default function ProjectsPage() {
                           : ["processed", "awaiting_index"].includes(item.status) ? "Reprocess" : "Process"}
                       </Button>
                       <Button size="xs" variant="outline" disabled={Boolean(publishingId) || Boolean(item.superseded_by_id) || (!item.published && (item.status !== "processed" || !item.indexed_revision || item.indexed_revision !== item.source_revision))} onClick={() => changePublication(item)}>{item.published ? "Unpublish" : "Publish"}</Button>
-                      <Button size="xs" variant="outline" disabled={item.status === "processing" || Boolean(item.superseded_by_id)} onClick={() => setReplacementItem(item)}>Stage replacement</Button>
-                      {item.source_type === "pdf" && <Button size="xs" variant="outline" onClick={() => window.open(originalDocumentUrl(item.id), "_blank", "noopener,noreferrer")}>Open original PDF</Button>}
-                      {item.extraction_storage_path && ["awaiting_index", "processed"].includes(item.status) && <Button
-                        size="xs" variant="outline" onClick={() => window.open(downloadExtractionUrl(item.id), "_blank", "noopener,noreferrer")}
-                      >Review extraction</Button>}
-                      <Button
-                        size="xs"
-                        variant="outline"
-                        disabled={item.status === "processing"}
-                        onClick={() => downloadFile(item)}
-                      >
-                        Download
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="xs"
-                        onClick={() => handleOpenEdit(item)}
-                        disabled={item.status === "processing"}
-                      >
-                        Edit
-                      </Button>
-                      <Button
-                        variant="outline"
-                        colorPalette="red"
-                        size="xs"
-                        onClick={() => handleOpenDelete(item)}
-                        disabled={item.status === "processing"}
-                      >
-                        Remove
-                      </Button>
+                      <Menu.Root positioning={{ strategy: "fixed", hideWhenDetached: true }}>
+                        <Menu.Trigger asChild><Button size="xs" variant="outline" aria-label={`More actions for ${item.name}`}>More actions</Button></Menu.Trigger>
+                        <Portal><Menu.Positioner><Menu.Content>
+                          <Menu.Item value="replace" disabled={item.status === "processing" || Boolean(item.superseded_by_id)} onSelect={() => setReplacementItem(item)}>Stage replacement</Menu.Item>
+                          {item.source_type === "pdf" && <Menu.Item value="original" onSelect={() => window.open(originalDocumentUrl(item.id), "_blank", "noopener,noreferrer")}>Open original PDF</Menu.Item>}
+                          {item.extraction_storage_path && ["awaiting_index", "processed"].includes(item.status) && <Menu.Item value="extraction" onSelect={() => window.open(downloadExtractionUrl(item.id), "_blank", "noopener,noreferrer")}>Review extraction</Menu.Item>}
+                          <Menu.Item value="download" disabled={item.status === "processing"} onSelect={() => downloadFile(item)}>Download</Menu.Item>
+                          <Menu.Item value="edit" disabled={item.status === "processing"} onSelect={() => handleOpenEdit(item)}>Edit</Menu.Item>
+                          <Menu.Item value="remove" color="red.600" disabled={item.status === "processing"} onSelect={() => handleOpenDelete(item)}>Remove</Menu.Item>
+                        </Menu.Content></Menu.Positioner></Portal>
+                      </Menu.Root>
                     </Group>
                   </Table.Cell>
                 </Table.Row>
@@ -296,6 +284,7 @@ export default function ProjectsPage() {
             No documents yet. Upload a PDF or Markdown document to get started.
           </Text>
         )}
+        {items.length > 0 && visible.length === 0 && <Box bg="white" p={6} borderRadius="12px"><Text>No documents match these filters.</Text><Button mt={3} variant="outline" onClick={() => { setQuery(""); setStatusFilter(""); }}>Clear filters</Button></Box>}
         {/* MODALS */}
 
         {(isUploadOpen || editItem) && (

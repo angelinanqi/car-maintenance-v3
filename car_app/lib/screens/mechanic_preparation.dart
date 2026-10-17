@@ -143,7 +143,6 @@ class _MechanicPreparationPageState extends State<MechanicPreparationPage> {
                 maxLength: 4000,
                 decoration: const InputDecoration(
                   labelText: 'What would you like clarified?',
-                  border: OutlineInputBorder(),
                 ),
                 onChanged: (_) => setState(() {
                   _preparation = null;
@@ -189,7 +188,6 @@ class _MechanicPreparationPageState extends State<MechanicPreparationPage> {
                   decoration: const InputDecoration(
                     labelText: 'Review or edit before sharing',
                     alignLabelWithHint: true,
-                    border: OutlineInputBorder(),
                   ),
                 ),
                 TextButton.icon(

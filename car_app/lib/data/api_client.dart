@@ -80,7 +80,13 @@ class ApiClient {
           final value = decoded is Map ? decoded['detail'] : null;
           if (value is String) detail = value;
           if (value is List) {
-            detail = value.map((item) => item['msg']).join('; ');
+            detail = value
+                .map(
+                  (item) => item is Map && item['msg'] is String
+                      ? item['msg'] as String
+                      : 'Invalid input',
+                )
+                .join('; ');
           }
         } on FormatException {
           // Preserve the HTTP status for non-JSON failures.
@@ -210,7 +216,19 @@ class ApiClient {
 
   Future<void> loadConfiguration() async {
     final data = await get('/config');
-    final scopes = data['vehicle_scopes'] as List;
+    final scopes = data['vehicle_scopes'];
+    final knowledge = data['knowledge_scopes'] ?? [];
+    if (scopes is! List ||
+        scopes.any(
+          (item) =>
+              item is! Map ||
+              item['value'] is! String ||
+              item['label'] is! String,
+        ) ||
+        knowledge is! List ||
+        knowledge.any((item) => item is! Map)) {
+      throw const ApiException('Invalid backend configuration.');
+    }
     final values = {
       for (final item in scopes)
         item['value'] as String: item['label'] as String,
@@ -221,11 +239,12 @@ class ApiClient {
       'api_page_size',
       'image_max_bytes',
     ];
-    if (limits.any((key) => data[key] is! int || data[key] <= 0)) {
+    if (limits.any((key) => data[key] is! int || data[key] <= 0) ||
+        data['api_page_size'] > 1000) {
       throw const ApiException('Invalid backend configuration.');
     }
     vehicleScopes = values;
-    knowledgeScopes = (data['knowledge_scopes'] as List? ?? [])
+    knowledgeScopes = knowledge
         .map((item) => Map<String, dynamic>.from(item as Map))
         .toList();
     maxMessageLength = data['chat_max_message_length'] as int;

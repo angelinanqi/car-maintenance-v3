@@ -30,7 +30,7 @@ def resolve(scope_type, scope_id, *, require_available=True):
     for document in documents:
         applicable = [vehicles[link["vehicle_id"]] for link in associations
                       if link["document_id"] == document["id"] and link["vehicle_id"] in vehicles]
-        metadata[document.get("index_document_name") or document["id"]] = {
+        metadata[f"{document['id']}_{document['indexed_revision']}"] = {
             "document_id": document["id"], "document_title": document["name"],
             "document_type": document.get("document_type", "other_reference"),
             "vehicle_independent": document.get("vehicle_independent", False),

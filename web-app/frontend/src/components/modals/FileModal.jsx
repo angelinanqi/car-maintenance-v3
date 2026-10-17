@@ -1,9 +1,10 @@
 "use client";
 
+import { AdminSelect } from "@/components/admin/NativeControls";
+
 import { DOCUMENT_EXTENSIONS, DOCUMENT_MAX_FILES, DOCUMENT_MAX_BYTES } from "@/lib/config.mjs";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { validateDocumentFile } from "@/lib/documentFiles.mjs";
-import { request } from "@/api/client.mjs";
 import {
   Dialog,
   Button,
@@ -26,10 +27,7 @@ export default function FileModal({
   const [fileName, setFileName] = useState(editData?.name || "");
   const [tagInput, setTagInput] = useState("");
   const [files, setFiles] = useState(editData?.file ? [editData.file] : []);
-  const [carModel, setCarModel] = useState(editData?.carModel || "general");
   const [documentType, setDocumentType] = useState(editData?.document_type || "other_reference");
-  const [vehicles, setVehicles] = useState([]);
-  const [scopesLoaded, setScopesLoaded] = useState(false);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -39,13 +37,6 @@ export default function FileModal({
   ]);
   const [selectedTags, setSelectedTags] = useState(editData?.tags || []);
   const isEditMode = Boolean(editData);
-  useEffect(() => {
-    let active = true;
-    request("/knowledge/manage").then((result) => {
-      if (active) { setVehicles(result.vehicles); setScopesLoaded(true); }
-    }).catch((failure) => { if (active) setError(failure.message); });
-    return () => { active = false; };
-  }, []);
 
   // Click handler to toggle tag selection ON/OFF
   const handleToggleTag = (tag) => {
@@ -97,7 +88,7 @@ export default function FileModal({
     }
     setSaving(true);
     try {
-      await onSave({ name: fileName.trim(), tags: selectedTags, carModel, documentType, files });
+      await onSave({ name: fileName.trim(), tags: selectedTags, documentType, files });
       onClose();
     } catch (error) {
       if (error.uploadedFiles?.length) setFiles((previous) => previous.filter((file) => !error.uploadedFiles.includes(file)));
@@ -123,13 +114,13 @@ export default function FileModal({
               </Dialog.Title>
               <Button
                 type="button"
-                variant="ghost"
+                variant="outline"
                 size="xs"
                 onClick={onClose}
                 disabled={saving}
                 aria-label="Close"
               >
-                ✕
+                Close
               </Button>
             </Dialog.Header>
 
@@ -139,6 +130,7 @@ export default function FileModal({
                 <Text fontSize="sm" color="gray.600">
                   {replacementFor ? "Upload a new draft revision. The current document stays available until you process, review and publish the replacement. Its metadata and scope assignments are copied." : "Sources are stored securely. Uploading does not start processing; use Process in the document list."}
                 </Text>
+                <Text fontSize="sm" color="muted">Accepted: {DOCUMENT_EXTENSIONS.join(", ")}. Maximum {Math.round(DOCUMENT_MAX_BYTES / 1024 / 1024)} MB per file; {isEditMode ? 1 : DOCUMENT_MAX_FILES} file(s) per upload.</Text>
                 {error && (
                   <Text role="alert" color="red.600">
                     {error}
@@ -214,38 +206,20 @@ export default function FileModal({
                 )}
                 {files.length > 1 && (
                   <Text fontSize="sm">
-                    Each file keeps its filename. Tags and vehicle apply to all
+                    Each file keeps its filename. Tags and document type apply to all
                     selected files.
                   </Text>
                 )}
-                {!replacementFor && <Field.Root>
-                  <Field.Label>Mobile manual catalogue</Field.Label>
-                  <select
-                    aria-label="Document vehicle"
-                    value={carModel}
-                    onChange={(event) => setCarModel(event.target.value)}
-                    style={{
-                      padding: 8,
-                      border: "1px solid #E2E8F0",
-                      width: "100%",
-                    }}
-                  >
-                    <option value="general">General reference</option>
-                    {!vehicles.some((v) => v.code === carModel) && carModel !== "general" && <option value={carModel}>{carModel} (legacy label)</option>}
-                    {vehicles.map((vehicle) => (
-                      <option key={vehicle.id} value={vehicle.code}>{vehicle.name}</option>
-                    ))}
-                  </select>
-                  <Text fontSize="xs" color="gray.600">
-                    This label filters the mobile manual catalogue. Use Knowledge scopes to assign this document to any vehicle or category for chat.
-                  </Text>
-                </Field.Root>}
+                {!replacementFor && <Text fontSize="sm" color="gray.600">
+                  Assign vehicles and categories in Knowledge scopes after uploading.
+                  The same vehicle assignments control chat sources and the mobile manual catalogue.
+                </Text>}
 
                 {!replacementFor && <Field.Root>
                   <Field.Label>Document type</Field.Label>
-                  <select aria-label="Document type" value={documentType} onChange={(event) => setDocumentType(event.target.value)}>
+                  <AdminSelect aria-label="Document type" value={documentType} onChange={(event) => setDocumentType(event.target.value)}>
                     <option value="owners_manual">Owner&apos;s manual</option><option value="maintenance_booklet">Maintenance booklet</option><option value="service_manual">Service manual</option><option value="other_reference">Other reference</option>
-                  </select>
+                  </AdminSelect>
                 </Field.Root>}
 
                 {/* 3. Clickable Tag Selection Section */}
@@ -264,7 +238,7 @@ export default function FileModal({
                           key={tag}
                           size="sm"
                           variant={isSelected ? "solid" : "outline"}
-                          colorPalette={isSelected ? "blue" : "gray"}
+                          colorPalette={isSelected ? "brand" : "gray"}
                           cursor="pointer"
                           onClick={() => handleToggleTag(tag)}
                           userSelect="none"
@@ -284,7 +258,7 @@ export default function FileModal({
                     onKeyDown={handleAddCustomTag}
                     size="sm"
                   />
-                  <Text fontSize="xs" color="gray.500" mt={1}>
+                  <Text fontSize="sm" color="muted" mt={1}>
                     Selected:{" "}
                     {selectedTags.length > 0 ? selectedTags.join(", ") : "None"}
                   </Text>
@@ -297,7 +271,7 @@ export default function FileModal({
               <Button type="button" variant="outline" onClick={onClose} disabled={saving}>
                 Cancel
               </Button>
-              <Button type="submit" colorPalette="blue" loading={saving} disabled={!scopesLoaded}>
+              <Button type="submit" colorPalette="brand" loading={saving}>
                 {replacementFor ? "Upload replacement draft" : isEditMode ? "Save Changes" : "Add Documents"}
               </Button>
             </Dialog.Footer>

@@ -4,14 +4,41 @@ from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from backend import auth, db, settings
 from backend.locks import content_lock
 from backend.models import InputModel, ReviewConfirmation
+from backend.services import manuals
 
 router = APIRouter(prefix="/admin", tags=["Admin MVP"], dependencies=[Depends(auth.require_admin)])
 mobile_router = APIRouter(prefix="/mobile", tags=["Mobile shared catalogue"])
+
+
+class ChatStartersInput(InputModel):
+    questions: list[str] = Field(max_length=20)
+
+    @field_validator("questions")
+    @classmethod
+    def valid_questions(cls, values):
+        values = [value.strip() for value in values]
+        if any(not value or len(value) > 300 for value in values):
+            raise ValueError("Each starter question must contain 1 to 300 characters.")
+        if len(values) != len(set(values)):
+            raise ValueError("Starter questions must be unique.")
+        return values
+
+
+@router.get("/chat-starters")
+@mobile_router.get("/chat-starters")
+def chat_starters():
+    return {"questions": db.get("chat_settings", "default")["starter_questions"]}
+
+
+@router.put("/chat-starters")
+def save_chat_starters(request: ChatStartersInput):
+    row = db.update("chat_settings", "default", {"starter_questions": request.questions})
+    return {"questions": row["starter_questions"]}
 
 
 class ManufacturerInput(InputModel):
@@ -106,14 +133,11 @@ def validate_schedule(values, publishing=False):
 @router.get("/catalogue")
 def catalogue():
     vehicles = db.all_rows("knowledge_vehicles")
-    docs = db.all_rows("documents")
-    links = db.all_rows("document_vehicles")
+    docs = manuals.published_manuals()
+    associations = db.all_rows("document_vehicles")
     schedules = db.all_rows("manufacturer_schedules", status="published")
     for vehicle in vehicles:
-        ids = {link["document_id"] for link in links if link["vehicle_id"] == vehicle["id"]}
-        vehicle["manual_available"] = any(d["id"] in ids and d["document_type"] == "owners_manual" and
-            d["published"] and d["status"] == "processed" and d.get("indexed_revision") == d.get("source_revision") and
-            d.get("chunk_count", 0) > 0 for d in docs)
+        vehicle["manual_available"] = any(manuals.applicable(document, vehicle['id'], associations) for document in docs)
         vehicle["manufacturer_schedule_available"] = any(s["vehicle_id"] == vehicle["id"] for s in schedules)
     return {"manufacturers": db.all_rows("vehicle_manufacturers"), "models": db.all_rows("vehicle_models"), "vehicles": vehicles}
 
@@ -168,7 +192,7 @@ def schedules(vehicle_id: UUID, offset: int = Query(0, ge=0), limit: int = Query
 @router.post("/schedules", status_code=201)
 def create_schedule(request: ScheduleInput):
     values = request.model_dump(mode="json")
-    with content_lock("schedule-vehicle:" + values["vehicle_id"]):
+    with content_lock("schedule-sources"), content_lock("schedule-vehicle:" + values["vehicle_id"]):
         validate_schedule(values)
         existing = db.all_rows("manufacturer_schedules", vehicle_id=values["vehicle_id"])
         values["revision"] = max((row["revision"] for row in existing), default=0) + 1
@@ -177,7 +201,7 @@ def create_schedule(request: ScheduleInput):
 
 @router.patch("/schedules/{schedule_id}")
 def edit_schedule(schedule_id: UUID, request: ScheduleInput):
-    with content_lock("schedule:" + str(schedule_id)):
+    with content_lock("schedule-sources"), content_lock("schedule:" + str(schedule_id)):
         old = db.get("manufacturer_schedules", schedule_id)
         if old["status"] != "draft" or old["vehicle_id"] != str(request.vehicle_id):
             raise HTTPException(409, "Create a draft revision to change a published schedule or its vehicle.")
@@ -194,13 +218,32 @@ def check_schedule(schedule_id: UUID):
 
 @router.post("/schedules/{schedule_id}/publish")
 def publish_schedule(schedule_id: UUID, request: ReviewConfirmation):
-    with content_lock("schedule:" + str(schedule_id)):
+    with content_lock("schedule-sources"), content_lock("schedule:" + str(schedule_id)):
         old = db.get("manufacturer_schedules", schedule_id)
         if old["status"] == "superseded":
             raise HTTPException(409, "Create a new draft to revise a superseded schedule.")
         validate_schedule(old, publishing=True)
         result = db.client().rpc("publish_manufacturer_schedule", {"schedule_id": str(schedule_id)}).execute().data
         return result[0] if isinstance(result, list) else result
+
+
+@router.post("/schedules/{schedule_id}/withdraw")
+def withdraw_schedule(schedule_id: UUID):
+    with content_lock("schedule:" + str(schedule_id)):
+        old = db.get("manufacturer_schedules", schedule_id)
+        if old["status"] != "published":
+            raise HTTPException(409, "Only a published schedule can be withdrawn.")
+        # Keep verified revisions, personal tasks and history. The next mobile
+        # snapshot no longer supplies manufacturer rules from this row.
+        return db.update("manufacturer_schedules", schedule_id, {"status": "superseded"})
+
+
+@router.delete("/schedules/{schedule_id}", status_code=204)
+def delete_draft_schedule(schedule_id: UUID):
+    with content_lock("schedule:" + str(schedule_id)):
+        if db.get("manufacturer_schedules", schedule_id)["status"] != "draft":
+            raise HTTPException(409, "Only draft schedules can be deleted. Withdraw a published schedule to keep its history.")
+        db.delete("manufacturer_schedules", schedule_id)
 
 
 @mobile_router.get("/vehicle-catalogue")

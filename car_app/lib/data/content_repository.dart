@@ -15,6 +15,25 @@ class ContentRepository {
   ContentRepository(this.store, {AssetBundle? bundle, this.api})
     : bundle = bundle ?? rootBundle;
 
+  static const defaultChatStarters = [
+    'Understanding my service records',
+    'Finding the correct owner manual',
+    'Understanding tyre pressure labels',
+  ];
+
+  Future<List<String>> chatStarters({bool refresh = false}) async {
+    if (refresh && api != null) {
+      final data = await api!.get('/mobile/chat-starters');
+      final questions = (data['questions'] as List).cast<String>();
+      await store.write('chat_starters.json', {'questions': questions});
+      return questions;
+    }
+    final saved = await store.read('chat_starters.json');
+    return saved == null
+        ? List.of(defaultChatStarters)
+        : (saved['questions'] as List).cast<String>();
+  }
+
   Future<List<LearningTrack>> learningTracks() async {
     if (api == null) return [];
     final results = await Future.wait([
@@ -22,8 +41,7 @@ class ContentRepository {
       api!.listAll('/categories'),
     ]);
     final categories = {
-      for (final category in results[1])
-        category['id'] as String: category['name'] as String,
+      for (final category in results[1]) category['id'] as String: category,
     };
     final grouped = <String, List<Lesson>>{
       for (final id in categories.keys) id: [],
@@ -52,8 +70,8 @@ class ContentRepository {
     return grouped.entries
         .map(
           (entry) => LearningTrack(
-            categories[entry.key] ?? 'Uncategorised',
-            '${entry.value.length} published guides',
+            categories[entry.key]?['name'] as String? ?? 'Uncategorised',
+            categories[entry.key]?['description'] as String? ?? '',
             entry.value,
           ),
         )
@@ -153,7 +171,7 @@ class ContentRepository {
               'A saved guide is missing images. Download it again when online.';
         }
       }
-      return merged.values.toList();
+      return _orderedGuides(merged.values.toList());
     } catch (_) {
       warning =
           'A saved content update could not be opened. The bundled catalogue is shown.';
@@ -215,7 +233,7 @@ class ContentRepository {
     } catch (error) {
       final local = await emergencyGuides();
       warning =
-          'Could not refresh emergency guides. Saved copies remain available. $error';
+          'Could not refresh emergency guides. Saved copies remain available. Check your connection and retry.';
       return local;
     }
   }
@@ -228,8 +246,31 @@ class ContentRepository {
       // completely. Merely fetching an online catalogue cannot remove it.
       if (merged[guide.id]?.available != true) merged[guide.id] = guide;
     }
-    return merged.values.toList();
+    return _orderedGuides(merged.values.toList(), useRemote: true);
   }
+
+  List<EmergencyGuide> _orderedGuides(
+    List<EmergencyGuide> guides, {
+    bool useRemote = false,
+  }) {
+    final positions = {for (var i = 0; i < guides.length; i++) guides[i].id: i};
+    final remote = useRemote ? _remoteGuides : <EmergencyGuide>[];
+    final order = {for (final guide in remote) guide.id: guide.displayOrder};
+    final remotePositions = {
+      for (var i = 0; i < remote.length; i++) remote[i].id: i,
+    };
+    guides.sort((a, b) {
+      final comparison = (order[a.id] ?? a.displayOrder).compareTo(
+        order[b.id] ?? b.displayOrder,
+      );
+      if (comparison != 0) return comparison;
+      return (remotePositions[a.id] ?? remote.length + positions[a.id]!)
+          .compareTo(remotePositions[b.id] ?? remote.length + positions[b.id]!);
+    });
+    return guides;
+  }
+
+  Future<List<EmergencyGuide>> currentEmergencyCatalogue() => _catalogue();
 
   bool hasUpdate(EmergencyGuide guide) => _remoteGuides.any(
     (remote) => remote.id == guide.id && remote.updatedAt != guide.updatedAt,
@@ -312,12 +353,14 @@ class ContentRepository {
         'contacts': contacts,
         'savedAt': DateTime.now().toUtc().toIso8601String(),
       });
-      return contacts.isEmpty ? emergencyContacts() : contacts;
+      return contacts;
     }
     final data = await store.read('emergency_contacts.json');
     final cached = (data?['contacts'] as List? ?? [])
         .cast<Map<String, dynamic>>();
-    return cached.isEmpty
+    // An empty saved directory is an authoritative admin choice. Defaults only
+    // apply before the first successful sync, including when offline.
+    return data == null
         ? [
             {
               'id': 'my-emergency',
@@ -328,6 +371,7 @@ class ContentRepository {
               'id': 'plus-line',
               'name': 'PLUS expressway assistance',
               'phone': '1800-88-0000',
+              'description': 'For assistance on PLUS expressways',
             },
           ]
         : cached;

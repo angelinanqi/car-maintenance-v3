@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'app_shell.dart';
+import 'app_theme.dart';
 import 'app_state.dart';
 import 'data/local_store.dart';
 import 'data/api_client.dart';
@@ -12,9 +13,7 @@ import 'data/mobile_repository.dart';
 void main() => runApp(const MyApp());
 
 class MyApp extends StatefulWidget {
-  final AppState? state;
-  final ChatRepository? chatRepository;
-  const MyApp({super.key, this.state, this.chatRepository});
+  const MyApp({super.key});
   @override
   State<MyApp> createState() => _MyAppState();
 }
@@ -32,18 +31,14 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     account = AccountState(AccountRepository(api));
-    state =
-        widget.state ??
-        AppState(
-          LocalStore(),
-          repository: MobileRepository(api, account.repository),
-        );
+    state = AppState(
+      LocalStore(),
+      repository: MobileRepository(api, account.repository),
+    );
     account.addListener(_accountChanged);
     account.restore();
     content = ContentRepository(state.store, api: api);
-    chat =
-        widget.chatRepository ??
-        FastApiChatRepository(api, account: account.repository);
+    chat = FastApiChatRepository(api, account: account.repository);
     state.load();
     api
         .loadConfiguration()
@@ -80,7 +75,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     account.removeListener(_accountChanged);
     account.dispose();
     api.close();
-    if (widget.state == null) state.dispose();
+    state.dispose();
     super.dispose();
   }
 
@@ -96,17 +91,8 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       debugShowCheckedModeBanner: false,
       title: 'Car Assistance',
       navigatorKey: navigatorKey,
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.amber),
-        scaffoldBackgroundColor: Colors.orange[50],
-        bottomNavigationBarTheme: BottomNavigationBarThemeData(
-          backgroundColor: Colors.white,
-          selectedItemColor: Colors.amber[900],
-          unselectedItemColor: Colors.grey[600],
-          type: BottomNavigationBarType.fixed,
-        ),
-      ),
+      theme: buildAppTheme(),
+      themeMode: ThemeMode.light,
       home: AppShell(state: state, chat: chat, content: content),
     ),
   );

@@ -16,8 +16,8 @@ def require_rag_service(request: Request):
     if not settings.RAG_SERVICE_TOKEN:
         raise HTTPException(503, "RAG service authentication is not configured.")
     supplied = request.headers.get("authorization", "")
-    expected = "Bearer " + settings.RAG_SERVICE_TOKEN
-    if not secrets.compare_digest(supplied.encode(), expected.encode()):
+    scheme, _, token = supplied.partition(" ")
+    if scheme.lower() != "bearer" or not secrets.compare_digest(token.encode(), settings.RAG_SERVICE_TOKEN.encode()):
         raise HTTPException(401, "Invalid service credentials.")
 
 
@@ -27,7 +27,7 @@ router = APIRouter(prefix="/internal/indexing", tags=["RAG integration"], depend
 class IndexResult(InputModel):
     source_revision: UUID
     status: Literal["indexed", "failed"]
-    chunk_count: int = Field(default=0, ge=0)
+    chunk_count: int = Field(default=0, ge=0, le=2147483647)
     error: str | None = Field(default=None, max_length=2000)
 
     @model_validator(mode="after")
@@ -77,4 +77,4 @@ def confirm_indexing(document_id: UUID, result: IndexResult):
         timestamp = now()
         return db.update("documents", document_id, dict(status="processed", error=None,
             chunk_count=result.chunk_count, indexed_revision=str(result.source_revision), indexed_at=timestamp,
-            processed_at=timestamp, index_document_name=f'{document_id}_{result.source_revision}'))
+            processed_at=timestamp))

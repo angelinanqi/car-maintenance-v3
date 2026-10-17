@@ -30,6 +30,7 @@ class _ChatAttachmentState extends State<ChatAttachment> {
   }
 
   void _loadImage() {
+    _image = null;
     if (widget.attachment['kind'] == 'table' &&
         widget.attachment['asset_available'] == false) {
       return;
@@ -74,11 +75,15 @@ class _ChatAttachmentState extends State<ChatAttachment> {
       if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
         throw const ApiException('Could not open the original source.');
       }
-    } catch (error) {
+    } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('$error')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Could not open the original source. Check your connection and try again.',
+            ),
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _opening = false);
@@ -99,6 +104,12 @@ class _ChatAttachmentState extends State<ChatAttachment> {
   Widget _imageView(Uint8List bytes, {bool expanded = false}) {
     final image = Image.memory(
       bytes,
+      cacheWidth: expanded
+          ? null
+          : (MediaQuery.sizeOf(context).width *
+                    MediaQuery.devicePixelRatioOf(context))
+                .clamp(320, 1440)
+                .round(),
       fit: BoxFit.contain,
       semanticLabel: _title(),
       errorBuilder: (_, _, _) => const Text(
@@ -142,6 +153,14 @@ class _ChatAttachmentState extends State<ChatAttachment> {
               FutureBuilder<Uint8List>(
                 future: _image,
                 builder: (context, snapshot) {
+                  if (_image == null) {
+                    return const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 16),
+                      child: Text(
+                        'Image unavailable. Open the original source to view it.',
+                      ),
+                    );
+                  }
                   if (snapshot.hasError) {
                     return Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -157,9 +176,13 @@ class _ChatAttachmentState extends State<ChatAttachment> {
                     );
                   }
                   if (!snapshot.hasData) {
-                    return const Padding(
-                      padding: EdgeInsets.all(20),
-                      child: CircularProgressIndicator(),
+                    return const SizedBox(
+                      height: 160,
+                      child: Center(
+                        child: CircularProgressIndicator(
+                          semanticsLabel: 'Loading source image',
+                        ),
+                      ),
                     );
                   }
                   return Column(

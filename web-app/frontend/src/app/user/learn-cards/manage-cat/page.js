@@ -1,6 +1,10 @@
 "use client";
+
+import { Checkbox } from "@/components/ui/checkbox";
 import { useState } from "react";
 import {
+  Fieldset,
+  Field,
   Button,
   Stack,
   Input,
@@ -21,15 +25,18 @@ export default function CategoriesPage() {
   const [deleting, setDeleting] = useState(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState("");
   async function save(event) {
     event.preventDefault();
     if (busy) return;
     setBusy(true);
     setError("");
+    setNotice("");
     try {
       await saveCategory(editing, draft);
       setEditing(null);
       setDraft(empty);
+      setNotice("Learning category saved.");
     } catch (e) {
       setError(e.message);
     } finally {
@@ -38,35 +45,36 @@ export default function CategoriesPage() {
   }
   return (
     <AdminLayout
-      title="Learning Categories"
+      title="Learning categories"
       description="Manage descriptions, display order and publication. Unpublished categories hide their lessons from public readers."
     >
       <Stack gap={5}>
+        {notice && <Text role="status">{notice}</Text>}
         <Heading size="md">
           {editing ? "Edit category" : "Add category"}
         </Heading>
         <form onSubmit={save}>
-          <fieldset disabled={busy}>
+          <Fieldset.Root disabled={busy}>
             <Stack gap={3}>
-              <label>
-                Name
+              <Field.Root>
+                <Field.Label>Name</Field.Label>
                 <Input
                   value={draft.name}
                   onChange={(e) => setDraft({ ...draft, name: e.target.value })}
                   required
                 />
-              </label>
-              <label>
-                Description
+              </Field.Root>
+              <Field.Root>
+                <Field.Label>Description</Field.Label>
                 <Textarea
                   value={draft.description}
                   onChange={(e) =>
                     setDraft({ ...draft, description: e.target.value })
                   }
                 />
-              </label>
-              <label>
-                Display order
+              </Field.Root>
+              <Field.Root>
+                <Field.Label>Display order</Field.Label>
                 <Input
                   type="number"
                   min={0}
@@ -78,17 +86,15 @@ export default function CategoriesPage() {
                     })
                   }
                 />
-              </label>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={draft.published}
-                  onChange={(e) =>
-                    setDraft({ ...draft, published: e.target.checked })
-                  }
-                />{" "}
+              </Field.Root>
+              <Checkbox
+                checked={draft.published}
+                onCheckedChange={(e) =>
+                  setDraft({ ...draft, published: e.checked === true })
+                }
+              >
                 Publish learning category
-              </label>
+              </Checkbox>
               <Flex gap={3}>
                 <Button type="submit" loading={busy}>
                   Save category
@@ -106,7 +112,7 @@ export default function CategoriesPage() {
                 )}
               </Flex>
             </Stack>
-          </fieldset>
+          </Fieldset.Root>
         </form>
         {error && (
           <Text role="alert" color="red.600">

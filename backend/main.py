@@ -1,8 +1,12 @@
 from backend.settings import CHAT_MAX_MESSAGE_LENGTH, CHAT_HISTORY_LIMIT
 import logging
+import httpx
 from contextlib import asynccontextmanager
 from starlette.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
+from backend.errors import http_error, validation_error
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from postgrest.exceptions import APIError
 from backend.routes import documents, guides, categories, emergency, dashboard, accounts, manuals, scopes, indexing, admin, mobile, nearby
 from backend.services.documents import recover_interrupted
@@ -27,6 +31,8 @@ async def lifespan(app):
 
 
 app = FastAPI(lifespan=lifespan)
+app.add_exception_handler(RequestValidationError, validation_error)
+app.add_exception_handler(StarletteHTTPException, http_error)
 app.include_router(chat_sources.router)
 
 
@@ -44,19 +50,27 @@ for router in (documents.router, guides.router, categories.router, emergency.rou
 @app.exception_handler(APIError)
 async def database_error(request, error):
     logging.getLogger(__name__).exception("Database operation failed", exc_info=error)
-    if error.code == "23503":
+    if error.code in {"23503", "23001"}:
         return JSONResponse(status_code=409, content={"detail": "This record is still referenced, or the selected related record no longer exists."})
     if error.code == "23505":
         return JSONResponse(status_code=409, content={"detail": "A record with this name already exists."})
     if error.code == "P0001":
         return JSONResponse(status_code=409, content={"detail": "This publication revision changed or is no longer eligible. Reload the record and review its current state."})
+    if error.code in {"42703", "42P01", "PGRST204", "PGRST205"}:
+        return JSONResponse(status_code=503, content={"detail": "The database schema is out of date. Check supabase/README.md for schema setup and retry."})
     return JSONResponse(status_code=503, content={"detail": "Database operation failed. Check the Supabase configuration and schema, then retry."})
 
 
 @app.exception_handler(Exception)
 async def integration_error(request, error):
     logging.getLogger(__name__).exception("Application operation failed", exc_info=error)
-    return JSONResponse(status_code=503, content={"detail": "The operation failed. Check backend logs and service configuration, then retry."})
+    return JSONResponse(status_code=500, content={"detail": "The operation could not be completed. Please retry."}, headers={"Cache-Control": "no-store"})
+
+
+@app.exception_handler(httpx.RequestError)
+async def network_error(request, error):
+    logging.getLogger(__name__).warning("Dependency connection failed (%s)", type(error).__name__)
+    return JSONResponse(status_code=503, content={"detail": "A required service is temporarily unavailable. Please retry."}, headers={"Cache-Control": "no-store"})
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,

@@ -1,4 +1,5 @@
 # Complete Python environment: backend plus RAG ingestion, retrieval and generation.
+# Use Python 3.14.8 in venv. MinerU belongs in .venv-ocr on Python 3.12.
 # For the API alone, install backend/requirements.txt instead.
 -r backend/requirements.txt
 

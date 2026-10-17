@@ -11,21 +11,28 @@ import json
 from typing import Literal
 
 from fastapi import FastAPI, Header, HTTPException
+from fastapi.exceptions import RequestValidationError
+from backend.errors import http_error, validation_error
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from rag.config import settings
 from backend.models import PersonalVehicleProfile, SourceAttachmentReference, MechanicQuestionDraft
 
 app = FastAPI()
+app.add_exception_handler(RequestValidationError, validation_error)
+app.add_exception_handler(StarletteHTTPException, http_error)
 logger = logging.getLogger(__name__)
 
 
 class Message(BaseModel):
+    model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
     role: Literal['user', 'assistant']
-    content: str
+    # Server-loaded assistant replies can exceed the user-message limit.
+    content: str = Field(min_length=1)
 
 
 class Request(BaseModel):
-    model_config = ConfigDict(extra='forbid')
+    model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
     message: str = Field(min_length=1, max_length=settings.CHAT_MAX_MESSAGE_LENGTH)
     history: list[Message] = Field(default_factory=list, max_length=settings.CHAT_HISTORY_LIMIT)
     scope: dict
@@ -59,21 +66,23 @@ def verify_service_credentials(authorization):
     token = os.getenv('RAG_SERVICE_TOKEN', '')
     if len(token.encode()) < 32:
         raise HTTPException(503, 'Configure RAG_SERVICE_TOKEN with at least 32 bytes.')
-    if not secrets.compare_digest(authorization.encode(), ('Bearer ' + token).encode()):
+    scheme, _, supplied = authorization.partition(' ')
+    if scheme.lower() != 'bearer' or not secrets.compare_digest(supplied.encode(), token.encode()):
         raise HTTPException(401, 'Invalid service credentials.')
 
 
 def verify_revisions(scope):
-    """Compatibility guard: never hand an incomplete or stale managed index to RAG."""
+    """Never hand an incomplete or stale managed index to RAG."""
+    document_ids = scope.get('document_ids', [])
+    if not document_ids:
+        return
     expected = {name: metadata['index_revision'] for name, metadata in scope.get('document_metadata', {}).items()
                 if metadata.get('index_revision')}
-    if not expected:
-        return  # Explicit standalone CLI/legacy corpus verification.
+    if any(name not in expected for name in document_ids):
+        raise ValueError('Missing managed document revision')
     from rag.app.embedding.vector_store import VectorStore
     store = VectorStore(create=False)
-    for name in scope['document_ids']:
-        if name not in expected:
-            raise ValueError('Missing managed document revision')
+    for name in document_ids:
         source_path = settings.OUTPUT_DIR / 'sources' / f'{name}.json'
         if source_path.parent.resolve() != (settings.OUTPUT_DIR / 'sources').resolve():
             raise ValueError('Invalid managed source name')
@@ -112,9 +121,14 @@ async def chat(request: Request, authorization: str = Header(default='')):
 @app.post('/v1/mechanic-questions', response_model=MechanicQuestionsAnswer)
 async def mechanic_questions(request: MechanicQuestionsRequest, authorization: str = Header(default='')):
     verify_service_credentials(authorization)
-    from rag.app.generation.mechanic_questions import prepare_questions
-    return await asyncio.to_thread(prepare_questions, request.question, request.user_questions,
-        request.vehicle_profile.model_dump(mode='json') if request.vehicle_profile else None)
+    try:
+        from rag.app.generation.mechanic_questions import prepare_questions
+        result = await asyncio.to_thread(prepare_questions, request.question, request.user_questions,
+            request.vehicle_profile.model_dump(mode='json') if request.vehicle_profile else None)
+        return MechanicQuestionsAnswer.model_validate(result)
+    except Exception:
+        logger.exception('Mechanic question preparation failed')
+        raise HTTPException(503, 'The AI service is temporarily unavailable.') from None
 
 
 if __name__ == '__main__':

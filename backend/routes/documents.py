@@ -20,11 +20,11 @@ def list_documents(offset: int = Query(0, ge=0), limit: int = Query(settings.API
 
 
 @router.post("", response_model=Document, status_code=201, dependencies=[Depends(auth.require_admin)])
-def upload_document(file: UploadFile = File(...), name: str = Form(...), car_model: str = Form("general"), tags: str = Form("[]"), document_type: str = Form("other_reference")):
+def upload_document(file: UploadFile = File(...), name: str = Form(...), tags: str = Form("[]"), document_type: str = Form("other_reference")):
     try:
-        metadata = DocumentEdit(name=name, car_model=car_model, tags=json.loads(tags), document_type=document_type)
+        metadata = DocumentEdit(name=name, tags=json.loads(tags), document_type=document_type)
     except (ValueError, ValidationError):
-        raise HTTPException(422, "Provide a name, valid vehicle scope, and tags as a JSON string array.") from None
+        raise HTTPException(422, "Provide a name, valid document type, and tags as a JSON string array.") from None
     return documents.create(file, metadata.model_dump())
 
 

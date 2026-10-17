@@ -305,3 +305,16 @@ const maintenanceCategories = [
 ];
 
 String formatDate(DateTime date) => '${date.day}/${date.month}/${date.year}';
+
+String maintenanceActionLabel(String action) => switch (action) {
+  'inspect' => 'Check / inspect',
+  'replace' => 'Replace',
+  'service' => 'Service',
+  _ => action,
+};
+
+String scheduleSourceLabel(String source) => switch (source) {
+  'manufacturer' => 'Manufacturer schedule',
+  'custom' => 'Personal schedule',
+  _ => 'History only',
+};

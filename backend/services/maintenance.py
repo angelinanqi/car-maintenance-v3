@@ -33,15 +33,21 @@ def status(task, records, odometer, today=None, *, due_soon_km=1000, due_soon_da
         if rule.get('distanceKm'):
             km = last['mileage'] + rule['distanceKm']
         if rule.get('months'):
-            next_date = add_months(as_date(last['date']), rule['months'])
+            try:
+                next_date = add_months(as_date(last['date']), rule['months'])
+            except (ValueError, OverflowError):
+                return {**result, 'label': 'Information required'}
     elif rule['type'] == 'milestone':
         km = next((m for m in rule.get('distanceMilestones', []) if not last or m > last['mileage']), None)
         months = rule.get('monthMilestones', [])
         start = rule.get('vehicleStartDate')
         missing = bool(months and not start)
         if start:
-            next_date = next((add_months(as_date(start), m) for m in months
-                              if not last or add_months(as_date(start), m) > as_date(last['date'])), None)
+            try:
+                next_date = next((add_months(as_date(start), m) for m in months
+                                  if not last or add_months(as_date(start), m) > as_date(last['date'])), None)
+            except (ValueError, OverflowError):
+                return {**result, 'label': 'Information required'}
         if km is None and next_date is None and not missing:
             return {**result, 'label': 'Published milestones completed'}
     else:

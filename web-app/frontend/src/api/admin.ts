@@ -113,3 +113,7 @@ export const publishSchedule = (id: string): Promise<Schedule> =>
     method: "POST",
     body: { confirm_review: true },
   });
+export const withdrawSchedule = (id: string): Promise<Schedule> =>
+  request(`/admin/schedules/${id}/withdraw`, { method: "POST" });
+export const deleteDraftSchedule = (id: string): Promise<void> =>
+  request(`/admin/schedules/${id}`, { method: "DELETE" });
