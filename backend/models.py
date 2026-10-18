@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 from uuid import UUID, uuid4
 
@@ -51,6 +51,40 @@ class PersonalVehicleProfile(InputModel):
     variant: str
     powertrain: Literal['petrol', 'diesel']
     updated_at: datetime
+
+
+class SavedMaintenanceService(InputModel):
+    title: str
+    date: datetime
+    mileage_km: int = Field(ge=0)
+
+
+class MaintenanceStatus(InputModel):
+    label: str
+    nextKm: int | None = None
+    remainingKm: int | None = None
+    nextDate: date | None = None
+
+
+class MaintenanceTaskSummary(InputModel):
+    task_id: str
+    title: str
+    category: str
+    action: Literal['inspect', 'replace', 'service']
+    schedule_source: Literal['none', 'custom', 'manufacturer']
+    status: MaintenanceStatus
+    latest_service: SavedMaintenanceService | None = None
+
+
+class PersonalMaintenanceContext(InputModel):
+    """Private server-loaded evidence; never part of the public chat input."""
+    vehicle_id: str
+    catalogue_id: UUID
+    as_of: date
+    total_tasks: int = Field(ge=0)
+    tasks: list[MaintenanceTaskSummary] = Field(default_factory=list, max_length=50)
+    total_standalone_services: int = Field(ge=0)
+    standalone_services: list[SavedMaintenanceService] = Field(default_factory=list, max_length=50)
 
 
 class SourceAttachmentReference(BaseModel):

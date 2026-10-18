@@ -377,14 +377,4 @@ class ContentRepository {
         : cached;
   }
 
-  // Call only with admin-reviewed content fetched under a verified backend contract.
-  Future<void> saveEmergencyUpdate(Map<String, dynamic> data) async {
-    final guides = _parse(data);
-    if (guides.isEmpty || guides.any((g) => !g.available)) {
-      throw const FormatException(
-        'Updates must contain reviewed guides with source metadata',
-      );
-    }
-    await store.write('emergency_content.json', data);
-  }
 }

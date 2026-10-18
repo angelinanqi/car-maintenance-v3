@@ -9,13 +9,11 @@ class HTMLNode:
     attributes: dict = field(default_factory=dict)
     text: Optional[str] = None
     children: list["HTMLNode"] = field(default_factory=list)
-    parent: Optional["HTMLNode"] = None
     depth: int = 0
     position: int = 0
     content: list = field(default_factory=list)
 
     def add_child(self, child: "HTMLNode"):
-        child.parent = self
         child.depth = self.depth + 1
         self.children.append(child)
 

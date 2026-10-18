@@ -47,35 +47,6 @@ class Vehicle {
         json['manufacturerScheduleAvailable'] == true,
   );
 
-  Map<String, dynamic> toJson() => {
-    'id': id,
-    'name': name,
-    'model': model,
-    'year': year,
-    'engineSize': engineSize,
-    'plateNumber': plateNumber,
-    'mileage': mileage,
-    'carModel': effectiveScope,
-    'catalogueId': catalogueId,
-    'knowledgeScopeId': knowledgeScopeId,
-    'manualAvailable': manualAvailable,
-    'manufacturerScheduleAvailable': manufacturerScheduleAvailable,
-  };
-
-  Vehicle withMileage(int value) => Vehicle(
-    id: id,
-    name: name,
-    model: model,
-    year: year,
-    engineSize: engineSize,
-    plateNumber: plateNumber,
-    mileage: value,
-    carModel: effectiveScope,
-    catalogueId: catalogueId,
-    knowledgeScopeId: knowledgeScopeId,
-    manualAvailable: manualAvailable,
-    manufacturerScheduleAvailable: manufacturerScheduleAvailable,
-  );
 }
 
 class CatalogueVehicle {

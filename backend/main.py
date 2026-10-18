@@ -11,7 +11,7 @@ from postgrest.exceptions import APIError
 from backend.routes import documents, guides, categories, emergency, dashboard, accounts, manuals, scopes, indexing, admin, mobile, nearby
 from backend.services.documents import recover_interrupted
 from backend import settings
-from backend.routes import chat_sources
+from backend.routes import chat_sources, maintenance_assistance
 from typing import Literal
 
 from fastapi import Depends, FastAPI, HTTPException
@@ -34,6 +34,7 @@ app = FastAPI(lifespan=lifespan)
 app.add_exception_handler(RequestValidationError, validation_error)
 app.add_exception_handler(StarletteHTTPException, http_error)
 app.include_router(chat_sources.router)
+app.include_router(maintenance_assistance.router)
 
 
 @app.middleware("http")

@@ -1,4 +1,4 @@
-﻿# Car Maintenance and Assistance
+# Car Maintenance and Assistance
 
 FastAPI backend, Flutter Android app, Next.js admin dashboard, Supabase database
 and storage, and a private RAG service with a document-indexing worker.
@@ -78,6 +78,16 @@ backend process because processing and content-mutation locks are process-local.
 MinerU starts on demand for PDF extraction; Markdown skips OCR. Model weights may
 download on first use.
 
+For a backend-only installation, use `backend/requirements.txt`; keep OCR in its
+separate environment. The dashboard build requires TypeScript and its type
+packages. Emotion and TipTap ProseMirror packages satisfy runtime peer
+dependencies; Transformers and einops support the embedding model loaded at
+runtime. Test fixtures and test runners are not included.
+
+After deployment, check `/health`, sign in to the dashboard, and verify document
+processing, a scoped chat answer and the enabled external integrations. A passing
+build or liveness check alone does not verify Supabase, OCR or model access.
+
 ## Documents and persistent data
 
 Upload documents through the admin dashboard to Supabase, assign vehicle/category
@@ -97,6 +107,25 @@ dimension requires reindexing through the upload/extraction flow.
 Optional YouTube ingestion runs separately with `run-youtube.cmd` or
 `run-youtube.command` (or `python -m rag.app.youtube.pipeline`). Assign indexed
 videos to scopes in the dashboard. It does not run during normal startup.
+
+Chat also loads a read-only maintenance summary for the signed-in user's active
+vehicle. It shares task/schedule views and due-status calculations with the mobile
+app. Answers can cite the latest recorded service per task, custom reminders and
+calculated due status as `[P2]`, alongside manual or published-content citations.
+Unlinked service records stay separate; missing history remains unknown. Admin
+chats do not receive personal maintenance context.
+
+Mobile chat includes maintenance question shortcuts and a vehicle-scoped "View
+maintenance" action beneath cited maintenance answers. Both clients display
+saved records and vehicle profiles in the supporting-source list; the web admin
+preview explains that personal records are available in signed-in mobile chat.
+
+The summary includes up to 50 tasks and the latest standalone service per saved
+title (up to 50), with total counts retained. Generation selects whole relevant
+entries within a 3000-character budget, also limited to half the remaining source
+budget. It is not a full-history or spending-analysis feature. No new database
+tables, dependencies, model tools or SQL generation are required. Restart both
+the backend and private RAG service after updating them together.
 
 ## Android build
 

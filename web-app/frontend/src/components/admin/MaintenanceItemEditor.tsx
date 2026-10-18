@@ -12,17 +12,19 @@ import { saveItem, type MaintenanceItem } from "@/api/admin";
 
 export default function MaintenanceItemEditor({
   row,
+  initialTitle = "",
   categories,
   onClose,
   onSaved,
 }: {
   row?: MaintenanceItem;
+  initialTitle?: string;
   categories: string[];
   onClose: () => void;
   onSaved: (row: MaintenanceItem) => void;
 }) {
   const original = {
-    title: row?.title || "",
+    title: row?.title || initialTitle,
     category: row?.category || "",
     description: row?.description || "",
     action: row?.action || "inspect",

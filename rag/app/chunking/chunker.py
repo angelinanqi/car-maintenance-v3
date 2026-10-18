@@ -3,7 +3,6 @@ from pathlib import Path
 import json
 from rag.app.models.document_tree import DocumentNode
 from rag.app.models.chunk import Chunk, ChunkMetadata
-from rag.app.chunking.table_formatter import format_table, structured_table
 
 from rag.config.settings import CHUNK_SIZE, CHUNK_OVERLAP, EMBEDDING_MAX_TOKENS
 
@@ -171,7 +170,7 @@ def render_content_node(
         return "\n".join(parts)
 
     if node.doctype == "Table":
-        return format_table(node)
+        raise ValueError('Table reached prose chunking; classify it as a source element first')
 
     if node.doctype == "List":
         return format_list(node)
@@ -285,7 +284,6 @@ def create_chunk(
                 src for node in source_nodes for src in collect_image_sources(node)
             )
         ),
-        table_data=[structured_table(node) for node in source_nodes if node.doctype == "Table"] or None,
     )
 
     text = build_context_text(

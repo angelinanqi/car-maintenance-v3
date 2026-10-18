@@ -45,7 +45,7 @@ class ChatAnswer(BaseModel):
     response_type: str = "manual_only"
 
 
-async def query(message, history, scope, *, vehicle_profile=None):
+async def query(message, history, scope, *, vehicle_profile=None, maintenance_context=None):
     if not settings.RAG_SERVICE_URL or not settings.RAG_SERVICE_TOKEN:
         raise HTTPException(503, "The RAG service connection is not configured. Set RAG_SERVICE_URL and RAG_SERVICE_TOKEN on the backend to use the existing pipeline.")
     try:
@@ -53,7 +53,7 @@ async def query(message, history, scope, *, vehicle_profile=None):
             response = await client.post(settings.RAG_SERVICE_URL + "/v1/chat",
                 headers={"Authorization": "Bearer " + settings.RAG_SERVICE_TOKEN},
                 json={"message": message, "history": history, "scope": scope,
-                      "vehicle_profile": vehicle_profile})
+                      "vehicle_profile": vehicle_profile, "maintenance_context": maintenance_context})
             response.raise_for_status()
             answer = ChatAnswer.model_validate(response.json()).model_dump(mode='json')
             metadata = scope.get('document_metadata', {})
@@ -67,6 +67,21 @@ async def query(message, history, scope, *, vehicle_profile=None):
                     if document is None:
                         raise ValueError('The RAG service returned a source outside the resolved scope')
                     source['document_title'] = document['document_title']
+                elif kind in {'personal_vehicle_profile', 'personal_maintenance'}:
+                    personal = kind == 'personal_maintenance'
+                    label = 'P2' if personal else 'P1'
+                    if (not vehicle_profile or source.get('label') != label
+                            or source.get('vehicle_id') != vehicle_profile['vehicle_id']):
+                        raise ValueError('The RAG service returned another vehicle\'s personal source')
+                    if personal and (not maintenance_context
+                            or source.get('as_of') != maintenance_context['as_of']
+                            or maintenance_context['vehicle_id'] != vehicle_profile['vehicle_id']):
+                        raise ValueError('The RAG service returned stale maintenance evidence')
+                    source.clear()
+                    source.update(label=label, source_type=kind, vehicle_id=vehicle_profile['vehicle_id'],
+                                  title='Saved maintenance records' if personal else 'Saved vehicle profile')
+                    if personal:
+                        source['as_of'] = maintenance_context['as_of']
                 else:
                     current = content.get((kind, source.get('source_id')))
                     if current is None or source.get('revision') != current['revision']:

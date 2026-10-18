@@ -29,7 +29,7 @@ export type MaintenanceItem = {
   action: "inspect" | "replace" | "service";
   active: boolean;
 };
-export type Rule = {
+type Rule = {
   type: "recurring" | "milestone" | "informational";
   distanceKm: number | null;
   months: number | null;
@@ -40,6 +40,9 @@ export type Rule = {
   notes: string;
   sourceDocumentId: string | null;
   sourcePage: number | null;
+  sourceRevision?: string | null;
+  sourceTableId?: string | null;
+  sourceSuggestionId?: string | null;
 };
 export type ScheduleEntry = {
   itemId: string | null;
@@ -56,6 +59,8 @@ export type Schedule = {
 };
 export type SourceDocument = {
   id: string;
+  source_revision: string;
+  superseded_by_id?: string | null;
   name: string;
   source_type: string;
   document_type: string;

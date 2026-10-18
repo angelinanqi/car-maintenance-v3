@@ -21,7 +21,9 @@ import AdminLayout from "@/components/layouts/AdminLayout";
 import FormField from "@/components/admin/FormField";
 import useUnsavedChanges from "@/components/admin/useUnsavedChanges";
 import { request, listAll } from "@/api/client.mjs";
-import { originalDocumentUrl } from "@/api/documents.mjs";
+import FrequencyTools from "@/components/admin/FrequencyTools";
+import MaintenanceAssistance from "@/components/admin/MaintenanceAssistance";
+import { sourceUrl, type Review, type Suggestion } from "@/api/maintenanceAssistance";
 import {
   loadCatalogue,
   loadItems,
@@ -76,7 +78,8 @@ function ScheduleEditor() {
   const [schedule, setSchedule] = useState<Schedule | null>(null);
   const [entries, setEntries] = useState<ScheduleEntry[]>([]);
   const [dirty, setDirty] = useState(false);
-  useUnsavedChanges(dirty);
+  const [assistanceDirty, setAssistanceDirty] = useState(false);
+  useUnsavedChanges(dirty || assistanceDirty);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -129,11 +132,33 @@ function ScheduleEditor() {
   }, [vehicleId, reloadKey]);
   const sources = documents.filter(
     (d) =>
-      d.source_type === "pdf" &&
+      (!d.superseded_by_id || entries.some(e => e.rule.sourceDocumentId === d.id)) &&
       links.some(
         (link) => link.vehicle_id === vehicleId && link.document_id === d.id,
       ),
   );
+  const selectedSource = sources.find(d => d.id === pdfId);
+  function importSuggestions(review: Review, suggestions: Suggestion[]) {
+    if (!canEdit || busy || review.document_id !== selectedSource?.id || review.source_revision !== selectedSource.source_revision) return;
+    const seen = new Set(entries.map(e => e.itemId));
+    const additions: ScheduleEntry[] = [];
+    for (const suggestion of suggestions) {
+      const item = items.find(i => i.id === suggestion.mapped_item_id && i.active);
+      if (!item || seen.has(item.id)) continue;
+      seen.add(item.id);
+      const table = review.catalogue.tables.find(t => t.table_id === suggestion.table_id);
+      const bookmark = review.bookmarks.find(b => b.table_id === suggestion.table_id);
+      additions.push({ ...newEntry(), itemId: item.id, action: item.action, rule: {
+        ...newEntry().rule, sourceDocumentId: review.document_id, sourceRevision: review.source_revision,
+        sourceTableId: suggestion.table_id, sourceSuggestionId: suggestion.suggestion_id,
+        sourcePage: suggestion.pages?.[0] || table?.pages[0] || bookmark?.page || null,
+        notes: `Source item: ${suggestion.edited_name || suggestion.suggested_name}`,
+      }});
+    }
+    setEntries([...entries, ...additions]);
+    if (additions.length) { setDirty(true); setReviewed(false); }
+    setNotice(`${additions.length} items added to the draft. ${suggestions.length - additions.length} already present or unavailable. Enter and verify each frequency, then save the draft.`);
+  }
   const canEdit = !schedule || schedule.status === "draft";
   const changeEntry = (index: number, next: ScheduleEntry) => {
     setEntries(entries.map((entry, i) => (i === index ? next : entry)));
@@ -142,7 +167,7 @@ function ScheduleEditor() {
     setNotice("");
   };
   function chooseSchedule(id: string) {
-    if (dirty && !window.confirm("Discard unsaved schedule changes?")) return;
+    if ((dirty || assistanceDirty) && !window.confirm("Discard unsaved schedule changes?")) return;
     const row = schedules.find((s) => s.id === id) || null;
     setSchedule(row);
     setEntries(row?.entries || []);
@@ -183,7 +208,7 @@ function ScheduleEditor() {
       if (publishing) {
         if (!reviewed)
           throw new Error(
-            "Confirm that you checked every rule against its source PDF.",
+            "Confirm that you checked every rule against its original source.",
           );
         const saved = await publishSchedule(schedule.id);
         setSchedule(saved);
@@ -252,7 +277,7 @@ function ScheduleEditor() {
   return (
     <AdminLayout
       title="Service schedules"
-      description="Choose a vehicle, enter rules from its source PDF, then save, validate and review before publishing."
+      description="Find maintenance tables, review and map items, then enter frequencies and verify your schedule against the original source."
     >
       <Stack gap={5}>
         {error && (
@@ -269,7 +294,7 @@ function ScheduleEditor() {
           variant="outline"
           alignSelf="start"
           disabled={busy}
-          onClick={() => setReloadKey((v) => v + 1)}
+          onClick={() => { if (assistanceDirty && !window.confirm("Reload sources and discard unsaved extraction review edits?")) return; setReloadKey((v) => v + 1); }}
         >
           Reload sources and schedules
         </Button>
@@ -279,7 +304,7 @@ function ScheduleEditor() {
             disabled={busy || loading}
             value={vehicleId}
             onChange={(e) => {
-              if (dirty && !window.confirm("Discard unsaved schedule changes?"))
+              if ((dirty || assistanceDirty) && !window.confirm("Discard unsaved schedule changes?"))
                 return;
               setVehicleId(e.target.value);
               setSchedules([]);
@@ -354,20 +379,24 @@ function ScheduleEditor() {
                 borderWidth="1px"
                 p={4}
                 borderRadius="md"
+                position={{ xl: "sticky" }}
+                top={{ xl: "16px" }}
               >
                 <Heading size="md" mb={3}>
                   Original source
                 </Heading>
                 <Stack gap={3}>
-                  <FormField label="Associated PDF">
+                  <FormField label="Associated source document">
                     <AdminSelect
                       value={pdfId}
+                      disabled={busy}
                       onChange={(e) => {
+                        if (assistanceDirty && !window.confirm("Discard unsaved extraction review edits?")) return;
                         setPdfId(e.target.value);
                         setPage(1);
                       }}
                     >
-                      <option value="">Select original PDF</option>
+                      <option value="">Select original document</option>
                       {sources.map((d) => (
                         <option key={d.id} value={d.id}>
                           {d.name} · {d.document_type.replaceAll("_", " ")}
@@ -377,11 +406,11 @@ function ScheduleEditor() {
                   </FormField>
                   {!sources.length && (
                     <Text>
-                      No associated PDF. Upload and associate a maintenance
+                      No associated source. Upload and associate a maintenance
                       source in Documents.
                     </Text>
                   )}
-                  <FormField label="PDF page">
+                  {selectedSource?.source_type === 'pdf' && <FormField label="PDF page">
                     <Input
                       type="number"
                       min={1}
@@ -390,23 +419,23 @@ function ScheduleEditor() {
                         setPage(Math.max(1, Number(e.target.value) || 1))
                       }
                     />
-                  </FormField>
-                  {pdfId && (
+                  </FormField>}
+                  {selectedSource && (
                     <>
                       <Button asChild variant="outline">
                         <a
-                          href={`${originalDocumentUrl(pdfId)}#page=${page}`}
+                          href={`${sourceUrl(pdfId, selectedSource.source_revision)}${selectedSource.source_type === "pdf" ? `#page=${page}` : ""}`}
                           target="_blank"
                           rel="noopener noreferrer"
                         >
-                          Open original PDF at page {page}
+                          Open original {selectedSource.source_type === "pdf" ? `PDF at page ${page}` : "Markdown"}
                         </a>
                       </Button>
                       <Box asChild w="100%" h="640px">
                         <iframe
                           key={`${pdfId}:${page}`}
-                          title="Original maintenance PDF"
-                          src={`${originalDocumentUrl(pdfId)}#page=${page}`}
+                          title="Original maintenance source"
+                          src={`${sourceUrl(pdfId, selectedSource.source_revision)}${selectedSource.source_type === "pdf" ? `#page=${page}` : ""}`}
                         />
                       </Box>
                     </>
@@ -414,6 +443,13 @@ function ScheduleEditor() {
                 </Stack>
               </Box>
               <Box flex="1" w="100%" minW={0}>
+                {selectedSource?.superseded_by_id && <Text mb={4}>This original is retained for an existing schedule. Select the replacement source for a new extraction review.</Text>}
+                {selectedSource && !selectedSource.superseded_by_id && <MaintenanceAssistance key={`${vehicleId}:${selectedSource.id}:${selectedSource.source_revision}`}
+                  document={selectedSource} items={items} disabled={busy || !canEdit}
+                  onDirty={setAssistanceDirty} onItem={item => setItems(previous => [...previous.filter(i => i.id !== item.id), item])}
+                  onNavigate={setPage} onImport={importSuggestions} />}
+                {entries.length > 0 && <FrequencyTools key={`${vehicleId}:${schedule?.id || 'new'}`} entries={entries} schedules={schedules} items={items}
+                  disabled={busy || !canEdit} onChange={next => { setEntries(next); setDirty(true); setReviewed(false); }} />}
                 <Fieldset.Root disabled={busy}>
                   <Stack gap={4}>
                     {entries.map((entry, index) => (
@@ -437,6 +473,7 @@ function ScheduleEditor() {
                                     ...entry,
                                     itemId: item?.id || null,
                                     action: item?.action || "replace",
+                                    rule: { ...entry.rule, sourceSuggestionId: null },
                                   });
                                 }}
                               >
@@ -468,6 +505,9 @@ function ScheduleEditor() {
                                       sourceDocumentId:
                                         entry.rule.sourceDocumentId,
                                       sourcePage: entry.rule.sourcePage,
+                                      sourceRevision: entry.rule.sourceRevision,
+                                      sourceTableId: entry.rule.sourceTableId,
+                                      sourceSuggestionId: entry.rule.sourceSuggestionId,
                                     },
                                   })
                                 }
@@ -580,11 +620,13 @@ function ScheduleEditor() {
                                     rule: {
                                       ...entry.rule,
                                       sourceDocumentId: e.target.value || null,
+                                      sourceRevision: sources.find(d => d.id === e.target.value)?.source_revision || null,
+                                      sourceTableId: null, sourceSuggestionId: null, sourcePage: null,
                                     },
                                   })
                                 }
                               >
-                                <option value="">Select associated PDF</option>
+                                <option value="">Select associated document</option>
                                 {sources.map((d) => (
                                   <option key={d.id} value={d.id}>
                                     {d.name}
@@ -592,7 +634,8 @@ function ScheduleEditor() {
                                 ))}
                               </AdminSelect>
                             </FormField>
-                            <FormField label="Source page">
+                            {entry.rule.sourceTableId && <Text fontSize="sm">Reviewed source table: {entry.rule.sourceTableId}</Text>}
+                            {sources.find(d => d.id === entry.rule.sourceDocumentId)?.source_type !== 'md' && <FormField label="Source page">
                               <Input
                                 type="number"
                                 min={1}
@@ -609,7 +652,7 @@ function ScheduleEditor() {
                                   })
                                 }
                               />
-                            </FormField>
+                            </FormField>}
                           </Stack>
                         </Fieldset.Root>
                         <Flex gap={2} wrap="wrap" mt={3}>
@@ -617,6 +660,7 @@ function ScheduleEditor() {
                             variant="outline"
                             disabled={!entry.rule.sourceDocumentId}
                             onClick={() => {
+                              if (assistanceDirty && !window.confirm("Discard unsaved extraction review edits?")) return;
                               setPdfId(entry.rule.sourceDocumentId || "");
                               setPage(entry.rule.sourcePage || 1);
                             }}
@@ -641,7 +685,7 @@ function ScheduleEditor() {
                     {!entries.length && (
                       <Text>
                         No rules yet. Select standard items and enter
-                        requirements from the original PDF.
+                        requirements from the original source.
                       </Text>
                     )}
                     <Button
@@ -687,8 +731,8 @@ function ScheduleEditor() {
                 disabled={!canEdit || dirty || !schedule || busy}
                 onCheckedChange={(e) => setReviewed(e.checked === true)}
               >
-                I verified every rule, action, condition and source page against
-                the original PDF.
+                I verified every rule, action, condition and source reference against
+                the original source.
               </Checkbox>
               <Button
                 colorPalette="brand"

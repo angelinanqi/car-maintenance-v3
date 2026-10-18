@@ -9,7 +9,6 @@ function positiveInteger(name, raw, fallback) {
 
 export const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/+$/, "");
 export const CHAT_MAX_MESSAGE_LENGTH = positiveInteger("CHAT_MAX_MESSAGE_LENGTH", process.env.NEXT_PUBLIC_CHAT_MAX_MESSAGE_LENGTH, 4000);
-export const CHAT_HISTORY_LIMIT = positiveInteger("CHAT_HISTORY_LIMIT", process.env.NEXT_PUBLIC_CHAT_HISTORY_LIMIT, 6);
 export const DOCUMENT_MAX_FILES = positiveInteger("NEXT_PUBLIC_DOCUMENT_MAX_FILES", process.env.NEXT_PUBLIC_DOCUMENT_MAX_FILES, 20);
 export const DOCUMENT_MAX_BYTES = positiveInteger("NEXT_PUBLIC_DOCUMENT_MAX_BYTES", process.env.NEXT_PUBLIC_DOCUMENT_MAX_BYTES, 52428800);
 export const DOCUMENT_EXTENSIONS = (process.env.NEXT_PUBLIC_DOCUMENT_EXTENSIONS || ".pdf,.md")

@@ -8,6 +8,8 @@ String sourceDescription(Map<String, dynamic> source) {
   final kind = switch (source['source_type']) {
     'learning_guide' => 'Learning guide',
     'emergency_protocol' => 'Reviewed emergency protocol',
+    'personal_vehicle_profile' => 'Your saved vehicle details',
+    'personal_maintenance' => 'Your saved services and calculated due status',
     _ => 'Reference document',
   };
   final title =
@@ -21,8 +23,8 @@ String sourceDescription(Map<String, dynamic> source) {
     if (source['reviewed_at'] != null) 'Reviewed: ${source['reviewed_at']}',
     if (reference != null && reference.isNotEmpty)
       'Source reference: $reference',
+    if (source['as_of'] != null) 'As of: ${source['as_of']}',
     if (source['page'] != null) 'Page: ${source['page']}',
-    if (source['chunk_id'] != null) 'Reference: ${source['chunk_id']}',
   ].join('\n');
 }
 
@@ -31,11 +33,13 @@ class ChatMessageView extends StatelessWidget {
   final ChatMessage message;
   final ChatRepository repository;
   final VoidCallback? onEmergency;
+  final VoidCallback? onMaintenance;
   const ChatMessageView({
     super.key,
     required this.message,
     required this.repository,
     this.onEmergency,
+    this.onMaintenance,
   });
 
   Future<void> _video(BuildContext context, Map<String, dynamic> video) async {
@@ -150,10 +154,11 @@ class ChatMessageView extends StatelessWidget {
           if (sources.isNotEmpty) ...[
             const SizedBox(height: 16),
             Container(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.only(top: 16),
               decoration: BoxDecoration(
-                color: theme.colorScheme.surfaceContainer,
-                borderRadius: BorderRadius.circular(12),
+                border: Border(
+                  top: BorderSide(color: theme.colorScheme.outlineVariant),
+                ),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -167,6 +172,15 @@ class ChatMessageView extends StatelessWidget {
                     SelectableText(
                       sourceDescription(source),
                       style: theme.textTheme.bodyMedium,
+                    ),
+                  ],
+                  if (onMaintenance != null &&
+                      sources.any((s) => s['source_type'] == 'personal_maintenance')) ...[
+                    const SizedBox(height: 8),
+                    TextButton.icon(
+                      onPressed: onMaintenance,
+                      icon: const Icon(Icons.receipt_long_outlined, size: 20),
+                      label: const Text('View maintenance'),
                     ),
                   ],
                 ],

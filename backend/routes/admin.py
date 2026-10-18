@@ -69,6 +69,9 @@ class Rule(InputModel):
     notes: str = ""
     sourceDocumentId: UUID | None = None
     sourcePage: int | None = Field(default=None, gt=0)
+    sourceRevision: UUID | None = None
+    sourceTableId: str | None = Field(default=None, max_length=80)
+    sourceSuggestionId: str | None = Field(default=None, max_length=120)
 
     @model_validator(mode="after")
     def check_structure(self):
@@ -79,6 +82,10 @@ class Rule(InputModel):
             raise ValueError("Only recurring rules may contain intervals")
         if self.type != "milestone" and (self.distanceMilestones or self.monthMilestones):
             raise ValueError("Only milestone rules may contain milestones")
+        if (self.sourceTableId or self.sourceSuggestionId) and not (self.sourceDocumentId and self.sourceRevision):
+            raise ValueError("Assisted source references require a document and revision")
+        if self.sourceSuggestionId and not self.sourceTableId:
+            raise ValueError("A source suggestion requires its table reference")
         return self
 
 
@@ -110,16 +117,33 @@ def validate_schedule(values, publishing=False):
                 raise HTTPException(422, "Published schedules require active maintenance items.")
         rule = entry["rule"]
         document_id = rule["sourceDocumentId"]
+        markdown_source = False
         if document_id:
             document = db.get("documents", document_id)
-            if document["source_type"] != "pdf":
-                raise HTTPException(422, "Schedule page references require an original PDF.")
+            markdown_source = document['source_type'] == 'md'
+            if rule.get('sourceRevision') and rule['sourceRevision'] != document['source_revision']:
+                raise HTTPException(409, 'The schedule source revision changed. Review and import its current source again.')
             if not db.all_rows("document_vehicles", document_id=document_id, vehicle_id=vehicle_id):
                 raise HTTPException(422, "The source document must be associated with the selected vehicle.")
+            if rule.get('sourceTableId'):
+                if not rule.get('sourceRevision'):
+                    raise HTTPException(422, 'A table reference requires its document revision.')
+                reviews = db.all_rows('maintenance_assistance', document_id=document_id, source_revision=rule['sourceRevision'])
+                review = reviews[0] if reviews else None
+                allowed = ({s['table_id'] for s in review['selections']} | {b['table_id'] for b in review['bookmarks']}) if review else set()
+                if rule['sourceTableId'] not in allowed:
+                    raise HTTPException(422, 'Confirm the source table or create its manual bookmark before saving.')
+                if rule.get('sourceSuggestionId'):
+                    suggestion = next((s for s in review['suggestions'] if s['suggestion_id'] == rule['sourceSuggestionId']), None)
+                    if (not suggestion or suggestion['table_id'] != rule['sourceTableId']
+                            or suggestion['status'] != 'accepted' or suggestion.get('mapped_item_id') != item_id):
+                        raise HTTPException(422, 'The source suggestion must be accepted and mapped to the selected maintenance item.')
+            if markdown_source and (rule.get('sourcePage') or not (rule.get('sourceRevision') and rule.get('sourceTableId'))):
+                raise HTTPException(422, 'Markdown rules require a reviewed table/bookmark and revision, without a PDF page.')
         if not publishing:
             continue
-        if not item_id or not document_id or not rule["sourcePage"]:
-            raise HTTPException(422, "Every published rule needs an item, source PDF and page.")
+        if not item_id or not document_id or (not markdown_source and not rule["sourcePage"]):
+            raise HTTPException(422, "Every published rule needs an item and source reference; PDF sources require a page.")
         if rule["type"] == "recurring" and not (rule["distanceKm"] or rule["months"]):
             raise HTTPException(422, "Recurring rules require a distance or time interval.")
         if rule["type"] == "milestone" and not (rule["distanceMilestones"] or rule["monthMilestones"]):

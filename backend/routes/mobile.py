@@ -1,7 +1,7 @@
 """Account-owned mobile persistence. Shared catalogues remain in admin.py."""
 from datetime import datetime
 from typing import Literal
-from uuid import NAMESPACE_URL, UUID, uuid5
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import Field, field_validator, model_validator
@@ -11,6 +11,7 @@ from backend.locks import content_lock
 from backend.models import InputModel
 from backend.routes.admin import Rule, catalogue, item_lessons
 from backend.services.maintenance import as_date, status
+from backend.services.personal_maintenance import load_tasks, personal_schedules, record_view
 
 
 def require_user(request: Request, identity=Depends(auth.current_session)):
@@ -125,29 +126,6 @@ class IncidentInput(InputModel):
         return valid_id(value)
 
 
-def task_view(row, schedules, items):
-    item = items.get(row.get('item_id'))
-    entry = next((e for e in schedules.get(row['vehicle_id'], {}).get('entries', [])
-                  if e['itemId'] == row.get('item_id')), None) if item else None
-    return {'id': row['id'], 'vehicleId': row['vehicle_id'], 'title': item['title'] if item else row['title'],
-            'category': item['category'] if item else row['category'], 'itemId': row.get('item_id'),
-            'action': item['action'] if item else row['action'], 'isCustom': item is None,
-            'scheduleSource': row['schedule_source'], 'customRule': row.get('custom_rule'),
-            'manufacturerRule': entry['rule'] if entry else None, 'lessonIds': item.get('lessonIds', []) if item else [],
-            'manufacturerRevision': schedules.get(row['vehicle_id'], {}).get('revision')}
-
-
-def record_view(row):
-    return {'id': row['id'], 'vehicleId': row['vehicle_id'], 'taskId': row.get('task_id'),
-            'title': row['title'], 'category': row['category'], 'mileage': row['mileage'],
-            'date': row['performed_at'], 'notes': row['notes'], 'cost': row.get('cost')}
-
-
-def personal_schedules(vehicles):
-    published = {s['vehicle_id']: s for s in db.all_rows('manufacturer_schedules', status='published')}
-    return {v['id']: published[v['catalogue_id']] for v in vehicles if v['catalogue_id'] in published}
-
-
 @router.get('')
 def snapshot(user=Depends(require_user)):
     owner = user['id']
@@ -164,17 +142,7 @@ def snapshot(user=Depends(require_user)):
         links = item_lessons()
         # Retain disabled items referenced by existing history/tasks.
         items = {i['id']: {**i, 'lessonIds': links.get(i['id'], [])} for i in db.all_rows('maintenance_items')}
-        schedules = personal_schedules(vehicles)
-        tasks = db.all_rows('user_tasks', user_id=owner)
-        for vehicle in vehicles:
-            for entry in schedules.get(vehicle['id'], {}).get('entries', []):
-                if any(t['vehicle_id'] == vehicle['id'] and t.get('item_id') == entry['itemId'] for t in tasks):
-                    continue
-                item = items[entry['itemId']]
-                task_id = 'm:' + str(uuid5(NAMESPACE_URL, f"{owner}/{vehicle['id']}/{item['id']}"))
-                tasks.append(put('user_tasks', owner, task_id, {
-                    'vehicle_id': vehicle['id'], 'item_id': item['id'], 'title': None,
-                    'category': None, 'action': None, 'schedule_source': 'manufacturer', 'custom_rule': None}))
+        visible_tasks = load_tasks(owner, vehicles, items, persist_missing=True)
         records = [record_view(r) for r in db.all_rows('service_records', user_id=owner)]
         output = []
         for vehicle in vehicles:
@@ -187,7 +155,6 @@ def snapshot(user=Depends(require_user)):
                 'plateNumber': vehicle['plate_number'], 'mileage': vehicle['mileage'], 'carModel': identity['code'],
                 'catalogueId': identity['id'], 'knowledgeScopeId': identity['id'],
                 'manualAvailable': identity['manual_available'], 'manufacturerScheduleAvailable': identity['manufacturer_schedule_available']})
-        visible_tasks = [task_view(t, schedules, items) for t in tasks]
         mileage = {v['id']: v['mileage'] for v in vehicles}
         for task in visible_tasks:
             task['status'] = status(task, records, mileage[task['vehicleId']],

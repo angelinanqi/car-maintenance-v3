@@ -8,6 +8,7 @@ from backend import db
 from backend.services import scopes
 from backend.services import rag_client
 from backend.services import vehicle_profiles
+from backend.services import personal_maintenance
 from backend import settings
 
 # One process is the existing supported backend deployment. Concurrent turns
@@ -76,7 +77,8 @@ def load(request, user):
         raise HTTPException(409, 'The active vehicle does not match this knowledge scope.')
     # Client history is untrusted and may belong to another knowledge scope.
     messages = recent_messages(row["id"])
-    return row, token, scope, messages, profile
+    maintenance = personal_maintenance.load(user, profile)
+    return row, token, scope, messages, profile, maintenance
 
 
 def recent_messages(session_id):
@@ -98,10 +100,11 @@ async def send(request, user):
     if identity:
         _active.add(identity)
     try:
-        row, token, scope, history, profile = await run_in_threadpool(load, request, user)
+        row, token, scope, history, profile, maintenance = await run_in_threadpool(load, request, user)
         identity = row["id"]
         _active.add(identity)
-        answer = await rag_client.query(request.message, history, scope, vehicle_profile=profile)
+        answer = await rag_client.query(request.message, history, scope, vehicle_profile=profile,
+                                       maintenance_context=maintenance)
         # Re-resolve before exposing an answer if an admin changed eligibility
         # during retrieval/generation. Do not persist the stale response.
         current = await run_in_threadpool(scopes.resolve, scope["scope_type"], scope["scope_id"])
@@ -117,6 +120,9 @@ async def send(request, user):
         current_profile = await run_in_threadpool(vehicle_profiles.load, user)
         if current_profile != profile:
             raise HTTPException(409, 'Your active vehicle profile changed. Please retry your question.')
+        current_maintenance = await run_in_threadpool(personal_maintenance.load, user, current_profile)
+        if current_maintenance != maintenance:
+            raise HTTPException(409, 'Your maintenance records or schedule changed. Please retry your question.')
         if answer.get('response_type') not in {'generation_error', 'retrieval_error'}:
             await run_in_threadpool(save_turn, identity, request.message, answer["answer"])
         return {**answer, "session_id": identity, "session_token": token,

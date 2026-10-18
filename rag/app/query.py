@@ -120,7 +120,7 @@ def retrieve_manual(query_embedding, top_k, *, scope, query):
 
 
 
-async def handle_query(query, *, scope, history=None, vehicle_profile=None, top_k=settings.RAG_TOP_K):
+async def handle_query(query, *, scope, history=None, vehicle_profile=None, maintenance_context=None, top_k=settings.RAG_TOP_K):
     if not query.strip() or top_k < 1:
         raise ValueError("Provide a nonempty query and positive top_k")
     if not scope.get("scope_id") or scope.get("scope_type") not in {"vehicle", "category"}:
@@ -128,6 +128,10 @@ async def handle_query(query, *, scope, history=None, vehicle_profile=None, top_
     if (vehicle_profile and scope['scope_type'] == 'vehicle'
             and str(vehicle_profile['catalogue_id']) != str(scope['scope_id'])):
         raise ValueError('The personal vehicle profile does not match the knowledge scope')
+    if maintenance_context and (not vehicle_profile
+            or maintenance_context['vehicle_id'] != vehicle_profile['vehicle_id']
+            or str(maintenance_context['catalogue_id']) != str(vehicle_profile['catalogue_id'])):
+        raise ValueError('Maintenance context does not match the active personal vehicle')
     history = recent_context(history)
     start = perf_counter()
     routing, youtube, generation = {}, {}, {}
@@ -205,7 +209,8 @@ async def handle_query(query, *, scope, history=None, vehicle_profile=None, top_
             try:
                 answer, useful = await asyncio.to_thread(generate, question, eligible, generator,
                                                          scope=scope, risk=routing["risk"],
-                                                         vehicle_profile=vehicle_profile, diagnostics=generation)
+                                                         vehicle_profile=vehicle_profile,
+                                                         maintenance_context=maintenance_context, diagnostics=generation)
             except Exception:
                 answer = MODEL_UNAVAILABLE
                 generation['decision_reason'] = 'generation_error'
@@ -232,8 +237,10 @@ async def handle_query(query, *, scope, history=None, vehicle_profile=None, top_
         response_type = ('source_attachments' if attachments and not useful else ("manual_and_video" if videos else "manual_only") if useful else ("video_only" if videos else "insufficient_information"))
         if useful and generation.get('profile_relevant'):
             response_type = 'profile_and_manual' if generation.get('manual_relevant') else 'profile_only'
+        if useful and generation.get('maintenance_relevant'):
+            response_type = 'mixed_sources' if generation.get('manual_relevant') else 'maintenance_only'
         if useful and generation.get('content_relevant'):
-            response_type = 'mixed_sources' if generation.get('manual_relevant') or generation.get('profile_relevant') else 'published_content'
+            response_type = 'mixed_sources' if generation.get('manual_relevant') or generation.get('profile_relevant') or generation.get('maintenance_relevant') else 'published_content'
         if generation.get("decision_reason") == "generation_error":
             response_type = "generation_error"
         elif manual_failed and not videos and not useful:
@@ -249,6 +256,13 @@ async def handle_query(query, *, scope, history=None, vehicle_profile=None, top_
                            else {"label": f"S{i}", "source_type": "manual", "chunk_id": r.chunk_id,
                                  "document_id": r.metadata.get("document_id", r.metadata.get("document_name"))})
                           for i, r in enumerate(eligible, 1) if f"[S{i}]" in answer] if useful else []}
+    if useful and generation.get('profile_relevant') and vehicle_profile:
+        result['sources'].append({'label': 'P1', 'source_type': 'personal_vehicle_profile',
+                                  'title': 'Saved vehicle profile', 'vehicle_id': vehicle_profile['vehicle_id']})
+    if useful and generation.get('maintenance_relevant') and maintenance_context:
+        result['sources'].append({'label': 'P2', 'source_type': 'personal_maintenance',
+                                  'title': 'Saved maintenance records', 'vehicle_id': maintenance_context['vehicle_id'],
+                                  'as_of': maintenance_context['as_of']})
     total_ms = round((perf_counter() - start) * 1000, 1)
     logger.info("rag_query scope=%s type=%s provider=%s model=%s total_ms=%s",
                 scope["scope_id"], response_type, generation.get("provider"), generation.get("model"), total_ms)

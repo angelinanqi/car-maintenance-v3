@@ -16,11 +16,8 @@ class ApiClient {
   final http.Client client;
   final Duration timeout;
   int maxMessageLength = 4000;
-  int historyLimit = 6;
   int pageSize = 100;
   int imageMaxBytes = 10485760;
-  Map<String, String> vehicleScopes = {};
-  List<Map<String, dynamic>> knowledgeScopes = [];
 
   ApiClient({
     this.baseUrl = const String.fromEnvironment('API_BASE_URL'),
@@ -229,10 +226,6 @@ class ApiClient {
         knowledge.any((item) => item is! Map)) {
       throw const ApiException('Invalid backend configuration.');
     }
-    final values = {
-      for (final item in scopes)
-        item['value'] as String: item['label'] as String,
-    };
     final limits = [
       'chat_max_message_length',
       'chat_history_limit',
@@ -243,12 +236,7 @@ class ApiClient {
         data['api_page_size'] > 1000) {
       throw const ApiException('Invalid backend configuration.');
     }
-    vehicleScopes = values;
-    knowledgeScopes = knowledge
-        .map((item) => Map<String, dynamic>.from(item as Map))
-        .toList();
     maxMessageLength = data['chat_max_message_length'] as int;
-    historyLimit = data['chat_history_limit'] as int;
     pageSize = data['api_page_size'] as int;
     imageMaxBytes = data['image_max_bytes'] as int;
   }

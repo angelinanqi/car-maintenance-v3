@@ -179,7 +179,7 @@ export default function ChatbotPage() {
               value={item.value}
               disabled={item.disabled}
             >
-              {item.label}{item.disabled ? " (no indexed documents)" : ""}
+              {item.label}{item.disabled ? " (no published sources)" : ""}
             </option>
           ))}
         </NativeSelect.Field>
@@ -190,10 +190,18 @@ export default function ChatbotPage() {
 
   return (
     <AdminLayout
-      title="Chatbot Testing"
-      description="Ask questions using the existing manuals and related videos."
+      title="Chat preview"
+      description="Check answers from manuals, learning guides, reviewed emergency guidance and related videos."
     >
       <ChatStarterEditor />
+      <Box as="aside" aria-label="Personal maintenance in mobile chat" borderLeftWidth="2px" borderColor="brand.400" pl={4} mb={6} maxW="68ch">
+        <Text fontSize="sm" fontWeight="semibold" mb={1}>Personal maintenance is available in the mobile app</Text>
+        <Text fontSize="sm" color="muted">
+          Signed-in drivers can ask about their last recorded service, what is due next,
+          and how to check a component. This admin preview uses published sources;
+          it has no personal vehicle records.
+        </Text>
+      </Box>
       <Flex
         gap={2}
         wrap="wrap"

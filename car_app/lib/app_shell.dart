@@ -266,6 +266,10 @@ class _AppShellState extends State<AppShell> {
                           prompt: _prompt,
                           contextData: _chatContext,
                           onEmergency: () => setState(() => _selectedIndex = 4),
+                          onMaintenance: () => setState(() {
+                            _selectedIndex = 1;
+                            _scheduleRequest++;
+                          }),
                         ),
                       ),
                       TickerMode(

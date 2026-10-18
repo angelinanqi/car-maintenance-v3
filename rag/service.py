@@ -16,7 +16,7 @@ from backend.errors import http_error, validation_error
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from rag.config import settings
-from backend.models import PersonalVehicleProfile, SourceAttachmentReference, MechanicQuestionDraft
+from backend.models import PersonalVehicleProfile, PersonalMaintenanceContext, SourceAttachmentReference, MechanicQuestionDraft
 
 app = FastAPI()
 app.add_exception_handler(RequestValidationError, validation_error)
@@ -37,6 +37,7 @@ class Request(BaseModel):
     history: list[Message] = Field(default_factory=list, max_length=settings.CHAT_HISTORY_LIMIT)
     scope: dict
     vehicle_profile: PersonalVehicleProfile | None = None
+    maintenance_context: PersonalMaintenanceContext | None = None
 
 
 class Answer(BaseModel):
@@ -105,14 +106,15 @@ async def chat(request: Request, authorization: str = Header(default='')):
     verify_service_credentials(authorization)
     if (request.scope.get('scope_type') not in {'vehicle', 'category'}
             or not request.scope.get('scope_id')
-            or not (request.scope.get('document_ids') or request.scope.get('content_sources'))):
+            or not (request.scope.get('document_ids') or request.scope.get('content_sources') or request.vehicle_profile)):
         raise HTTPException(422, 'A resolved knowledge scope is required.')
     try:
         await asyncio.to_thread(verify_revisions, request.scope)
         from rag.app.query import handle_query
         return Answer.model_validate(await handle_query(request.message,
             history=[message.model_dump() for message in request.history], scope=request.scope,
-            vehicle_profile=request.vehicle_profile.model_dump(mode='json') if request.vehicle_profile else None))
+            vehicle_profile=request.vehicle_profile.model_dump(mode='json') if request.vehicle_profile else None,
+            maintenance_context=request.maintenance_context.model_dump(mode='json') if request.maintenance_context else None))
     except Exception:
         logger.exception('Existing RAG pipeline request failed')
         raise HTTPException(503, 'The AI service is temporarily unavailable.') from None

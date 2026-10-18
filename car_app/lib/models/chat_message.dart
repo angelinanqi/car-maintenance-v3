@@ -11,9 +11,7 @@ class ChatMessage {
 class ChatRequest {
   final String message;
   final Vehicle? vehicle;
-  final String? topic;
   final Map<String, dynamic>? context;
-  final List<ChatMessage> history;
   final String? scopeType;
   final String? scopeId;
   final String? sessionId;
@@ -21,9 +19,7 @@ class ChatRequest {
   const ChatRequest({
     required this.message,
     this.vehicle,
-    this.topic,
     this.context,
-    this.history = const [],
     this.scopeType,
     this.scopeId,
     this.sessionId,

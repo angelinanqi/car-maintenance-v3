@@ -201,6 +201,22 @@ create table public.manufacturer_schedules (
     check (status <> 'published' or (verified_at is not null and jsonb_array_length(entries) > 0))
 );
 create unique index one_published_vehicle_schedule on public.manufacturer_schedules(vehicle_id) where status = 'published';
+create table public.maintenance_assistance (
+    id uuid primary key,
+    document_id uuid not null references public.documents(id) on delete cascade,
+    source_revision uuid not null,
+    catalogue jsonb not null check (jsonb_typeof(catalogue) = 'object'),
+    selections jsonb not null default '[]' check (jsonb_typeof(selections) = 'array'),
+    suggestions jsonb not null default '[]' check (jsonb_typeof(suggestions) = 'array'),
+    bookmarks jsonb not null default '[]' check (jsonb_typeof(bookmarks) = 'array'),
+    version integer not null default 1 check (version > 0),
+    reviewed_by uuid references public.app_users(id) on delete set null,
+    reviewed_at timestamptz,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now(),
+    unique(document_id, source_revision)
+);
+
 create table public.knowledge_videos (
     id uuid primary key default gen_random_uuid(),
     video_id text not null check (video_id ~ '^[A-Za-z0-9_-]{11}$'),
@@ -440,7 +456,7 @@ begin
         'app_users', 'app_sessions', 'vehicle_manufacturers', 'vehicle_models',
         'knowledge_vehicles', 'maintenance_items', 'documents', 'guide_categories',
         'guides', 'guide_images', 'document_vehicles', 'document_categories',
-        'manufacturer_schedules', 'knowledge_videos', 'emergency_playbooks',
+        'manufacturer_schedules', 'maintenance_assistance', 'knowledge_videos', 'emergency_playbooks',
         'emergency_contacts', 'user_vehicles', 'user_tasks', 'service_records',
         'learning_progress', 'incident_records', 'chat_sessions', 'chat_messages', 'chat_settings'
     ] loop

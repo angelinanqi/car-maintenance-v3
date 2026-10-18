@@ -19,6 +19,7 @@ class Chat extends StatefulWidget {
   final String? prompt;
   final Map<String, dynamic>? contextData;
   final VoidCallback? onEmergency;
+  final VoidCallback? onMaintenance;
   const Chat({
     super.key,
     required this.state,
@@ -28,6 +29,7 @@ class Chat extends StatefulWidget {
     this.prompt,
     this.contextData,
     this.onEmergency,
+    this.onMaintenance,
   });
   @override
   State<Chat> createState() => _ChatState();
@@ -38,7 +40,6 @@ class _ChatState extends State<Chat> {
   final _scroll = ScrollController();
   final _inputFocus = FocusNode();
   final List<ChatMessage> _messages = [];
-  final List<ChatMessage> _history = [];
   String? _vehicleId;
   String? _scope;
   String? _topic;
@@ -166,7 +167,6 @@ class _ChatState extends State<Chat> {
     if (_conversationKey.isNotEmpty) {
       _conversations[_conversationKey] = {
         'messages': List<ChatMessage>.of(_messages),
-        'history': List<ChatMessage>.of(_history),
         'sessionId': _sessionId,
         'sessionToken': _sessionToken,
         'draft': _text.text,
@@ -186,7 +186,6 @@ class _ChatState extends State<Chat> {
     final saved = _conversations[key];
     if (saved != null) {
       _messages.addAll(saved['messages'] as List<ChatMessage>);
-      _history.addAll(saved['history'] as List<ChatMessage>);
       _sessionId = saved['sessionId'] as String?;
       _sessionToken = saved['sessionToken'] as String?;
       _text.text = saved['draft'] as String? ?? '';
@@ -243,7 +242,6 @@ class _ChatState extends State<Chat> {
   void _clear() {
     _generation++;
     _messages.clear();
-    _history.clear();
     _pending = false;
     _error = null;
     _failedRequest = null;
@@ -317,9 +315,7 @@ class _ChatState extends State<Chat> {
         ChatRequest(
           message: text,
           vehicle: widget.state.selectedVehicle,
-          topic: _topic,
           context: _contextData,
-          history: List.of(_history),
           scopeType: _knowledgeScope?['scope_type'] as String?,
           scopeId: _knowledgeScope?['scope_id'] as String?,
           sessionId: _sessionId,
@@ -359,10 +355,6 @@ class _ChatState extends State<Chat> {
           reply: reply,
         );
         _messages.add(answer);
-        _history.addAll([
-          ChatMessage(text: request.message, isUser: true),
-          answer,
-        ]);
       });
       // Keep the beginning of a long answer in view. Do not interrupt someone
       // who scrolled back to read an earlier message while waiting.
@@ -424,7 +416,7 @@ class _ChatState extends State<Chat> {
                         const Padding(
                           padding: EdgeInsets.fromLTRB(20, 8, 20, 16),
                           child: Text(
-                            'Your active vehicle supplies saved vehicle details. Choose published material for the assistant to use below.',
+                            'Your active vehicle supplies saved vehicle details, service records and calculated maintenance status. Choose published reference material below.',
                           ),
                         ),
                         if (_scopesLoading)
@@ -586,12 +578,47 @@ class _ChatState extends State<Chat> {
         const Text(
           'Describe what you noticed, or ask about a word in your manual. Everyday language is fine.',
         ),
+        if (widget.state.selectedVehicle != null) ...[
+          const SizedBox(height: 28),
+          Text(
+            'Your maintenance',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Ask about ${widget.state.selectedVehicle!.name}. Saved service records and due status are loaded with each reply.',
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+          const SizedBox(height: 8),
+          for (final prompt in const [
+            'What maintenance is due next?',
+            'When did I last change my engine oil?',
+            'What is due next and how do I check it?',
+          ])
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 12),
+                  alignment: Alignment.centerLeft,
+                ),
+                onPressed: _pending || _knowledgeScope == null
+                    ? null
+                    : () {
+                        _text.text = prompt;
+                        _inputFocus.requestFocus();
+                      },
+                icon: const Icon(Icons.north_west, size: 18),
+                label: Text(prompt),
+              ),
+            ),
+        ],
         const SizedBox(height: 20),
         Text(aiReferenceNotice, style: Theme.of(context).textTheme.bodySmall),
         const SizedBox(height: 24),
         if (_starterQuestions.isNotEmpty)
           Text(
-            'Try a question',
+            'More questions',
             style: Theme.of(context).textTheme.titleMedium,
           ),
         if (_starterQuestions.isNotEmpty) const SizedBox(height: 8),
@@ -766,11 +793,24 @@ class _ChatState extends State<Chat> {
                                   if (index == _messages.length) {
                                     return _feedback();
                                   }
+                                  final message = _messages[index];
+                                  final hasCurrentMaintenance =
+                                      message.reply?.sources.any(
+                                        (source) =>
+                                            source['source_type'] ==
+                                                'personal_maintenance' &&
+                                            source['vehicle_id'] ==
+                                                widget.state.selectedVehicle?.id,
+                                      ) ??
+                                      false;
                                   return ChatMessageView(
                                     key: ValueKey('$_conversationKey:$index'),
-                                    message: _messages[index],
+                                    message: message,
                                     repository: widget.repository,
                                     onEmergency: widget.onEmergency,
+                                    onMaintenance: hasCurrentMaintenance
+                                        ? widget.onMaintenance
+                                        : null,
                                   );
                                 },
                               ),

@@ -34,13 +34,6 @@ class LocalStore {
     return target;
   }
 
-  Future<void> removePhoto(String photo) async {
-    final folder = await directory();
-    final parent = Directory('${folder.path}/accident_photos').absolute.path;
-    final file = File(photo).absolute;
-    if (file.parent.path == parent && await file.exists()) await file.delete();
-  }
-
   Future<String> saveEmergencyImage(List<int> bytes) async {
     final folder = await directory();
     final images = Directory('${folder.path}/emergency_images');

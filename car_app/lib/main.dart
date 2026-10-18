@@ -40,14 +40,9 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     content = ContentRepository(state.store, api: api);
     chat = FastApiChatRepository(api, account: account.repository);
     state.load();
-    api
-        .loadConfiguration()
-        .then((_) {
-          if (mounted) state.setVehicleScopes(api.vehicleScopes);
-        })
-        .catchError((_) {
-          /* Emergency startup does not depend on backend configuration. */
-        });
+    api.loadConfiguration().catchError((_) {
+      /* Emergency startup does not depend on backend configuration. */
+    });
   }
 
   void _accountChanged() {

@@ -150,6 +150,23 @@ def run_once(client, work_dir):
                 logger.warning('Failure acknowledgement unavailable or stale; retry on next poll')
     # Fetch again so a replacement/deletion during embedding cannot preserve stale vectors.
     current = list_documents(client)
+    # Backfill/retry assistance for existing revisions without OCR or embedding.
+    # Each artifact is cached; failures remain independent of index acknowledgements.
+    for document in current:
+        if document['status'] != 'processed' or document.get('superseded_by_id'):
+            continue
+        try:
+            from rag.app.maintenance.assistance import prepare_safely
+            name = index_name(document['id'], document['source_revision'])
+            path = settings.OUTPUT_DIR / 'sources' / f'{name}.json'
+            if path.is_file():
+                manifest = json.loads(path.read_text(encoding='utf-8'))
+                if (manifest.get('document_id') != document['id']
+                        or manifest.get('source_revision') != document['source_revision']):
+                    raise ValueError('Maintenance source revision mismatch')
+                prepare_safely(manifest, settings.OUTPUT_DIR)
+        except Exception:
+            logger.exception('Maintenance assistance retry failed; indexing is unaffected')
     keep = {index_name(d['id'], d['source_revision']) for d in current
             if d['status'] in {'awaiting_index', 'processed'} and not d.get('superseded_by_id')}
     for name in list(ledger):
@@ -158,6 +175,11 @@ def run_once(client, work_dir):
         if name != index_name(entry['document_id'], entry['revision']):
             raise ValueError('Invalid managed-index ledger entry')
         if name not in keep:
+            try:
+                (settings.OUTPUT_DIR / 'maintenance' / f'{name}.json').unlink(missing_ok=True)
+                (settings.OUTPUT_DIR / 'maintenance' / f'{name}.suggestions.json').unlink(missing_ok=True)
+            except OSError:
+                logger.warning('Could not remove stale maintenance artifact %s', name)
             store.collection.delete(where={'document_name': name})
             # Remove worker-owned source text as well as vectors and manifests.
             # The validated ledger name cannot target an unmanaged document.

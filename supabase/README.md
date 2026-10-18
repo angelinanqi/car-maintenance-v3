@@ -2,8 +2,7 @@
 
 [`initial_schema.sql`](initial_schema.sql) is the complete application database
 definition. Run it once against a fresh Supabase project or after an explicitly
-approved removal of the existing application structures. There are no migration,
-reset or audit scripts in this directory.
+approved removal of the existing application structures. Additive migrations for existing installations are in `migrations/`.
 
 ## Initialise the database
 
@@ -15,7 +14,7 @@ reset or audit scripts in this directory.
 3. Paste the entire file into the project's SQL Editor and execute it, including
    `begin;` and `commit;`. Tables, relationships, constraints, indexes, triggers,
    permissions, publication functions and initial presets are created together.
-4. Confirm that the 24 application tables exist and that Storage contains these
+4. Confirm that the 25 application tables exist and that Storage contains these
    buckets:
 
    | Bucket | Visibility | Contents |
@@ -58,7 +57,7 @@ reset or audit scripts in this directory.
 | --- | --- |
 | Accounts and sessions | `app_users`, `app_sessions` |
 | Shared vehicle catalogue | `vehicle_manufacturers`, `vehicle_models`, `knowledge_vehicles` |
-| Maintenance catalogue and rules | `maintenance_items`, `manufacturer_schedules` |
+| Maintenance catalogue and rules | `maintenance_items`, `manufacturer_schedules`, `maintenance_assistance` |
 | Documents and applicability | `documents`, `document_vehicles`, `document_categories` |
 | Learning content | `guide_categories`, `guides`, `guide_images` |
 | Supplementary videos | `knowledge_videos` |
@@ -124,3 +123,7 @@ After setup, check account login, admin content edits, vehicle registration,
 maintenance records, incident synchronization, manual downloads, scoped chat and
 source access. A successful backend health check establishes process liveness;
 it does not verify those integrations.
+
+## Maintenance assistance upgrade
+
+For an existing installation, apply `migrations/20261018_maintenance_assistance.sql` once in the Supabase SQL Editor before using the new admin assistance endpoints. Fresh installations already include this table in `initial_schema.sql`; do not also run the migration. The migration adds only the private review/cache table, its permissions and timestamp trigger. It does not modify schedules, documents or Chroma.

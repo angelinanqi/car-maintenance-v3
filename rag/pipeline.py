@@ -103,6 +103,13 @@ def run_pipeline(
     count = process_document(
         chunks_path, Embedder(), VectorStore(chroma_path), extra_metadata={**(metadata or {}), 'format_version': FORMAT_VERSION}
     )
+    # Optional review artifacts never enter embeddings or affect index success.
+    try:
+        from rag.app.maintenance.assistance import prepare_safely
+        prepare_safely(elements, output_dir)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception('Maintenance assistance unavailable; indexing is unaffected')
     return {
         "status": "completed",
         "documents": [{

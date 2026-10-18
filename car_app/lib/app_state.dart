@@ -5,24 +5,10 @@ import 'data/api_client.dart';
 import 'models/vehicle.dart';
 import 'models/maintenance.dart';
 
-class RemovedVehicle {
-  final Vehicle vehicle;
-  final List<MaintenanceTask> tasks;
-  final List<ServiceRecord> records;
-  final bool wasSelected;
-  const RemovedVehicle(
-    this.vehicle,
-    this.tasks,
-    this.records,
-    this.wasSelected,
-  );
-}
-
 class AppState extends ChangeNotifier {
   final LocalStore store;
   final MobileRepository? repository;
   AppState(this.store, {this.repository});
-  Map<String, String> vehicleScopes = {};
   List<Vehicle> _vehicles = [];
   List<MaintenanceTask> _tasks = [];
   List<ServiceRecord> _records = [];
@@ -42,7 +28,6 @@ class AppState extends ChangeNotifier {
   bool _localLoaded = false;
   int _accountGeneration = 0;
   String? loadError;
-  int dueSoonKm = 1000, dueSoonDays = 30;
   bool get signedIn => accountId != null;
   List<Vehicle> get vehicles => List.unmodifiable(_vehicles);
   Set<String> get completedLessons => Set.unmodifiable(_completedLessons);
@@ -61,11 +46,6 @@ class AppState extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     super.dispose();
-  }
-
-  void setVehicleScopes(Map<String, String> values) {
-    vehicleScopes = Map.of(values);
-    _notify();
   }
 
   List<MaintenanceTask> tasksFor(String id) =>
@@ -166,8 +146,6 @@ class AppState extends ChangeNotifier {
         });
         if (generation != _accountGeneration || _disposed) return;
       }
-      dueSoonKm = data['dueSoonKm'] as int? ?? 1000;
-      dueSoonDays = data['dueSoonDays'] as int? ?? 30;
     } catch (error) {
       if (generation == _accountGeneration) {
         loadError = 'Account data could not be loaded. $error';
@@ -207,22 +185,8 @@ class AppState extends ChangeNotifier {
       'mileage': vehicle.mileage,
     });
   });
-  Future<RemovedVehicle> deleteVehicle(String id) async {
-    final removed = RemovedVehicle(
-      _vehicles.firstWhere((v) => v.id == id),
-      tasksFor(id),
-      recordsFor(id),
-      _selectedVehicleId == id,
-    );
-    await _change((remote) => remote.remove('vehicles', id));
-    return removed;
-  }
-
-  Future<void> restoreVehicle(RemovedVehicle removed) async {
-    throw const ApiException(
-      'Vehicle removal cannot be undone on this device.',
-    );
-  }
+  Future<void> deleteVehicle(String id) =>
+      _change((remote) => remote.remove('vehicles', id));
 
   Future<void> selectVehicle(String id) async {
     if (!signedIn || !_vehicles.any((v) => v.id == id)) {
