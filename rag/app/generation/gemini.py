@@ -1,15 +1,20 @@
-"""Gemini Developer API transport using the existing httpx dependency."""
+"""Gemini Interactions SDK adapter for the existing RAG generation interface."""
 import asyncio
 import json
 import random
 import re
 
 import httpx
+from google import genai
+from google.genai import interactions, types
+# Interactions has a separate error hierarchy from google.genai.errors in
+# google-genai 2.31.0. Keep this import aligned with the pinned dependency.
+from google.genai._gaos.lib import compat_errors as interaction_errors
+from pydantic import ValidationError
 
 from rag.config import settings
 from rag.app.generation.ollama import SYSTEM_PROMPT
 
-API_URL = "https://generativelanguage.googleapis.com/v1beta"
 TRANSIENT_STATUS = {408, 429, 500, 502, 503, 504}
 
 
@@ -33,7 +38,8 @@ class GeminiClient:
         if not prompt.strip():
             raise ValueError("Prompt cannot be empty.")
         # RAG invokes the synchronous interface in a worker thread. Bound the
-        # metadata check, generation, retries and backoff together.
+        # SDK call, retries and backoff together. Create and close the SDK
+        # transports inside this event loop rather than sharing them across calls.
         async def run():
             return await asyncio.wait_for(self._generate(prompt, schema), settings.GEMINI_TIMEOUT)
 
@@ -43,46 +49,59 @@ class GeminiClient:
             raise GeminiError("Gemini request deadline exceeded", retryable=True) from None
 
     async def _generate(self, prompt, schema):
-        config = {"temperature": settings.GEMINI_TEMPERATURE,
-                  "maxOutputTokens": settings.GEMINI_MAX_OUTPUT_TOKENS}
+        request = {
+            "model": self.model,
+            "input": prompt,
+            "system_instruction": SYSTEM_PROMPT,
+            "generation_config": {
+                "temperature": settings.GEMINI_TEMPERATURE,
+                "max_output_tokens": settings.GEMINI_MAX_OUTPUT_TOKENS,
+            },
+            # RAG already supplies the applicable evidence and conversation history.
+            "store": False,
+            "stream": False,
+            "background": False,
+        }
         if schema is not None:
-            config["responseFormat"] = {"text": {"mimeType": "application/json", "schema": schema}}
-        body = {"systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
-                "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-                "generationConfig": config}
-        async with httpx.AsyncClient(headers={"x-goog-api-key": settings.GEMINI_API_KEY},
-                                     timeout=settings.GEMINI_TIMEOUT, follow_redirects=False) as client:
-            metadata = await self._request(client, "GET", f"/models/{self.model}")
-            methods = metadata.get("supportedGenerationMethods") if isinstance(metadata, dict) else None
-            if not isinstance(methods, list) or "generateContent" not in methods:
-                raise GeminiError("Configured Gemini model does not support generateContent")
-            limit = metadata.get("outputTokenLimit")
-            if isinstance(limit, int) and settings.GEMINI_MAX_OUTPUT_TOKENS > limit:
-                raise GeminiError("GEMINI_MAX_OUTPUT_TOKENS exceeds the configured model limit")
-            maximum = metadata.get("maxTemperature")
-            if isinstance(maximum, (int, float)) and settings.GEMINI_TEMPERATURE > maximum:
-                raise GeminiError("GEMINI_TEMPERATURE exceeds the configured model limit")
-            result = await self._request(client, "POST", f"/models/{self.model}:generateContent", body)
+            request["response_format"] = interactions.TextResponseFormat(
+                mime_type="application/json", schema=schema,
+            )
+        # Let Interactions validate model access and generation limits; a legacy
+        # generateContent capability check would reject Interactions-only models.
+        with genai.Client(
+            api_key=settings.GEMINI_API_KEY,
+            vertexai=False,
+            http_options=types.HttpOptions(
+                api_version="v1beta",
+                timeout=max(1, int(settings.GEMINI_TIMEOUT * 1000)),
+                # This adapter owns retries so the SDK cannot multiply attempts.
+                retry_options=types.HttpRetryOptions(attempts=0),
+            ),
+        ) as sdk:
+            async with sdk.aio as client:
+                result = await self._request(client, request)
         return self._text(result, structured=schema is not None)
 
-    async def _request(self, client, method, path, body=None):
+    async def _request(self, client, request):
         for attempt in range(settings.GEMINI_MAX_RETRIES + 1):
             response = None
             try:
-                if body is None:
-                    response = await client.request(method, API_URL + path)
-                else:
-                    response = await client.request(method, API_URL + path, json=body)
-            except (httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError):
+                return await client.interactions.create(**request)
+            except (interaction_errors.APIConnectionError, httpx.TimeoutException,
+                    httpx.NetworkError, httpx.RemoteProtocolError):
                 failure = GeminiError("Gemini network request failed", retryable=True)
-            else:
-                if response.is_success:
-                    try:
-                        return response.json()
-                    except ValueError:
-                        raise GeminiError("Gemini returned invalid response JSON") from None
-                failure = GeminiError(f"Gemini HTTP {response.status_code}",
-                                      retryable=response.status_code in TRANSIENT_STATUS)
+            except interaction_errors.APIResponseValidationError:
+                raise GeminiError("Gemini returned an invalid response") from None
+            except interaction_errors.APIError as error:
+                # Never expose the SDK error body: it may contain request data.
+                response = getattr(error, "response", None)
+                status = error.status_code
+                failure = GeminiError(
+                    f"Gemini HTTP {status}" if status is not None else "Gemini API request failed",
+                    retryable=status in TRANSIENT_STATUS,
+                )
+            except (ValidationError, json.JSONDecodeError):
+                raise GeminiError("Gemini SDK rejected the request or response") from None
             if not failure.retryable or attempt == settings.GEMINI_MAX_RETRIES:
                 raise failure from None
             delay = 2 ** attempt + random.uniform(0, 0.25)
@@ -96,28 +115,14 @@ class GeminiClient:
 
     @staticmethod
     def _text(result, *, structured):
-        if not isinstance(result, dict):
-            raise GeminiError("Gemini returned an invalid response")
-        feedback = result.get("promptFeedback") or {}
-        if not isinstance(feedback, dict):
-            raise GeminiError("Gemini returned invalid prompt feedback")
-        if feedback.get("blockReason"):
-            raise GeminiError("Gemini blocked the prompt")
-        candidates = result.get("candidates") or []
-        if not isinstance(candidates, list) or not candidates or not isinstance(candidates[0], dict):
-            raise GeminiError("Gemini returned no answer candidate")
-        candidate = candidates[0]
-        if candidate.get("finishReason") != "STOP":
+        if getattr(result, "status", None) != "completed":
             # Safety blocks and truncated output are not availability failures.
             raise GeminiError("Gemini did not return a complete answer")
-        content = candidate.get("content") or {}
-        if not isinstance(content, dict):
-            raise GeminiError("Gemini returned invalid candidate content")
-        parts = content.get("parts", [])
-        if not isinstance(parts, list):
-            raise GeminiError("Gemini returned invalid content parts")
-        text = "".join(part["text"] for part in parts if isinstance(part, dict)
-                       and not part.get("thought") and isinstance(part.get("text"), str)).strip()
+        # The SDK convenience property includes final model text, not thoughts.
+        text = getattr(result, "output_text", None)
+        if not isinstance(text, str):
+            raise GeminiError("Gemini returned invalid answer text")
+        text = text.strip()
         if not text:
             raise GeminiError("Gemini returned empty answer text")
         if structured:
