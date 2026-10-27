@@ -1,11 +1,13 @@
 """Gemini Interactions SDK adapter for the existing RAG generation interface."""
 import asyncio
+import base64
 import json
 import random
 import re
 
 import httpx
 from google import genai
+from google.auth.exceptions import GoogleAuthError
 from google.genai import interactions, types
 # Interactions has a separate error hierarchy from google.genai.errors in
 # google-genai 2.31.0. Keep this import aligned with the pinned dependency.
@@ -28,27 +30,33 @@ class GeminiError(RuntimeError):
 
 class GeminiClient:
     def __init__(self):
-        if not settings.GEMINI_API_KEY:
+        self.last_usage = None
+        if settings.GEMINI_USE_CLOUD and not settings.GOOGLE_CLOUD_PROJECT:
+            raise GeminiError("Configure GOOGLE_CLOUD_PROJECT for Gemini Cloud authentication")
+        if not settings.GEMINI_USE_CLOUD and not settings.GEMINI_API_KEY:
             raise GeminiError("GEMINI_API_KEY is not configured")
         self.model = settings.GEMINI_MODEL.removeprefix("models/")
         if not self.model or not re.fullmatch(r"[A-Za-z0-9._-]+", self.model):
-            raise GeminiError("GEMINI_MODEL must name a model accessible to your API key")
+            raise GeminiError("GEMINI_MODEL must name a model accessible to the configured credentials")
 
-    def generate(self, prompt: str, *, schema: dict | None = None) -> str:
+    def generate(self, prompt: str, *, schema: dict | None = None, images=None) -> str:
         if not prompt.strip():
             raise ValueError("Prompt cannot be empty.")
         # RAG invokes the synchronous interface in a worker thread. Bound the
         # SDK call, retries and backoff together. Create and close the SDK
         # transports inside this event loop rather than sharing them across calls.
         async def run():
-            return await asyncio.wait_for(self._generate(prompt, schema), settings.GEMINI_TIMEOUT)
+            task = self._generate(prompt, schema, images) if images else self._generate(prompt, schema)
+            return await asyncio.wait_for(task, settings.GEMINI_TIMEOUT)
 
         try:
             return asyncio.run(run())
         except TimeoutError:
             raise GeminiError("Gemini request deadline exceeded", retryable=True) from None
+        except GoogleAuthError:
+            raise GeminiError("Gemini Cloud authentication failed. Check Application Default Credentials and service-account access.") from None
 
-    async def _generate(self, prompt, schema):
+    async def _generate(self, prompt, schema, images=None):
         request = {
             "model": self.model,
             "input": prompt,
@@ -66,13 +74,26 @@ class GeminiClient:
             request["response_format"] = interactions.TextResponseFormat(
                 mime_type="application/json", schema=schema,
             )
+        if images:
+            request['input'] = [{'type': 'text', 'text': prompt}]
+            for image in images:
+                request['input'].extend([
+                    {'type': 'text', 'text': 'Original source image: ' + image.label},
+                    {'type': 'image', 'mime_type': image.mime_type,
+                     'data': base64.b64encode(image.data).decode('ascii')},
+                ])
         # Let Interactions validate model access and generation limits; a legacy
         # generateContent capability check would reject Interactions-only models.
+        authentication = (
+            {"enterprise": True, "project": settings.GOOGLE_CLOUD_PROJECT,
+             "location": settings.GOOGLE_CLOUD_LOCATION}
+            if settings.GEMINI_USE_CLOUD else
+            {"api_key": settings.GEMINI_API_KEY, "enterprise": False}
+        )
         with genai.Client(
-            api_key=settings.GEMINI_API_KEY,
-            vertexai=False,
+            **authentication,
             http_options=types.HttpOptions(
-                api_version="v1beta",
+                api_version="v1beta1" if settings.GEMINI_USE_CLOUD else "v1beta",
                 timeout=max(1, int(settings.GEMINI_TIMEOUT * 1000)),
                 # This adapter owns retries so the SDK cannot multiply attempts.
                 retry_options=types.HttpRetryOptions(attempts=0),
@@ -80,6 +101,8 @@ class GeminiClient:
         ) as sdk:
             async with sdk.aio as client:
                 result = await self._request(client, request)
+        usage = getattr(result, 'usage', None)
+        self.last_usage = usage.model_dump(mode='json') if hasattr(usage, 'model_dump') else None
         return self._text(result, structured=schema is not None)
 
     async def _request(self, client, request):
@@ -97,7 +120,7 @@ class GeminiClient:
                 response = getattr(error, "response", None)
                 status = error.status_code
                 failure = GeminiError(
-                    f"Gemini HTTP {status}" if status is not None else "Gemini API request failed",
+                    self._api_error_message(response, status),
                     retryable=status in TRANSIENT_STATUS,
                 )
             except (ValidationError, json.JSONDecodeError):
@@ -112,6 +135,27 @@ class GeminiClient:
                 except ValueError:
                     pass
             await asyncio.sleep(delay)
+
+    @staticmethod
+    def _api_error_message(response, status):
+        messages = {
+            "API_KEY_INVALID": "Gemini API key is invalid. Replace GEMINI_API_KEY on the server.",
+            "API_KEY_SERVICE_BLOCKED": "The Gemini API key does not allow access to the Gemini API.",
+            "SERVICE_DISABLED": "Enable the Gemini API in the key's Google project.",
+            "BILLING_DISABLED": "Gemini billing is disabled for the configured Google project.",
+        }
+        if response is not None:
+            try:
+                payload = response.json()
+                # Google may wrap Interactions errors in a one-element array.
+                errors = payload if isinstance(payload, list) else [payload]
+                for item in errors:
+                    for detail in item.get("error", {}).get("details", []):
+                        if detail.get("reason") in messages:
+                            return messages[detail["reason"]]
+            except (ValueError, AttributeError, TypeError):
+                pass
+        return f"Gemini HTTP {status}" if status is not None else "Gemini API request failed"
 
     @staticmethod
     def _text(result, *, structured):

@@ -61,17 +61,38 @@ def run_ocr(
         executable = str(local) if local.is_file() else "mineru"
 
     root.mkdir(parents=True, exist_ok=True)
+    log_path = root / f"{source.stem}.mineru.log"
     # prevents old output from being mistaken for this run's result, and removes all intermediate files even after failure
     with tempfile.TemporaryDirectory(prefix=".mineru-", dir=root) as temporary:
         work = Path(temporary)
         raw = work / "raw"
         print(f"Running MinerU: {source}")
 
-        subprocess.run(
-            [str(executable), "-p", str(source), "-o", str(raw), "-b", MINERU_BACKEND],
-            check=True,
-            timeout=MINERU_TIMEOUT,
-        )
+        # Keep diagnostics outside the temporary directory so failures remain inspectable.
+        with log_path.open("wb") as log:
+            try:
+                subprocess.run(
+                    [str(executable), "-p", str(source), "-o", str(raw), "-b", MINERU_BACKEND],
+                    check=True,
+                    timeout=MINERU_TIMEOUT,
+                    # MinerU's API client defaults to a separate one-hour wait.
+                    # The backend's configured deadline owns this whole job.
+                    env={**os.environ, "MINERU_TASK_RESULT_TIMEOUT_SECONDS": str(MINERU_TIMEOUT)},
+                    stdout=log,
+                    stderr=subprocess.STDOUT,
+                )
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+                log.flush()
+                with log_path.open("rb") as saved_log:
+                    saved_log.seek(max(0, log_path.stat().st_size - 1600))
+                    details = saved_log.read().decode("utf-8", errors="replace").strip()
+                if isinstance(error, subprocess.TimeoutExpired):
+                    reason = f"timed out after {MINERU_TIMEOUT:g} seconds"
+                else:
+                    reason = f"failed with exit code {error.returncode}"
+                raise RuntimeError(
+                    f"MinerU {reason}. Log: {log_path}\n{details}"
+                ) from error
 
         candidates = sorted(raw.rglob("*.md"))
         matching = [path for path in candidates if path.stem == source.stem]

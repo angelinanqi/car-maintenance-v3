@@ -1,15 +1,16 @@
 """Shared catalogue and human-verified maintenance data."""
-from datetime import date
 from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, field_validator
 
 from backend import auth, db, settings
 from backend.locks import content_lock
-from backend.models import InputModel, ReviewConfirmation
-from backend.services import manuals
+from backend.models import ReviewConfirmation, Rule
+from shared.models import InputModel
+from backend.services import catalogue as catalogue_service
+from backend.services import review_questions
 
 router = APIRouter(prefix="/admin", tags=["Admin MVP"], dependencies=[Depends(auth.require_admin)])
 mobile_router = APIRouter(prefix="/mobile", tags=["Mobile shared catalogue"])
@@ -58,56 +59,37 @@ class ItemInput(InputModel):
     active: bool = True
 
 
-class Rule(InputModel):
-    type: Literal["recurring", "milestone", "informational"] = "recurring"
-    distanceKm: int | None = Field(default=None, gt=0)
-    months: int | None = Field(default=None, gt=0)
-    distanceMilestones: list[int] = Field(default_factory=list)
-    monthMilestones: list[int] = Field(default_factory=list)
-    vehicleStartDate: date | None = None
-    conditions: str = ""
-    notes: str = ""
-    sourceDocumentId: UUID | None = None
-    sourcePage: int | None = Field(default=None, gt=0)
-    sourceRevision: UUID | None = None
-    sourceTableId: str | None = Field(default=None, max_length=80)
-    sourceSuggestionId: str | None = Field(default=None, max_length=120)
-
-    @model_validator(mode="after")
-    def check_structure(self):
-        for values in (self.distanceMilestones, self.monthMilestones):
-            if any(value <= 0 for value in values) or values != sorted(set(values)):
-                raise ValueError("Milestones must be unique positive numbers in ascending order")
-        if self.type != "recurring" and (self.distanceKm or self.months):
-            raise ValueError("Only recurring rules may contain intervals")
-        if self.type != "milestone" and (self.distanceMilestones or self.monthMilestones):
-            raise ValueError("Only milestone rules may contain milestones")
-        if (self.sourceTableId or self.sourceSuggestionId) and not (self.sourceDocumentId and self.sourceRevision):
-            raise ValueError("Assisted source references require a document and revision")
-        if self.sourceSuggestionId and not self.sourceTableId:
-            raise ValueError("A source suggestion requires its table reference")
-        return self
-
-
 class ScheduleEntry(InputModel):
     itemId: UUID | None = None
     action: Literal["inspect", "replace", "service"] = "replace"
     rule: Rule = Field(default_factory=Rule)
 
 
+class WorkContext(InputModel):
+    document_id: UUID | None = None
+    source_revision: UUID | None = None
+    page: int = Field(default=1, ge=1)
+
+
 class ScheduleInput(InputModel):
     vehicle_id: UUID
     entries: list[ScheduleEntry] = Field(default_factory=list)
+    admin_note: str = Field(default="", max_length=4000)
+    work_context: WorkContext = Field(default_factory=WorkContext)
 
 
 def validate_schedule(values, publishing=False):
     vehicle_id = values["vehicle_id"]
     db.get("knowledge_vehicles", vehicle_id)
+    if publishing:
+        review_questions.check_schedule(values)
     items = set()
-    for entry in values["entries"]:
+    for index, entry in enumerate(values["entries"], 1):
         item_id = entry["itemId"]
+        task = f"Task {index}"
         if item_id:
             item = db.get("maintenance_items", item_id)
+            task += f" ({item['title']})"
             if item_id in items:
                 raise HTTPException(422, "A schedule cannot contain duplicate maintenance items.")
             items.add(item_id)
@@ -142,29 +124,25 @@ def validate_schedule(values, publishing=False):
                 raise HTTPException(422, 'Markdown rules require a reviewed table/bookmark and revision, without a PDF page.')
         if not publishing:
             continue
-        if not item_id or not document_id or (not markdown_source and not rule["sourcePage"]):
-            raise HTTPException(422, "Every published rule needs an item and source reference; PDF sources require a page.")
+        if not item_id:
+            raise HTTPException(422, f"{task}: choose a maintenance item before publishing.")
+        if not document_id:
+            raise HTTPException(422, f"{task}: choose the reference document before publishing.")
+        if not markdown_source and not rule["sourcePage"]:
+            raise HTTPException(422, f"{task}: enter the page in the PDF manual before publishing.")
         if rule["type"] == "recurring" and not (rule["distanceKm"] or rule["months"]):
-            raise HTTPException(422, "Recurring rules require a distance or time interval.")
+            raise HTTPException(422, f"{task}: enter a distance or time interval before publishing.")
         if rule["type"] == "milestone" and not (rule["distanceMilestones"] or rule["monthMilestones"]):
-            raise HTTPException(422, "Milestone rules require explicit service milestones.")
+            raise HTTPException(422, f"{task}: enter the service mileages or vehicle ages before publishing.")
         if rule["type"] == "informational" and not (rule["conditions"] or rule["notes"]):
-            raise HTTPException(422, "Informational rules require conditions or guidance.")
+            raise HTTPException(422, f"{task}: describe the conditions or guidance before publishing.")
     if publishing and not values["entries"]:
         raise HTTPException(422, "Add at least one verified schedule rule before publishing.")
 
 
 @router.get("/catalogue")
 def catalogue():
-    vehicles = db.all_rows("knowledge_vehicles")
-    docs = manuals.published_manuals()
-    associations = db.all_rows("document_vehicles")
-    schedules = db.all_rows("manufacturer_schedules", status="published")
-    for vehicle in vehicles:
-        vehicle["manual_available"] = any(manuals.applicable(document, vehicle['id'], associations) for document in docs)
-        vehicle["manufacturer_schedule_available"] = any(s["vehicle_id"] == vehicle["id"] for s in schedules)
-    return {"manufacturers": db.all_rows("vehicle_manufacturers"), "models": db.all_rows("vehicle_models"), "vehicles": vehicles}
-
+    return catalogue_service.catalogue()
 
 @router.post("/manufacturers", status_code=201)
 def create_manufacturer(request: ManufacturerInput):
@@ -206,6 +184,12 @@ def edit_item(item_id: UUID, request: ItemInput):
     if old["action"] != request.action:
         raise HTTPException(409, "Create a separate maintenance item to change its action. Existing rule/history identities must remain stable.")
     return db.update("maintenance_items", item_id, request.model_dump(mode="json"))
+
+
+@router.get("/schedule-drafts")
+def schedule_drafts(offset: int = Query(0, ge=0), limit: int = Query(settings.API_PAGE_SIZE, ge=1, le=1000)):
+    rows = db.list_rows("manufacturer_schedules", offset=offset, limit=limit, status="draft")
+    return [{key: row.get(key) for key in ("id", "vehicle_id", "revision", "updated_at", "admin_note")} for row in rows]
 
 
 @router.get("/schedules")
@@ -288,18 +272,6 @@ def mobile_catalogue(offset: int = Query(0, ge=0), limit: int = Query(settings.A
 
 @mobile_router.get("/maintenance-items")
 def mobile_items(offset: int = Query(0, ge=0), limit: int = Query(settings.API_PAGE_SIZE, ge=1, le=1000)):
-    links = item_lessons()
+    links = catalogue_service.item_lessons()
     rows = db.list_rows("maintenance_items", offset=offset, limit=limit, active=True)
     return [{**row, "lessonIds": links.get(row['id'], [])} for row in rows]
-
-
-def item_lessons():
-    guides = db.all_rows("guides", status="published")
-    categories = {r["id"] for r in db.all_rows("guide_categories", published=True)}
-    links = {}
-    for guide in guides:
-        if guide['category_id'] and guide['category_id'] not in categories:
-            continue
-        for item_id in guide.get('maintenance_item_ids', []):
-            links.setdefault(item_id, []).append(guide['id'])
-    return links

@@ -1,12 +1,12 @@
 """Load the active personal vehicle from Supabase for each chat turn."""
 from backend import db
-from backend.models import PersonalVehicleProfile
+from backend.services.personal_records import owned
+from shared.models import PersonalVehicleProfile
 
 
 def active_vehicle(user):
     if user.get('role') == 'admin':
         return None
-    from backend.routes.mobile import owned
     current = db.get('app_users', user['id']).get('active_vehicle_id')
     return owned('user_vehicles', user['id'], current) if current else None
 

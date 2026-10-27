@@ -131,6 +131,10 @@ class EmergencyHelpBar extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
         child: FilledButton.icon(
+          style: FilledButton.styleFrom(
+            backgroundColor: Theme.of(context).colorScheme.error,
+            foregroundColor: Theme.of(context).colorScheme.onError,
+          ),
           onPressed: onHelp,
           icon: const Icon(Icons.call_outlined),
           label: const Text('Call for help'),

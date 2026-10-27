@@ -8,6 +8,7 @@ from io import BytesIO
 import json
 import logging
 import os
+import shutil
 from pathlib import Path, PurePosixPath
 import tempfile
 import time
@@ -16,7 +17,7 @@ from zipfile import ZipFile
 
 import httpx
 from rag.config import settings
-from backend.source_elements import FORMAT_VERSION
+from shared.source_elements import FORMAT_VERSION
 
 logger = logging.getLogger(__name__)
 MAX_EXTRACTION_BYTES = int(os.getenv('EXTRACTION_MAX_BYTES') or '209715200')
@@ -46,9 +47,12 @@ def unpack(data, document, destination):
             raise ValueError('Extraction is incomplete. Reprocess the document through the backend.')
         manifest = json.loads(archive.read('manifest.json'))
         if (manifest.get('format_version') != FORMAT_VERSION or manifest.get('document_id') != document['id']
-                or manifest.get('source_revision') != document['source_revision']
-                or manifest.get('markdown') != 'document.md'):
+                or manifest.get('source_revision') != document['source_revision']):
             raise ValueError('Extraction manifest does not match this document revision')
+        processing = manifest.get('markdown')
+        if (not isinstance(processing, str) or processing not in {'document.md', 'metadata/processing.md'}
+                or processing not in names):
+            raise ValueError('Invalid processing Markdown in extraction manifest')
         for entry in entries:
             if entry.is_dir():
                 continue
@@ -58,7 +62,9 @@ def unpack(data, document, destination):
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(archive.read(entry))
     source = destination / (index_name(document['id'], document['source_revision']) + '.md')
-    (destination / 'document.md').rename(source)
+    # A derived structure copy may be supplied by packaging. Keep the original
+    # extraction untouched; elements.json was built from this same copy.
+    (destination / processing).rename(source)
     return source
 
 
@@ -156,7 +162,7 @@ def run_once(client, work_dir):
         if document['status'] != 'processed' or document.get('superseded_by_id'):
             continue
         try:
-            from rag.app.maintenance.assistance import prepare_safely
+            from shared.maintenance_extraction import prepare_safely
             name = index_name(document['id'], document['source_revision'])
             path = settings.OUTPUT_DIR / 'sources' / f'{name}.json'
             if path.is_file():
@@ -175,6 +181,11 @@ def run_once(client, work_dir):
         if name != index_name(entry['document_id'], entry['revision']):
             raise ValueError('Invalid managed-index ledger entry')
         if name not in keep:
+            assets = (settings.OUTPUT_DIR / 'assets' / name).resolve()
+            if assets.parent != (settings.OUTPUT_DIR / 'assets').resolve():
+                raise ValueError('Invalid managed asset directory')
+            if assets.exists():
+                shutil.rmtree(assets)
             try:
                 (settings.OUTPUT_DIR / 'maintenance' / f'{name}.json').unlink(missing_ok=True)
                 (settings.OUTPUT_DIR / 'maintenance' / f'{name}.suggestions.json').unlink(missing_ok=True)

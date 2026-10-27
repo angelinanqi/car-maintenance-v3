@@ -8,7 +8,7 @@ from zipfile import BadZipFile
 from fastapi import HTTPException
 from backend import db
 from backend.services.source_assets import extraction
-from rag.app.maintenance.assistance import VERSION, build_catalogue, extract_items, suggest_matches
+from shared.maintenance_extraction import VERSION, build_catalogue, extract_items, suggest_matches
 
 TABLE = 'maintenance_assistance'
 

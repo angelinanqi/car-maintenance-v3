@@ -25,6 +25,8 @@ class AppShell extends StatefulWidget {
 }
 
 class _AppShellState extends State<AppShell> {
+  // Keep existing module indices stable for contextual links.
+  static const _destinationOrder = [0, 1, 3, 2, 4];
   late final ContentRepository _content;
   String? _chatOwner;
   @override
@@ -90,6 +92,7 @@ class _AppShellState extends State<AppShell> {
   }
 
   void _askAbout(String topic) => setState(() {
+    _chatContext = null;
     _topic = topic;
     _prompt = 'Help me understand $topic.';
     _chatRequest++;
@@ -106,54 +109,41 @@ class _AppShellState extends State<AppShell> {
 
   Widget _welcome() => Scaffold(
     appBar: AppBar(title: const Text('Car Assistance')),
-    body: Center(
+    body: SafeArea(
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            FilledButton.icon(
-              style: FilledButton.styleFrom(
-                backgroundColor: Theme.of(context).colorScheme.error,
-                foregroundColor: Theme.of(context).colorScheme.onError,
+            TextButton.icon(
+              style: TextButton.styleFrom(
+                foregroundColor: Theme.of(context).colorScheme.error,
               ),
               onPressed: () => setState(() {
                 _entered = true;
                 _selectedIndex = 4;
               }),
               icon: const Icon(Icons.emergency),
-              label: const Text('Emergency help - no sign-in needed'),
+              label: const Text('Emergency help · no sign-in'),
             ),
-            const SizedBox(height: 24),
-            Align(
-              child: Container(
-                padding: const EdgeInsets.all(24),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primaryContainer,
-                  borderRadius: BorderRadius.circular(24),
-                ),
-                child: const Icon(Icons.directions_car_outlined, size: 56),
-              ),
+            const SizedBox(height: 40),
+            Icon(
+              Icons.chat_bubble_outline_rounded,
+              size: 48,
+              color: Theme.of(context).colorScheme.primary,
             ),
             const SizedBox(height: 20),
             Text(
-              'A little more confidence on the road.',
-              textAlign: TextAlign.center,
+              'Know your car.\nFeel more confident.',
               style: Theme.of(context).textTheme.headlineSmall,
             ),
             const SizedBox(height: 12),
             const Text(
-              'Learn about your car and keep emergency guides close, even offline. Sign in to manage vehicles and maintenance.',
-              textAlign: TextAlign.center,
+              'Ask questions with supporting sources, keep track of maintenance and find roadside help.',
             ),
             const SizedBox(height: 24),
             FilledButton(
-              onPressed: () => setState(() => _entered = true),
-              child: const Text('Continue as guest'),
-            ),
-            const SizedBox(height: 12),
-            OutlinedButton(
               onPressed: () => Navigator.push(
                 context,
                 MaterialPageRoute(
@@ -161,6 +151,11 @@ class _AppShellState extends State<AppShell> {
                 ),
               ),
               child: const Text('Sign in'),
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton(
+              onPressed: () => setState(() => _entered = true),
+              child: const Text('Explore as guest'),
             ),
             TextButton(
               onPressed: () => Navigator.push(
@@ -172,6 +167,10 @@ class _AppShellState extends State<AppShell> {
               child: const Text('Create account'),
             ),
             const SizedBox(height: 20),
+            Text(
+              'Guides and emergency help are available without an account.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
           ],
         ),
       ),
@@ -284,54 +283,70 @@ class _AppShellState extends State<AppShell> {
                 ),
               ],
             ),
-            bottomNavigationBar: NavigationBar(
-              selectedIndex: _selectedIndex,
-              onDestinationSelected: (index) {
-                FocusManager.instance.primaryFocus?.unfocus();
-                setState(() => _selectedIndex = index);
-              },
-              destinations: [
-                NavigationDestination(
-                  icon: Icon(Icons.home_rounded),
-                  label: 'Home',
-                ),
-                NavigationDestination(
-                  icon: Icon(Icons.directions_car_rounded),
-                  label: 'My Car',
-                ),
-                NavigationDestination(
-                  icon: Icon(Icons.menu_book_rounded),
-                  label: 'Learn',
-                ),
-                NavigationDestination(
-                  icon: Icon(Icons.auto_awesome_rounded),
-                  label: 'Ask AI',
-                ),
-                NavigationBarTheme(
-                  data: NavigationBarThemeData(
-                    labelTextStyle: WidgetStatePropertyAll(
-                      TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: Theme.of(context).colorScheme.onErrorContainer,
-                      ),
-                    ),
-                  ),
-                  child: MediaQuery.withClampedTextScaling(
-                    // Keep the complete label legible within a fixed-width
-                    // navigation target. Emergency content still scales fully.
+            bottomNavigationBar: MediaQuery.viewInsetsOf(context).bottom > 0
+                ? null
+                : MediaQuery.withClampedTextScaling(
                     maxScaleFactor: MediaQuery.sizeOf(context).width < 360
                         ? 1
                         : 1.3,
-                    child: NavigationDestination(
-                      icon: _EmergencyNavIcon(selected: _selectedIndex == 4),
-                      tooltip: 'Emergency help - no sign-in needed',
-                      label: 'Emergency',
+                    child: NavigationBar(
+                      selectedIndex: _destinationOrder.indexOf(_selectedIndex),
+                      onDestinationSelected: (index) {
+                        FocusManager.instance.primaryFocus?.unfocus();
+                        setState(
+                          () => _selectedIndex = _destinationOrder[index],
+                        );
+                      },
+                      destinations: [
+                        NavigationDestination(
+                          icon: Icon(Icons.home_rounded),
+                          label: 'Home',
+                        ),
+                        NavigationDestination(
+                          icon: Icon(Icons.directions_car_rounded),
+                          label: 'My Car',
+                        ),
+                        NavigationDestination(
+                          icon: Icon(Icons.chat_bubble_outline_rounded),
+                          selectedIcon: Icon(Icons.chat_bubble_rounded),
+                          label: 'Assistant',
+                        ),
+                        NavigationDestination(
+                          icon: Icon(Icons.menu_book_outlined),
+                          selectedIcon: Icon(Icons.menu_book_rounded),
+                          label: 'Learn',
+                        ),
+                        NavigationBarTheme(
+                          data: NavigationBarThemeData(
+                            labelTextStyle: WidgetStatePropertyAll(
+                              TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onErrorContainer,
+                              ),
+                            ),
+                          ),
+                          child: MediaQuery.withClampedTextScaling(
+                            // Keep the complete label legible within a fixed-width
+                            // navigation target. Emergency content still scales fully.
+                            maxScaleFactor:
+                                MediaQuery.sizeOf(context).width < 360
+                                ? 1
+                                : 1.3,
+                            child: NavigationDestination(
+                              icon: _EmergencyNavIcon(
+                                selected: _selectedIndex == 4,
+                              ),
+                              tooltip: 'Emergency help - no sign-in needed',
+                              label: 'Emergency',
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                ),
-              ],
-            ),
           ),
   );
 }
@@ -346,7 +361,7 @@ class _EmergencyNavIcon extends StatelessWidget {
       width: 60,
       padding: const EdgeInsets.symmetric(vertical: 4),
       decoration: BoxDecoration(
-        color: selected ? colors.error : colors.errorContainer,
+        color: selected ? colors.error : Colors.transparent,
         borderRadius: BorderRadius.circular(12),
       ),
       child: Icon(

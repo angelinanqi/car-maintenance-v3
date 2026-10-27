@@ -3,7 +3,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import Field
 from backend import auth, db
-from backend.models import InputModel
+from shared.models import InputModel
 from backend.services import scopes
 from backend.services.documents import referencing_schedules
 from backend.locks import content_lock

@@ -44,6 +44,14 @@ class _ChatAttachmentState extends State<ChatAttachment> {
   }
 
   String _title() {
+    final review = widget.attachment['identity_review'];
+    if (review is Map && (review['title'] as String? ?? '').isNotEmpty) {
+      return review['title'] as String;
+    }
+    final generated = widget.attachment['generated_identity'];
+    if (generated is Map && (generated['title'] as String? ?? '').isNotEmpty) {
+      return generated['title'] as String;
+    }
     final caption = widget.attachment['caption'] as String? ?? '';
     if (caption.isNotEmpty) return caption;
     final sections = widget.attachment['section_path'] as List? ?? [];
@@ -121,9 +129,12 @@ class _ChatAttachmentState extends State<ChatAttachment> {
     }
     return InkWell(
       onTap: () => _expand(_imageView(bytes, expanded: true)),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(minHeight: 80, maxHeight: 240),
-        child: image,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 80, maxHeight: 240),
+          child: image,
+        ),
       ),
     );
   }
@@ -139,11 +150,13 @@ class _ChatAttachmentState extends State<ChatAttachment> {
         a['asset_available'] != false;
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(10),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(_title(), style: Theme.of(context).textTheme.titleSmall),
+            if (a['reference_label'] != null)
+              Text('Reference ${a['reference_label']}'),
             Text(
               '${a['document_title'] ?? 'Manual'}${pages.isEmpty ? ', page unavailable' : ', pages $pages'}',
             ),

@@ -1,0 +1,212 @@
+"use client";
+import { Suspense, useState } from "react";
+import NextLink from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
+import {
+  Badge,
+  Box,
+  Button,
+  Flex,
+  Heading,
+  Input,
+  Stack,
+  Text,
+} from "@chakra-ui/react";
+import AdminLayout from "@/components/layouts/AdminLayout";
+import FileModal from "@/components/modals/FileModal";
+import { AdminSelect } from "@/components/admin/NativeControls";
+import { useContent } from "@/components/ContentProvider";
+import { documentJourney, coverageNames } from "@/lib/adminJourney.mjs";
+
+export default function DocumentsPage() {
+  return (
+    <Suspense fallback={<Text p={8}>Opening reference library…</Text>}>
+      <DocumentLibrary />
+    </Suspense>
+  );
+}
+function DocumentLibrary() {
+  const { documents, knowledge, saveDocument, refresh, loading } = useContent();
+  const search = useSearchParams();
+  const router = useRouter();
+  const [uploadOpen, setUploadOpen] = useState(search.get("add") === "1");
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState("current");
+  const preferredVehicle = search.get("vehicle") || "";
+  const rows = documents
+    .filter((document) => {
+      const journey = documentJourney(document, knowledge);
+      const text = [
+        document.name,
+        document.original_filename,
+        ...(document.tags || []),
+        ...coverageNames(document.id, knowledge),
+      ]
+        .join(" ")
+        .toLowerCase();
+      const matchesFilter =
+        filter === "all" ||
+        (filter === "current" && !document.superseded_by_id) ||
+        (filter === "unfinished" &&
+          !["available", "replaced", "preparing"].includes(journey.stage)) ||
+        filter === journey.stage;
+      return text.includes(query.trim().toLowerCase()) && matchesFilter;
+    })
+    .sort(
+      (a, b) =>
+        new Date(b.updated_at || b.created_at) -
+        new Date(a.updated_at || a.created_at),
+    );
+  return (
+    <AdminLayout
+      title="Reference library"
+      description="Keep manuals and safety references up to date. Open a document to see its coverage, progress and next step."
+    >
+      <Stack gap={5}>
+        <Flex gap={3} align="center" justify="space-between" wrap="wrap">
+          <Heading as="h2" size="lg">
+            Your documents
+          </Heading>
+          <Flex gap={3}>
+            <Button
+              variant="outline"
+              onClick={() => refresh({ documentsOnly: true })}
+            >
+              Refresh
+            </Button>
+            <Button onClick={() => setUploadOpen(true)}>Add document</Button>
+          </Flex>
+        </Flex>
+        <Flex gap={4} align="end" wrap="wrap">
+          <Box as="label" flex="1" minW="200px">
+            Find a document
+            <Input
+              placeholder="Search by title, vehicle, topic or filename"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </Box>
+          <Box as="label" minW="200px">
+            Show
+            <AdminSelect
+              value={filter}
+              onChange={(event) => setFilter(event.target.value)}
+            >
+              <option value="current">Current documents</option>
+              <option value="unfinished">Needs your attention</option>
+              <option value="preparing">Being prepared</option>
+              <option value="available">Published documents</option>
+              <option value="replaced">Previous versions</option>
+              <option value="all">All documents</option>
+            </AdminSelect>
+          </Box>
+        </Flex>
+        {!loading && !documents.length && (
+          <Box bg="white" p={8} borderRadius="12px">
+            <Heading size="lg">Add your first reference</Heading>
+            <Text mt={2} color="muted">
+              Start with a trusted manual or safety document. After uploading,
+              choose which vehicles or topics it covers and check it before
+              making it available.
+            </Text>
+            <Button mt={5} onClick={() => setUploadOpen(true)}>
+              Add document
+            </Button>
+          </Box>
+        )}
+        {documents.length > 0 && !rows.length && (
+          <Box bg="white" p={6} borderRadius="12px">
+            <Text>No documents match this search.</Text>
+            <Button
+              mt={3}
+              variant="outline"
+              onClick={() => {
+                setQuery("");
+                setFilter("current");
+              }}
+            >
+              Clear search and filters
+            </Button>
+          </Box>
+        )}
+        <Stack as="ul" gap={3} listStyleType="none" m={0} p={0}>
+          {rows.map((document) => {
+            const journey = documentJourney(document, knowledge);
+            const names = coverageNames(document.id, knowledge);
+            return (
+              <Box
+                as="li"
+                key={document.id}
+                bg="white"
+                p={{ base: 5, md: 6 }}
+                borderRadius="12px"
+              >
+                <Flex
+                  justify="space-between"
+                  gap={5}
+                  align="center"
+                  wrap="wrap"
+                >
+                  <Box flex="1" minW="min(100%, 240px)">
+                    <Badge colorPalette={journey.color} mb={2}>
+                      {journey.label}
+                    </Badge>
+                    <Heading as="h3" size="md">
+                      <NextLink href={`/admin/kb/${document.id}`}>
+                        {document.name}
+                      </NextLink>
+                    </Heading>
+                    <Text mt={2} color="muted" fontSize="sm">
+                      {names.length
+                        ? names.join("; ")
+                        : knowledge
+                          ? "Vehicle or topic not chosen yet"
+                          : "Loading coverage…"}
+                    </Text>
+                    <Text fontSize="sm" color="muted" mt={1}>
+                      {document.replacement_for_id ? "Updated version · " : ""}
+                      {document.document_type?.replaceAll("_", " ")} · Added{" "}
+                      {document.date}
+                    </Text>
+                  </Box>
+                  <Button
+                    asChild
+                    variant={
+                      ["available", "replaced"].includes(journey.stage)
+                        ? "outline"
+                        : "solid"
+                    }
+                  >
+                    <NextLink
+                      href={`/admin/kb/${document.superseded_by_id || document.id}`}
+                    >
+                      {journey.next}
+                      <Box as="span" srOnly>
+                        {" "}
+                        for {document.name}
+                      </Box>
+                    </NextLink>
+                  </Button>
+                </Flex>
+              </Box>
+            );
+          })}
+        </Stack>
+      </Stack>
+      {uploadOpen && (
+        <FileModal
+          isOpen
+          tags={documents.flatMap((document) => document.tags || [])}
+          onClose={() => setUploadOpen(false)}
+          onSave={async (data) => {
+            const document = await saveDocument(null, data);
+            if (data.files.length === 1 && document)
+              router.push(
+                `/admin/kb/${document.id}${preferredVehicle ? `?vehicle=${encodeURIComponent(preferredVehicle)}` : ""}`,
+              );
+          }}
+        />
+      )}
+    </AdminLayout>
+  );
+}

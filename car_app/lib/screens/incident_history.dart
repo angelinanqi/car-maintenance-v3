@@ -74,7 +74,7 @@ class _IncidentHistoryState extends State<IncidentHistory> {
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
-      title: const Text('Incident records'),
+      title: const Text('Past accident forms'),
       actions: [
         IconButton(
           onPressed: _busy ? null : _load,
@@ -87,7 +87,7 @@ class _IncidentHistoryState extends State<IncidentHistory> {
       padding: const EdgeInsets.all(20),
       children: [
         const Text(
-          'Incident details and photos are saved on this device. Cloud text backup is optional; photos remain local.',
+          'Saved accident forms and photos are kept on this device. You can record past accidents by editing the time and location in a new form. Cloud text backup is optional; photos remain local.',
         ),
         if (_loading || _busy) const LinearProgressIndicator(),
         if (_error != null) Text(_error!),
@@ -159,17 +159,20 @@ class _IncidentHistoryState extends State<IncidentHistory> {
           ),
         ],
         const SizedBox(height: 24),
-        Text('Saved incidents', style: Theme.of(context).textTheme.titleLarge),
+        Text(
+          'Saved accident forms',
+          style: Theme.of(context).textTheme.titleLarge,
+        ),
         const SizedBox(height: 8),
         const Text(
-          'Your current draft is separate. Open a record to review or edit it.',
+          'Saved drafts are separate. Open a form to review or edit it.',
         ),
         const SizedBox(height: 12),
         if (!_loading && _records.isEmpty)
           const Padding(
             padding: EdgeInsets.all(16),
             child: Text(
-              'No saved incidents yet. Your current draft is separate from incident history.',
+              'No saved accident forms yet. In a draft, choose Save to past accidents to keep it here.',
             ),
           ),
         ..._records.map(

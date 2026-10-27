@@ -1,39 +1,38 @@
 import 'package:flutter/material.dart';
 
-// Match the current web palette while keeping readable Material color roles.
+// Warm cream surfaces; golden yellow identifies actions, red identifies danger.
 abstract final class AppColors {
-  static const amber = Color(0xFFF5B823);
-  static const amberInk = Color(0xFF795000);
-  static const amberLight = Color(0xFFFFF0C2);
-  static const canvas = Color(0xFFF5F6F8);
-  static const ink = Color(0xFF20252B);
-  static const muted = Color(0xFF56616D);
-  static const border = Color(0xFFDDE1E6);
+  static const accent = Color(0xFFF2BD42);
+  static const accentLight = Color(0xFFFFEDBA);
+  static const canvas = Color(0xFFFFFBF2);
+  static const ink = Color(0xFF302719);
+  static const muted = Color(0xFF6D604B);
+  static const border = Color(0xFFE9DFC9);
 }
 
 ThemeData buildAppTheme() {
   final colors =
       ColorScheme.fromSeed(
-        seedColor: AppColors.amber,
+        seedColor: AppColors.accent,
         brightness: Brightness.light,
       ).copyWith(
-        primary: AppColors.amberInk,
-        onPrimary: Colors.white,
-        primaryContainer: AppColors.amberLight,
+        primary: AppColors.accent,
+        onPrimary: AppColors.ink,
+        primaryContainer: AppColors.accentLight,
         onPrimaryContainer: AppColors.ink,
         secondary: AppColors.muted,
         onSecondary: Colors.white,
-        secondaryContainer: const Color(0xFFE9EDF1),
+        secondaryContainer: const Color(0xFFF3EAD7),
         onSecondaryContainer: AppColors.ink,
         surface: Colors.white,
         onSurface: AppColors.ink,
         onSurfaceVariant: AppColors.muted,
         surfaceContainerLowest: Colors.white,
         surfaceContainerLow: AppColors.canvas,
-        surfaceContainer: const Color(0xFFF0F2F5),
-        surfaceContainerHigh: const Color(0xFFE9EDF1),
-        surfaceContainerHighest: const Color(0xFFE2E6EB),
-        outline: const Color(0xFF7B8794),
+        surfaceContainer: const Color(0xFFF8F1E2),
+        surfaceContainerHigh: const Color(0xFFF1E7D2),
+        surfaceContainerHighest: const Color(0xFFEADFCA),
+        outline: const Color(0xFF8A795D),
         outlineVariant: AppColors.border,
         error: const Color(0xFFB3261E),
         onError: Colors.white,
@@ -42,12 +41,15 @@ ThemeData buildAppTheme() {
         surfaceTint: Colors.transparent,
       );
   final base = ThemeData(useMaterial3: true, colorScheme: colors);
-  final shape = RoundedRectangleBorder(borderRadius: BorderRadius.circular(12));
+  final shape = RoundedRectangleBorder(borderRadius: BorderRadius.circular(16));
   final fieldBorder = OutlineInputBorder(
     borderRadius: BorderRadius.circular(12),
-    borderSide: BorderSide(color: colors.outline),
+    borderSide: BorderSide.none,
   );
   final buttonStyle = ButtonStyle(
+    foregroundColor: WidgetStateProperty.resolveWith(
+      (states) => states.contains(WidgetState.disabled) ? null : AppColors.ink,
+    ),
     minimumSize: const WidgetStatePropertyAll(Size(48, 48)),
     padding: const WidgetStatePropertyAll(
       EdgeInsets.symmetric(horizontal: 20, vertical: 12),
@@ -65,10 +67,15 @@ ThemeData buildAppTheme() {
     scaffoldBackgroundColor: AppColors.canvas,
     textTheme: base.textTheme.copyWith(
       headlineSmall: base.textTheme.headlineSmall?.copyWith(
+        fontSize: 28,
         fontWeight: FontWeight.w700,
+        letterSpacing: -0.7,
+        height: 1.15,
       ),
       titleLarge: base.textTheme.titleLarge?.copyWith(
+        fontSize: 20,
         fontWeight: FontWeight.w700,
+        letterSpacing: -0.3,
       ),
       titleMedium: base.textTheme.titleMedium?.copyWith(
         fontWeight: FontWeight.w600,
@@ -99,14 +106,14 @@ ThemeData buildAppTheme() {
       surfaceTintColor: Colors.transparent,
       elevation: 0,
       margin: const EdgeInsets.only(bottom: 12),
-      shape: shape.copyWith(side: BorderSide(color: colors.outlineVariant)),
+      shape: shape,
       clipBehavior: Clip.antiAlias,
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: buttonStyle.copyWith(
         backgroundColor: WidgetStateProperty.resolveWith(
           (states) =>
-              states.contains(WidgetState.disabled) ? null : AppColors.amber,
+              states.contains(WidgetState.disabled) ? null : AppColors.accent,
         ),
         foregroundColor: WidgetStateProperty.resolveWith(
           (states) =>
@@ -118,7 +125,7 @@ ThemeData buildAppTheme() {
     textButtonTheme: TextButtonThemeData(style: buttonStyle),
     inputDecorationTheme: InputDecorationThemeData(
       filled: true,
-      fillColor: colors.surface,
+      fillColor: colors.surfaceContainer,
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
       border: fieldBorder,
       enabledBorder: fieldBorder,
@@ -139,6 +146,7 @@ ThemeData buildAppTheme() {
       surfaceTintColor: Colors.transparent,
       elevation: 0,
       indicatorColor: colors.primaryContainer,
+      height: 72,
       labelTextStyle: WidgetStateProperty.resolveWith(
         (states) => TextStyle(
           fontSize: 12,
@@ -160,7 +168,7 @@ ThemeData buildAppTheme() {
     chipTheme: ChipThemeData(
       backgroundColor: colors.surface,
       selectedColor: colors.primaryContainer,
-      side: BorderSide(color: colors.outlineVariant),
+      side: BorderSide.none,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
     ),
     dialogTheme: DialogThemeData(

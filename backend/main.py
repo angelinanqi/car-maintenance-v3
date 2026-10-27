@@ -1,33 +1,68 @@
-from backend.settings import CHAT_MAX_MESSAGE_LENGTH, CHAT_HISTORY_LIMIT
 import logging
-import httpx
+import asyncio
 from contextlib import asynccontextmanager
-from starlette.concurrency import run_in_threadpool
-from fastapi.responses import JSONResponse
+
+import httpx
+from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
-from backend.errors import http_error, validation_error
-from starlette.exceptions import HTTPException as StarletteHTTPException
-from postgrest.exceptions import APIError
-from backend.routes import documents, guides, categories, emergency, dashboard, accounts, manuals, scopes, indexing, admin, mobile, nearby
-from backend.services.documents import recover_interrupted
-from backend import settings
-from backend.routes import chat_sources, maintenance_assistance
-from typing import Literal
-
-from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, ConfigDict, Field
+from fastapi.responses import JSONResponse
+from postgrest.exceptions import APIError
+from starlette.concurrency import run_in_threadpool
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from backend.routes import (
+    accounts,
+    admin,
+    categories,
+    chat,
+    chat_sources,
+    configuration,
+    dashboard,
+    documents,
+    emergency,
+    guides,
+    indexing,
+    maintenance_assistance,
+    manuals,
+    mobile,
+    nearby,
+    review_questions,
+    scopes,
+    youtube,
+)
+from backend.services.documents import recover_interrupted, retry_pending_extractions
+from backend.services.youtube import recover_interrupted as recover_youtube_syncs
 from backend.settings import CORS_ORIGINS
-from backend.models import MechanicPreparationRequest, MechanicPreparation
+from shared.http_errors import http_error, validation_error
+
 
 @asynccontextmanager
 async def lifespan(app):
     try:
         await run_in_threadpool(recover_interrupted)
+        await run_in_threadpool(recover_youtube_syncs)
     except Exception:
         logging.getLogger(__name__).exception("Could not recover interrupted jobs; check Supabase configuration.")
-    yield
+    stop_retries = asyncio.Event()
+    retry_task = asyncio.create_task(resume_extractions(stop_retries))
+    try:
+        yield
+    finally:
+        stop_retries.set()
+        await retry_task
+
+
+async def resume_extractions(stop):
+    while not stop.is_set():
+        try:
+            await run_in_threadpool(retry_pending_extractions)
+        except Exception:
+            logging.getLogger(__name__).exception("Extraction recovery pass failed; will retry")
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=15)
+        except TimeoutError:
+            pass
 
 
 app = FastAPI(lifespan=lifespan)
@@ -35,6 +70,9 @@ app.add_exception_handler(RequestValidationError, validation_error)
 app.add_exception_handler(StarletteHTTPException, http_error)
 app.include_router(chat_sources.router)
 app.include_router(maintenance_assistance.router)
+app.include_router(review_questions.router)
+app.include_router(chat.router)
+app.include_router(configuration.router)
 
 
 @app.middleware("http")
@@ -44,7 +82,23 @@ async def prevent_response_caching(request, call_next):
     return response
 
 
-for router in (documents.router, guides.router, categories.router, emergency.router, dashboard.router, accounts.router, manuals.router, scopes.router, indexing.router, admin.router, admin.mobile_router, mobile.router, nearby.router):
+for router in (
+    documents.router,
+    guides.router,
+    categories.router,
+    emergency.router,
+    dashboard.router,
+    accounts.router,
+    manuals.router,
+    scopes.router,
+    indexing.router,
+    youtube.router,
+    youtube.internal_router,
+    admin.router,
+    admin.mobile_router,
+    mobile.router,
+    nearby.router,
+):
     app.include_router(router)
 
 
@@ -72,6 +126,8 @@ async def integration_error(request, error):
 async def network_error(request, error):
     logging.getLogger(__name__).warning("Dependency connection failed (%s)", type(error).__name__)
     return JSONResponse(status_code=503, content={"detail": "A required service is temporarily unavailable. Please retry."}, headers={"Cache-Control": "no-store"})
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
@@ -79,24 +135,6 @@ app.add_middleware(
     allow_headers=["Content-Type", "Authorization", "X-CSRF-Token"],
     allow_credentials=True,
 )
-
-class ChatMessage(BaseModel):
-    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
-
-    role: Literal["user", "assistant"]
-    content: str = Field(min_length=1, max_length=CHAT_MAX_MESSAGE_LENGTH)
-
-
-class ChatRequest(BaseModel):
-    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
-
-    message: str = Field(min_length=1, max_length=CHAT_MAX_MESSAGE_LENGTH)
-    car_model: str | None = None
-    conversation: list[ChatMessage] = Field(default_factory=list, max_length=CHAT_HISTORY_LIMIT)
-    scope_type: Literal["vehicle", "category"] | None = None
-    scope_id: str | None = None
-    session_id: str | None = Field(default=None, max_length=36)
-    session_token: str | None = Field(default=None, max_length=128)
 
 
 @app.get("/")
@@ -107,38 +145,3 @@ def read_root():
 @app.get("/health")
 def health():
     return {"status": "ok"}
-
-
-@app.post("/chat")
-async def chat(request: ChatRequest, user=Depends(mobile.require_user)):
-    from backend.services.chat import send
-    try:
-        return await send(request, user)
-    except HTTPException:
-        raise
-    except Exception as error:
-        logging.getLogger(__name__).error("RAG chat request failed (%s)", type(error).__name__)
-        raise HTTPException(
-            status_code=503,
-            detail="The chatbot is temporarily unavailable. Please try again shortly.",
-        ) from None
-
-
-@app.post('/chat/mechanic-questions', response_model=MechanicPreparation)
-async def prepare_mechanic_questions(request: MechanicPreparationRequest, user=Depends(mobile.require_user)):
-    from backend.services.mechanic_preparation import prepare
-    return await prepare(request, user)
-
-
-@app.get("/config")
-def configuration():
-    from backend.services.scopes import catalog
-    knowledge = catalog()
-    return {"knowledge_scopes": knowledge,
-            "vehicle_scopes": [{"value": s["code"], "label": s["label"], "disabled": not s["available"]}
-                               for s in knowledge if s["scope_type"] == "vehicle"],
-            "chat_max_message_length": settings.CHAT_MAX_MESSAGE_LENGTH,
-            "chat_history_limit": settings.CHAT_HISTORY_LIMIT,
-            "api_page_size": settings.API_PAGE_SIZE,
-            "image_max_bytes": settings.IMAGE_MAX_BYTES,
-            "rag_configured": bool(settings.RAG_SERVICE_URL and settings.RAG_SERVICE_TOKEN)}

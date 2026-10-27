@@ -104,6 +104,7 @@ def convert_node(
     if tag == "ol":
         return List(
             ordered=True,
+            start=int(html_node.get("attributes", {}).get("start", 1)),
             metadata=metadata,
         )
 

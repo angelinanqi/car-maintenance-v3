@@ -3,7 +3,7 @@ from datetime import date
 from uuid import NAMESPACE_URL, uuid5
 
 from backend import db, settings
-from backend.models import PersonalMaintenanceContext
+from shared.models import PersonalMaintenanceContext
 from backend.services.maintenance import status
 
 

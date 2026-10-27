@@ -84,6 +84,9 @@ def build_metadata(
     # Copy useful metadata when available.
     for key in [
         "parent_id",
+        "document_title",
+        "section_chunk_index",
+        "section_chunk_count",
         "node_type",
         "content_type",
         "section_path",
@@ -104,6 +107,9 @@ def build_metadata(
         "table_parse_valid",
         "element_id",
         "source_element_ids",
+        "evidence_type",
+        "structure_valid",
+        "pages",
     ]:
         value = metadata.get(key)
 

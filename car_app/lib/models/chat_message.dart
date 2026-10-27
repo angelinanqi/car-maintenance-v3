@@ -36,7 +36,6 @@ class ChatRequest {
     if (scopeId != null) 'scope_id': scopeId,
     if (sessionId != null) 'session_id': sessionId,
     if (sessionToken != null) 'session_token': sessionToken,
-    'car_model': vehicle?.effectiveScope ?? 'general',
     // History is loaded by the backend from this session. Sending old answers
     // can exceed the request's per-message limit after a long source excerpt.
   };
@@ -51,6 +50,7 @@ class ChatReply {
   final List<Map<String, dynamic>> videos;
   final List<Map<String, dynamic>> sources;
   final List<Map<String, dynamic>> attachments;
+  final List<Map<String, dynamic>> manualLinks;
   final bool externalWarning;
   final bool manualRelevant;
   final String? route;
@@ -62,6 +62,7 @@ class ChatReply {
     this.videos = const [],
     this.sources = const [],
     this.attachments = const [],
+    this.manualLinks = const [],
     this.externalWarning = false,
     this.manualRelevant = false,
     this.route,
@@ -83,6 +84,9 @@ class ChatReply {
           .map((item) => Map<String, dynamic>.from(item as Map))
           .toList(),
       attachments: (json['attachments'] as List? ?? [])
+          .map((item) => Map<String, dynamic>.from(item as Map))
+          .toList(),
+      manualLinks: (json['manual_links'] as List? ?? [])
           .map((item) => Map<String, dynamic>.from(item as Map))
           .toList(),
       externalWarning: json['external_warning'] == true,

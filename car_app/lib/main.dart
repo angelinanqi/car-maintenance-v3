@@ -38,6 +38,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     account.addListener(_accountChanged);
     account.restore();
     content = ContentRepository(state.store, api: api);
+    content.refreshEmergency();
     chat = FastApiChatRepository(api, account: account.repository);
     state.load();
     api.loadConfiguration().catchError((_) {
@@ -76,7 +77,10 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState lifecycle) {
-    if (lifecycle == AppLifecycleState.resumed) account.restore();
+    if (lifecycle == AppLifecycleState.resumed) {
+      account.restore();
+      content.refreshEmergency();
+    }
   }
 
   @override

@@ -1,4 +1,4 @@
-"""Start the production services with the repository's venv Python."""
+"""Start the production services with the repository's .venv Python."""
 
 import argparse
 from contextlib import contextmanager
@@ -19,7 +19,7 @@ import webbrowser
 
 
 ROOT = Path(__file__).resolve().parents[1]
-FRONTEND = ROOT / "web-app" / "frontend"
+FRONTEND = ROOT / "web"
 
 
 @contextmanager
@@ -130,7 +130,7 @@ def require_packages(rag):
             importlib.metadata.version(package)
         except importlib.metadata.PackageNotFoundError:
             raise RuntimeError(
-                f"Missing Python package: {package}. Install requirements.txt into venv first."
+                f"Missing Python package: {package}. Install requirements.txt into .venv first."
             ) from None
 
 
@@ -183,9 +183,9 @@ def start_ollama(services):
 def run_app(services, without_rag, no_browser):
     node = shutil.which("node")
     if not node or not (FRONTEND / "node_modules" / "next" / "dist" / "bin" / "next").is_file():
-        raise RuntimeError("Install Node.js and run npm ci in web-app/frontend first.")
+        raise RuntimeError("Install Node.js and run npm ci in web first.")
     if not (FRONTEND / ".next" / "BUILD_ID").is_file():
-        raise RuntimeError("Build the dashboard with npm --prefix web-app/frontend run build first.")
+        raise RuntimeError("Build the dashboard with npm --prefix web run build first.")
     require_settings(["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "JWT_SECRET"])
     backend_host = os.getenv("BACKEND_HOST") or "127.0.0.1"
     backend_port = int(os.getenv("BACKEND_PORT") or "8000")
@@ -243,7 +243,7 @@ def main():
         with launcher_lock("youtube" if args.task == "youtube" else "app"):
             try:
                 if args.task == "youtube":
-                    require_settings(["YOUTUBE_API_KEY", "YOUTUBE_CHANNEL_URL"])
+                    require_settings(["YOUTUBE_API_KEY"])
                     process = services.start("youtube", [sys.executable, "-m", "rag.app.youtube.pipeline", *extra])
                     return process.wait()
                 run_app(services, args.without_rag, args.no_browser)

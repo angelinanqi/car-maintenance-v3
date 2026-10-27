@@ -193,7 +193,13 @@ class MaintenanceStatus {
       );
   String get description => [
     label,
-    if (nextKm != null) 'Next: $nextKm km ($remainingKm km remaining)',
+    if (nextKm != null) 'At $nextKm km',
+    if (remainingKm != null)
+      remainingKm! < 0
+          ? '${-remainingKm!} km overdue'
+          : remainingKm == 0
+          ? 'Due at the recorded mileage'
+          : '$remainingKm km remaining',
     if (nextDate != null) 'Next date: ${formatDate(nextDate!)}',
   ].join('\n');
 }

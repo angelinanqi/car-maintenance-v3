@@ -3,6 +3,9 @@ import 'package:url_launcher/url_launcher.dart';
 import '../data/chat_repository.dart';
 import '../models/chat_message.dart';
 import 'chat_attachment.dart';
+import 'chat_answer.dart';
+import 'manual_source_link.dart';
+import 'chat_video_preview.dart';
 
 String sourceDescription(Map<String, dynamic> source) {
   final kind = switch (source['source_type']) {
@@ -25,6 +28,8 @@ String sourceDescription(Map<String, dynamic> source) {
       'Source reference: $reference',
     if (source['as_of'] != null) 'As of: ${source['as_of']}',
     if (source['page'] != null) 'Page: ${source['page']}',
+    if ((source['section_path'] as List? ?? []).isNotEmpty)
+      'Section: ${(source['section_path'] as List).join(' → ')}',
   ].join('\n');
 }
 
@@ -81,7 +86,12 @@ class ChatMessageView extends StatelessWidget {
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               color: theme.colorScheme.primaryContainer,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(20),
+                topRight: Radius.circular(20),
+                bottomLeft: Radius.circular(20),
+                bottomRight: Radius.circular(4),
+              ),
             ),
             child: Semantics(
               label: 'You',
@@ -107,11 +117,7 @@ class ChatMessageView extends StatelessWidget {
             child: Text('Car Assistant', style: theme.textTheme.titleSmall),
           ),
           const SizedBox(height: 10),
-          // Preserve all paragraphs, numbered steps and citation markers verbatim.
-          SelectableText(
-            message.text,
-            style: theme.textTheme.bodyLarge?.copyWith(height: 1.6),
-          ),
+          ChatAnswer(text: message.text),
           if (reply?.route == 'emergency' && onEmergency != null) ...[
             const SizedBox(height: 16),
             FilledButton.icon(
@@ -142,8 +148,6 @@ class ChatMessageView extends StatelessWidget {
             const _ReplyNote(
               'This answer includes information outside the available manuals.',
             ),
-          if (reply?.manualRelevant == true)
-            const _ReplyNote('Relevant manual information was found.'),
           if ([
             'generation_error',
             'retrieval_error',
@@ -153,49 +157,79 @@ class ChatMessageView extends StatelessWidget {
             ),
           if (sources.isNotEmpty) ...[
             const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.only(top: 16),
-              decoration: BoxDecoration(
-                border: Border(
-                  top: BorderSide(color: theme.colorScheme.outlineVariant),
+            Material(
+              color: theme.colorScheme.surfaceContainerLow,
+              borderRadius: BorderRadius.circular(16),
+              clipBehavior: Clip.antiAlias,
+              child: ExpansionTile(
+                tilePadding: const EdgeInsets.symmetric(horizontal: 16),
+                childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                leading: const Icon(Icons.library_books_outlined, size: 20),
+                title: Text(
+                  'Supporting sources (${sources.length})',
+                  style: theme.textTheme.titleSmall,
                 ),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    'Supporting sources (${sources.length})',
-                    style: theme.textTheme.titleSmall,
-                  ),
                   for (final source in sources) ...[
                     const SizedBox(height: 12),
                     SelectableText(
                       sourceDescription(source),
                       style: theme.textTheme.bodyMedium,
                     ),
-                  ],
-                  if (onMaintenance != null &&
-                      sources.any((s) => s['source_type'] == 'personal_maintenance')) ...[
-                    const SizedBox(height: 8),
-                    TextButton.icon(
-                      onPressed: onMaintenance,
-                      icon: const Icon(Icons.receipt_long_outlined, size: 20),
-                      label: const Text('View maintenance'),
-                    ),
+                    if (source['source_type'] == 'manual' &&
+                        source['source_endpoint'] is String &&
+                        repository is FastApiChatRepository)
+                      ManualSourceLink(
+                        endpoint: source['source_endpoint'] as String,
+                        api: (repository as FastApiChatRepository).api,
+                        token: (repository as FastApiChatRepository)
+                            .account
+                            ?.token,
+                      ),
                   ],
                 ],
               ),
             ),
           ],
-          for (final video in reply?.videos ?? <Map<String, dynamic>>[])
+          if (onMaintenance != null &&
+              sources.any((s) => s['source_type'] == 'personal_maintenance'))
             Align(
               alignment: Alignment.centerLeft,
               child: TextButton.icon(
-                onPressed: () => _video(context, video),
-                icon: const Icon(Icons.play_circle_outline),
-                label: Text(video['title'] as String? ?? 'Open video'),
+                onPressed: onMaintenance,
+                icon: const Icon(Icons.receipt_long_outlined, size: 20),
+                label: const Text('View maintenance'),
               ),
             ),
+          if (reply?.manualLinks.isNotEmpty == true) ...[
+            const SizedBox(height: 16),
+            ExpansionTile(
+              tilePadding: EdgeInsets.zero,
+              title: Text(
+                'Manuals to browse',
+                style: theme.textTheme.titleSmall,
+              ),
+              children: [
+                const Text(
+                  'You can inspect these manuals from your selected scope. They are not confirmed evidence for this answer.',
+                ),
+                for (final manual in reply!.manualLinks) ...[
+                  const SizedBox(height: 12),
+                  Text(manual['document_title'] as String? ?? 'Manual'),
+                  if (repository is FastApiChatRepository &&
+                      manual['source_endpoint'] is String)
+                    ManualSourceLink(
+                      endpoint: manual['source_endpoint'] as String,
+                      api: (repository as FastApiChatRepository).api,
+                      token:
+                          (repository as FastApiChatRepository).account?.token,
+                    ),
+                ],
+              ],
+            ),
+          ],
+          for (final video in reply?.videos ?? <Map<String, dynamic>>[])
+            ChatVideoPreview(video: video, onTap: () => _video(context, video)),
         ],
       ),
     );

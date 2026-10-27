@@ -10,11 +10,11 @@ class VehicleSelector extends StatelessWidget {
     if (state.vehicles.isEmpty) {
       return const Padding(
         padding: EdgeInsets.all(16),
-        child: Text('No vehicle selected. Add a vehicle from Home.'),
+        child: Text('No vehicle selected. Add one in My Car.'),
       );
     }
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+      padding: const EdgeInsets.symmetric(vertical: 8),
       child: DropdownButtonFormField<String>(
         key: ValueKey(state.selectedVehicle?.id),
         initialValue: state.selectedVehicle?.id,
@@ -28,7 +28,7 @@ class VehicleSelector extends StatelessWidget {
               (v) => DropdownMenuItem(
                 value: v.id,
                 child: Text(
-                  '${v.name} • ${v.model} (${v.year})',
+                  '${v.name} · ${v.plateNumber.isEmpty ? v.model : v.plateNumber}',
                   overflow: TextOverflow.ellipsis,
                 ),
               ),

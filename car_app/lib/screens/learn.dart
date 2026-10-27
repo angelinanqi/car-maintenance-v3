@@ -231,13 +231,11 @@ class _LearnState extends State<Learn> {
         .length;
     final rows = <Widget>[
       Text(
-        'Build your car confidence',
+        'Know your car better.',
         style: Theme.of(context).textTheme.headlineSmall,
       ),
       const SizedBox(height: 8),
-      const Text(
-        'Explore practical guides and find reference information for your car.',
-      ),
+      const Text('Practical guides, at your own pace.'),
       const SizedBox(height: 20),
       SegmentedButton<bool>(
         segments: const [
@@ -343,55 +341,89 @@ class _LearnState extends State<Learn> {
             title: 'No learning guides yet',
             message: 'New guides will appear here when available.',
           ),
-        for (final track in _tracks.where((t) => t.lessons.isNotEmpty)) ...[
-          ModuleSection(
-            title: track.title,
-            description: [
-              if (track.subtitle.isNotEmpty) track.subtitle,
-              '${track.lessons.length} ${track.lessons.length == 1 ? 'guide' : 'guides'}',
-            ].join('\n'),
-          ),
-          for (final lesson in track.lessons) ...[
-            ListTile(
-              contentPadding: const EdgeInsets.symmetric(vertical: 8),
-              title: Text(
-                lesson.title,
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              subtitle: Padding(
-                padding: const EdgeInsets.only(top: 6),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (lesson.introduction.isNotEmpty)
-                      Text(lesson.introduction),
-                    if (lesson.readingMinutes != null ||
-                        widget.state.completedLessons.contains(lesson.id)) ...[
-                      const SizedBox(height: 6),
-                      Text(
-                        [
-                          if (lesson.readingMinutes != null)
-                            '${lesson.readingMinutes} min read',
-                          if (widget.state.completedLessons.contains(lesson.id))
-                            'Completed',
-                        ].join(' · '),
-                        style: Theme.of(context).textTheme.labelMedium,
-                      ),
-                    ],
-                  ],
+        for (final track in _tracks.where((t) => t.lessons.isNotEmpty))
+          Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: Material(
+              color: Theme.of(context).colorScheme.surface,
+              borderRadius: BorderRadius.circular(16),
+              clipBehavior: Clip.antiAlias,
+              child: ExpansionTile(
+                key: PageStorageKey('learn-${track.title}'),
+                initiallyExpanded: track == _tracks.first,
+                tilePadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 6,
                 ),
+                childrenPadding: const EdgeInsets.symmetric(horizontal: 16),
+                title: Text(
+                  track.title,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                subtitle: Text(
+                  '${track.lessons.length} ${track.lessons.length == 1 ? 'guide' : 'guides'}',
+                ),
+                children: [
+                  if (track.subtitle.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(track.subtitle),
+                      ),
+                    ),
+                  for (final lesson in track.lessons) ...[
+                    ListTile(
+                      contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                      title: Text(
+                        lesson.title,
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      subtitle: Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (lesson.introduction.isNotEmpty)
+                              Text(
+                                lesson.introduction,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            if (lesson.readingMinutes != null ||
+                                widget.state.completedLessons.contains(
+                                  lesson.id,
+                                )) ...[
+                              const SizedBox(height: 6),
+                              Text(
+                                [
+                                  if (lesson.readingMinutes != null)
+                                    '${lesson.readingMinutes} min read',
+                                  if (widget.state.completedLessons.contains(
+                                    lesson.id,
+                                  ))
+                                    'Completed',
+                                ].join(' · '),
+                                style: Theme.of(context).textTheme.labelMedium,
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      trailing: Icon(
+                        widget.state.completedLessons.contains(lesson.id)
+                            ? Icons.check_circle_outline
+                            : Icons.chevron_right,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                      onTap: () => _read(lesson),
+                    ),
+                    const SizedBox(height: 4),
+                  ],
+                ],
               ),
-              trailing: Icon(
-                widget.state.completedLessons.contains(lesson.id)
-                    ? Icons.check_circle_outline
-                    : Icons.chevron_right,
-                color: Theme.of(context).colorScheme.primary,
-              ),
-              onTap: () => _read(lesson),
             ),
-            const Divider(height: 1),
-          ],
-        ],
+          ),
       ]);
     }
     return Scaffold(

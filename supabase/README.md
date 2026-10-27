@@ -14,7 +14,7 @@ approved removal of the existing application structures. Additive migrations for
 3. Paste the entire file into the project's SQL Editor and execute it, including
    `begin;` and `commit;`. Tables, relationships, constraints, indexes, triggers,
    permissions, publication functions and initial presets are created together.
-4. Confirm that the 25 application tables exist and that Storage contains these
+4. Confirm that the 27 application tables exist and that Storage contains these
    buckets:
 
    | Bucket | Visibility | Contents |
@@ -53,14 +53,34 @@ approved removal of the existing application structures. Additive migrations for
 
 ## Schema overview
 
+For automatic mobile conversations, apply
+[`migrations/automatic_chat_context.sql`](migrations/automatic_chat_context.sql)
+before deploying the updated backend and mobile app. This adds automatic
+conversation identity, allows general chats without a registered vehicle, and
+preserves existing vehicle/category sessions. Only the original untouched starter
+question presets are upgraded; administrator customisations are preserved.
+Fresh installations include these changes in `initial_schema.sql`.
+
+For admin-managed YouTube channels, apply
+[`migrations/youtube_channels.sql`](migrations/youtube_channels.sql) once to an
+existing database. It stores channel URLs, queued ingestion requests and sync
+results. New installations include this table in `initial_schema.sql`.
+
+For an existing installation, apply
+[`migrations/admin_review_workflow.sql`](migrations/admin_review_workflow.sql)
+once before running the updated admin. It adds private clarification questions,
+draft return notes and the saved reference page. It preserves existing data.
+Fresh installations already include these changes in `initial_schema.sql`.
+
 | Area | Tables |
 | --- | --- |
 | Accounts and sessions | `app_users`, `app_sessions` |
 | Shared vehicle catalogue | `vehicle_manufacturers`, `vehicle_models`, `knowledge_vehicles` |
 | Maintenance catalogue and rules | `maintenance_items`, `manufacturer_schedules`, `maintenance_assistance` |
+| Private admin clarification | `admin_review_questions` |
 | Documents and applicability | `documents`, `document_vehicles`, `document_categories` |
 | Learning content | `guide_categories`, `guides`, `guide_images` |
-| Supplementary videos | `knowledge_videos` |
+| Supplementary videos and channel ingestion | `knowledge_videos`, `youtube_channels` |
 | Emergency content | `emergency_playbooks`, `emergency_contacts` |
 | Personal vehicles and maintenance | `user_vehicles`, `user_tasks`, `service_records` |
 | Personal progress and incidents | `learning_progress`, `incident_records` |
@@ -126,4 +146,4 @@ it does not verify those integrations.
 
 ## Maintenance assistance upgrade
 
-For an existing installation, apply `migrations/20261018_maintenance_assistance.sql` once in the Supabase SQL Editor before using the new admin assistance endpoints. Fresh installations already include this table in `initial_schema.sql`; do not also run the migration. The migration adds only the private review/cache table, its permissions and timestamp trigger. It does not modify schedules, documents or Chroma.
+For an existing installation, apply [`migrations/maintenance_assistance.sql`](migrations/maintenance_assistance.sql) once in the Supabase SQL Editor before using the admin assistance endpoints. Fresh installations already include this table in `initial_schema.sql`; do not also run the migration. The migration adds only the private review/cache table, its permissions and timestamp trigger. It does not modify schedules, documents or Chroma.

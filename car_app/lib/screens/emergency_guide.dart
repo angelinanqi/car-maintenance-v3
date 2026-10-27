@@ -5,7 +5,7 @@ import '../data/accident_repository.dart';
 import '../data/content_repository.dart';
 import '../models/content.dart';
 import '../widgets/emergency_widgets.dart';
-import 'accident_form.dart';
+import 'accident_reports.dart';
 import 'emergency_help.dart';
 
 class EmergencyGuidePage extends StatefulWidget {
@@ -208,7 +208,7 @@ class _EmergencyGuidePageState extends State<EmergencyGuidePage> {
               onPressed: () => Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (_) => AccidentForm(
+                  builder: (_) => AccidentReports(
                     repository: widget.accidents,
                     onHelp: () => openEmergencyHelp(
                       context,
@@ -219,7 +219,7 @@ class _EmergencyGuidePageState extends State<EmergencyGuidePage> {
                 ),
               ),
               icon: const Icon(Icons.assignment_outlined),
-              label: const Text('Collect accident information'),
+              label: const Text('Accident forms and saved drafts'),
             ),
           ],
           const SizedBox(height: 16),

@@ -136,3 +136,9 @@ def require_draft_access(request: Request):
 
 def clear_session_cookie(response):
     response.delete_cookie(COOKIE_NAME, path="/", secure=COOKIE_SECURE, httponly=True, samesite="lax")
+
+
+def require_user(request: Request, identity=Depends(current_session)):
+    if request.method not in {'GET', 'HEAD', 'OPTIONS'}:
+        check_csrf(request, identity)
+    return identity['user']

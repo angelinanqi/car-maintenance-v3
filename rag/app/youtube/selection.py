@@ -1,30 +1,13 @@
 ﻿"""Deterministic supplementary-video selection; transcripts never authorize repairs."""
 import re
 from rag.app.youtube.retrieval import distance_to_similarity, group_by_video
-from rag.app.safety import policy_risk
-from rag.app.generation.grounded import topic_matches, INJECTION, words
+from rag.app.safety import videos_allowed
+from rag.app.generation.grounded import INJECTION
 from rag.config.settings import VIDEO_RELEVANCE_THRESHOLD
 
 
-def is_instruction_request(question):
-    if re.search(r"\b(how often|interval|schedule|due|pressure|torque|capacity)\b", question, re.I):
-        return False
-    return bool(re.search(r"\b(how (?:do|can|should|to)|instructions|steps|procedure|tutorial|show me|video)\b", question, re.I)
-                or re.match(r"(?:please )?(?:check|inspect|replace|change|clean|adjust)\b", question, re.I))
-
-
-def matches_explicit_variant(question, title):
-    engines = re.findall(r"\b(\d\.\d)\s*(?:litres?|liters?|l|auto|manual)\b", question, re.I)
-    if any(engine not in title for engine in engines):
-        return False
-    for kind in ("auto", "automatic", "manual transmission", "cvt", "dct"):
-        if re.search(r"\b" + kind + r"\b", question, re.I) and not re.search(r"\b" + kind + r"\b", title, re.I):
-            return False
-    return True
-
-
-async def select_videos(question, candidates, vehicle, metric):
-    if policy_risk(question) in {"high_risk", "emergency", "caution"} or not is_instruction_request(question):
+async def select_videos(question, candidates, vehicle, metric, *, intent=None):
+    if not videos_allowed(intent):
         return []
     selected = []
     for candidate in candidates:
@@ -37,23 +20,12 @@ async def select_videos(question, candidates, vehicle, metric):
             continue
         if vehicle and not re.search(r"\b" + re.escape(vehicle) + r"\b", title, re.I):
             continue
-        if not matches_explicit_variant(question, title):
+        if any(value and value.casefold() not in title.casefold()
+               for value in (intent.requested_engine, intent.requested_variant)):
             continue
-        years = set(re.findall(r"\b(?:19|20)\d{2}\b", question))
-        if not years.issubset(set(re.findall(r"\b(?:19|20)\d{2}\b", title))):
+        if intent.requested_year and str(intent.requested_year) not in title:
             continue
         if distance_to_similarity(candidate["distance"], metric) < VIDEO_RELEVANCE_THRESHOLD:
-            continue
-        # Exact operation and subject evidence; score alone cannot select a clip.
-        operation = re.search(r"\b(check|inspect|replace|change|remove|install|clean|adjust|reset)\b", question, re.I)
-        if operation and not words(operation.group(1)) & words(transcript):
-            continue
-        # Compatibility identifiers have already been checked against the
-        # title. They need not be repeated in every timestamped excerpt.
-        task = re.sub(r"\b(?:19|20)\d{2}\b|\b\d\.\d\b|\b(auto|automatic|manual|transmission)\b", "", question, flags=re.I)
-        if vehicle:
-            task = re.sub(r"\b" + re.escape(vehicle) + r"\b", "", task, flags=re.I)
-        if not topic_matches(task, transcript):
             continue
         selected.append(candidate)
     selected = group_by_video(selected)

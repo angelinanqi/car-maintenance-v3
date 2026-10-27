@@ -1,24 +1,23 @@
 import 'dart:convert';
 import 'dart:ui' as ui;
-import 'package:flutter/services.dart';
 import '../models/content.dart';
 import 'local_store.dart';
 import 'api_client.dart';
 
 class ContentRepository {
   final LocalStore store;
-  final AssetBundle bundle;
   final ApiClient? api;
   Future<void> _cacheWrites = Future.value();
+  Future<List<EmergencyGuide>>? _emergencyRefresh;
   List<EmergencyGuide> _remoteGuides = [];
+  bool _catalogueLoaded = false;
   String? warning;
-  ContentRepository(this.store, {AssetBundle? bundle, this.api})
-    : bundle = bundle ?? rootBundle;
+  ContentRepository(this.store, {this.api});
 
   static const defaultChatStarters = [
-    'Understanding my service records',
-    'Finding the correct owner manual',
-    'Understanding tyre pressure labels',
+    'How do I check tyre pressure?',
+    'What should I check before a long drive?',
+    'How do I check my engine oil?',
   ];
 
   Future<List<String>> chatStarters({bool refresh = false}) async {
@@ -139,19 +138,14 @@ class ContentRepository {
   }
 
   Future<List<EmergencyGuide>> emergencyGuides() async {
-    warning = null;
-    final baseline = _parse(
-      jsonDecode(await bundle.loadString('assets/emergency/guides.json'))
-          as Map<String, dynamic>,
-    );
     try {
       final cached = await store.read('emergency_content.json');
-      if (cached == null) return baseline;
+      if (cached == null) return [];
       final updates = _parse(cached);
       if (updates.any((guide) => !guide.available)) {
         throw const FormatException('Saved update has unreviewed guides');
       }
-      final merged = {for (final guide in baseline) guide.id: guide};
+      final completeGuides = <EmergencyGuide>[];
       for (final guide in updates) {
         var complete = true;
         for (final step in guide.steps) {
@@ -162,20 +156,17 @@ class ContentRepository {
           }
         }
         if (complete) {
-          merged.removeWhere(
-            (id, item) => item.bundled && item.scenarioKey == guide.scenarioKey,
-          );
-          merged[guide.id] = guide;
+          completeGuides.add(guide);
         } else {
           warning =
               'A saved guide is missing images. Download it again when online.';
         }
       }
-      return _orderedGuides(merged.values.toList());
+      return _orderedGuides(completeGuides);
     } catch (_) {
       warning =
-          'A saved content update could not be opened. The bundled catalogue is shown.';
-      return baseline;
+          'Saved guides could not be opened. Connect to download published guides again.';
+      return [];
     }
   }
 
@@ -208,8 +199,23 @@ class ContentRepository {
     }
   }
 
-  Future<List<EmergencyGuide>> refreshEmergency() async {
+  Future<List<EmergencyGuide>> refreshEmergency() {
+    return _emergencyRefresh ??= _refreshEmergency().whenComplete(() {
+      _emergencyRefresh = null;
+    });
+  }
+
+  Future<List<EmergencyGuide>> _refreshEmergency() async {
     if (api == null) return emergencyGuides();
+    warning = null;
+    final warnings = <String>[];
+    try {
+      await emergencyContacts(refresh: true);
+    } catch (_) {
+      warnings.add(
+        'Contacts could not be updated. Saved contacts are still available.',
+      );
+    }
     try {
       final rows = await api!.listAll('/emergency/playbooks');
       final remote = rows
@@ -219,34 +225,60 @@ class ContentRepository {
         throw const FormatException('Incomplete published emergency guide');
       }
       _remoteGuides = remote;
-      final saved = await _savedGuides();
+      _catalogueLoaded = true;
+      final saved = await emergencyGuides();
+      // A successful complete catalogue is authoritative, including an empty one.
+      // Remove withdrawn publications before saving any new revisions.
+      await _editCache(
+        () => _writeGuides(
+          saved
+              .where((guide) => remote.any((item) => item.id == guide.id))
+              .toList(),
+        ),
+      );
       for (final guide in saved.where(
-        (guide) => !guide.legacy && !remote.any((item) => item.id == guide.id),
+        (guide) => !remote.any((item) => item.id == guide.id),
       )) {
+        await _removeImages(guide);
+      }
+      for (final guide in remote) {
+        if (saved.any(
+          (item) => item.id == guide.id && item.updatedAt == guide.updatedAt,
+        ))
+          continue;
         try {
-          await api!.get('/emergency/playbooks/${guide.id}');
-        } on ApiException catch (error) {
-          if (error.statusCode == 404) await removeOfflineGuide(guide.id);
+          await _saveOfflineGuide(guide);
+        } catch (_) {
+          warnings.add(
+            'Some guides could not be saved offline. Connect and retry.',
+          );
         }
       }
-      return _catalogue();
-    } catch (error) {
-      final local = await emergencyGuides();
-      warning =
-          'Could not refresh emergency guides. Saved copies remain available. Check your connection and retry.';
-      return local;
+    } catch (_) {
+      warnings.add(
+        'Could not refresh emergency guides. Saved copies remain available. Check your connection and retry.',
+      );
     }
+    warning = null;
+    final result = await _catalogue();
+    if (warnings.isNotEmpty) warning = warnings.toSet().join(' ');
+    return result;
   }
 
   Future<List<EmergencyGuide>> _catalogue() async {
     final local = await emergencyGuides();
-    final merged = {for (final guide in local) guide.id: guide};
+    if (!_catalogueLoaded) return local;
+    final saved = {for (final guide in local) guide.id: guide};
+    final guides = <EmergencyGuide>[];
     for (final guide in _remoteGuides) {
-      // Keep a bundled offline guide until a replacement has been downloaded
-      // completely. Merely fetching an online catalogue cannot remove it.
-      if (merged[guide.id]?.available != true) merged[guide.id] = guide;
+      final offline = saved[guide.id];
+      guides.add(
+        offline != null && offline.updatedAt == guide.updatedAt
+            ? offline
+            : guide,
+      );
     }
-    return _orderedGuides(merged.values.toList(), useRemote: true);
+    return _orderedGuides(guides, useRemote: true);
   }
 
   List<EmergencyGuide> _orderedGuides(
@@ -284,6 +316,15 @@ class ContentRepository {
       await api!.get('/emergency/playbooks/$id'),
       remote: true,
     );
+    await _saveOfflineGuide(guide);
+    _remoteGuides = _remoteGuides
+        .map((item) => item.id == guide.id ? guide : item)
+        .toList();
+    warning = null;
+    return _catalogue();
+  }
+
+  Future<void> _saveOfflineGuide(EmergencyGuide guide) async {
     if (!guide.available) {
       throw const FormatException(
         'Only complete published guides can be saved.',
@@ -321,8 +362,11 @@ class ContentRepository {
       }, offline: true);
       await _editCache(() async {
         final existing = await _savedGuides();
-        final previous = existing.where((item) => item.id == id).toList();
-        await _writeGuides([...existing.where((item) => item.id != id), saved]);
+        final previous = existing.where((item) => item.id == guide.id).toList();
+        await _writeGuides([
+          ...existing.where((item) => item.id != guide.id),
+          saved,
+        ]);
         for (final old in previous) {
           await _removeImages(old);
         }
@@ -333,7 +377,6 @@ class ContentRepository {
       }
       rethrow;
     }
-    return _catalogue();
   }
 
   Future<void> removeOfflineGuide(String id) => _editCache(() async {
@@ -358,23 +401,6 @@ class ContentRepository {
     final data = await store.read('emergency_contacts.json');
     final cached = (data?['contacts'] as List? ?? [])
         .cast<Map<String, dynamic>>();
-    // An empty saved directory is an authoritative admin choice. Defaults only
-    // apply before the first successful sync, including when offline.
-    return data == null
-        ? [
-            {
-              'id': 'my-emergency',
-              'name': 'Malaysia emergency services',
-              'phone': '999',
-            },
-            {
-              'id': 'plus-line',
-              'name': 'PLUS expressway assistance',
-              'phone': '1800-88-0000',
-              'description': 'For assistance on PLUS expressways',
-            },
-          ]
-        : cached;
+    return cached;
   }
-
 }

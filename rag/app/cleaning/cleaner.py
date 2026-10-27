@@ -1,6 +1,7 @@
 from rag.config.settings import MALAY_CONFIDENCE_THRESHOLD
 import re
 from rag.app.cleaning.language_detector import LanguageDetector
+from shared.text_normalization import normalize_unicode
 
 
 class MarkdownCleaner:
@@ -21,11 +22,14 @@ class MarkdownCleaner:
         malay_threshold: float = MALAY_CONFIDENCE_THRESHOLD,
     ) -> None:
         self.language_detector = LanguageDetector(malay_threshold=malay_threshold)
+        self.removed_malay_blocks: list[str] = []
 
     def clean(
         self,
         markdown: str,
     ) -> str:
+
+        self.removed_malay_blocks.clear()
 
         # Keep fenced/indented code byte-for-byte at the line level. Also avoids
         # deleting repeated code lines or treating code pipes as table syntax.
@@ -46,7 +50,7 @@ class MarkdownCleaner:
         return "".join(result)
 
     def _clean_prose(self, markdown: str) -> str:
-        text = self._normalize_unicode(markdown)
+        text = normalize_unicode(markdown)
         text = self._normalize_whitespace(text)
 
         lines = text.splitlines()
@@ -90,29 +94,6 @@ class MarkdownCleaner:
             ):
                 protected.add(index)
         return protected
-
-    def _normalize_unicode(self, text: str) -> str:
-        """
-        Unicode normalization.
-        Avoids NFKC because technical manuals contain meaningful symbols, superscripts, model numbers, etc.
-        """
-        replacements = {
-            "\u2018": "'",
-            "\u2019": "'",
-            "\u201c": '"',
-            "\u201d": '"',
-            "\u2013": "-",
-            "\u2014": "-",
-            "\u00a0": " ",
-        }
-
-        for old, new in replacements.items():
-            text = text.replace(old, new)
-
-        # Remove control characters except newline and tab.
-        text = "".join(char for char in text if char in ("\n", "\t") or ord(char) >= 32)
-
-        return text
 
     def _normalize_whitespace(self, text: str) -> str:
         lines = text.splitlines()
@@ -188,13 +169,11 @@ class MarkdownCleaner:
                 result.append(cleaned_line)
                 continue
 
-            # Markdown structural elements are kept conservative.
+            # Keep structural lines: deleting a heading changes ancestry, and
+            # deleting a list marker can orphan its continuation paragraphs.
             if self._is_markdown_structure(line):
                 flush_paragraph()
-                natural = re.sub(r"^\s*(?:>\s*)+", "", line)
-                natural = re.sub(r"^\s*(?:#{1,6}\s+|[-*+]\s+|\d+[.)]\s+)", "", natural)
-                if not self._should_remove_malay(natural):
-                    result.append(line)
+                result.append(line)
                 continue
 
             paragraph.append(line)
@@ -263,7 +242,11 @@ class MarkdownCleaner:
         if len(meaningful_text.strip()) < 50:
             return False
 
-        return self.language_detector.is_confident_malay(text)
+        if not self.language_detector.is_confident_malay(text):
+            return False
+
+        self.removed_malay_blocks.append(text)
+        return True
 
     def _table_lines(self, lines: list[str]) -> set[int]:
         """Require a header followed by a matching Markdown delimiter row."""

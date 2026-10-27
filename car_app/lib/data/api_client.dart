@@ -26,7 +26,12 @@ class ApiClient {
   }) : client = client ?? http.Client();
 
   Uri endpoint(String path, {Map<String, String>? query}) {
-    if (baseUrl.isEmpty) throw const ApiException('No backend URL configured.');
+    if (baseUrl.isEmpty) {
+      throw const ApiException(
+        'No backend URL configured. '
+        'Build with --dart-define=API_BASE_URL=https://your-api-host.',
+      );
+    }
     final base = Uri.parse(baseUrl.endsWith('/') ? baseUrl : '$baseUrl/');
     if (!['http', 'https'].contains(base.scheme) || base.host.isEmpty) {
       throw const ApiException('The backend URL is invalid.');

@@ -4,21 +4,42 @@ Start with: python -m rag.service (requires the root RAG dependencies).
 Only FastAPI's server-resolved scope and history should reach this private API.
 """
 import logging
+from contextlib import asynccontextmanager
 import os
 import secrets
 import asyncio
 import json
 from typing import Literal
+from uuid import UUID
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, UploadFile, File
 from fastapi.exceptions import RequestValidationError
-from backend.errors import http_error, validation_error
+from shared.http_errors import http_error, validation_error
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from rag.config import settings
-from backend.models import PersonalVehicleProfile, PersonalMaintenanceContext, SourceAttachmentReference, MechanicQuestionDraft
+from shared.models import PersonalVehicleProfile, PersonalMaintenanceContext, SourceAttachmentReference, MechanicQuestionDraft
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app):
+    # Pay the local encoder's cold-start cost before advertising API readiness.
+    # An unavailable encoder leaves the scoped lexical fallback operational.
+    if (settings.CHROMA_PATH / "chroma.sqlite3").is_file():
+        try:
+            from rag.app.embedding.embedder import embed_query
+            await asyncio.to_thread(embed_query, "vehicle manual")
+        except Exception as error:
+            logging.getLogger(__name__).warning("Embedding warmup unavailable (%s)", type(error).__name__)
+        if settings.RAG_RERANK:
+            try:
+                from rag.app.retrieval.hybrid import reranker
+                await asyncio.to_thread(reranker)
+            except Exception as error:
+                logging.getLogger(__name__).warning("Reranker warmup unavailable (%s)", type(error).__name__)
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
 app.add_exception_handler(RequestValidationError, validation_error)
 app.add_exception_handler(StarletteHTTPException, http_error)
 logger = logging.getLogger(__name__)
@@ -63,6 +84,11 @@ class MechanicQuestionsAnswer(BaseModel):
     tailored: bool
 
 
+class YouTubeSyncRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    sync_id: UUID
+
+
 def verify_service_credentials(authorization):
     token = os.getenv('RAG_SERVICE_TOKEN', '')
     if len(token.encode()) < 32:
@@ -70,6 +96,37 @@ def verify_service_credentials(authorization):
     scheme, _, supplied = authorization.partition(' ')
     if scheme.lower() != 'bearer' or not secrets.compare_digest(supplied.encode(), token.encode()):
         raise HTTPException(401, 'Invalid service credentials.')
+
+
+@app.post('/v1/visual-description')
+def visual_description(original: UploadFile = File(), source_page: UploadFile = File(),
+                       authorization: str = Header(default='')):
+    verify_service_credentials(authorization)
+    from pathlib import Path
+    import tempfile
+    from rag.app.generation.descriptions import describe_asset
+    limit = 10 * 1024 * 1024
+    with tempfile.TemporaryDirectory() as directory:
+        paths = []
+        for name, upload in [('original.png', original), ('page.png', source_page)]:
+            data = upload.file.read(limit + 1)
+            if not data or len(data) > limit:
+                raise HTTPException(413, 'Source image is empty or exceeds 10 MB.')
+            path = Path(directory) / name
+            path.write_bytes(data)
+            paths.append(path)
+        result, reused = describe_asset(paths[0], settings.OUTPUT_DIR / 'visual-descriptions',
+                                        page_image=paths[1])
+    return {**result, 'cache_reused': reused}
+
+
+@app.post('/v1/youtube-channels/{channel_id}/sync', status_code=202)
+def sync_youtube_channel(channel_id: UUID, request: YouTubeSyncRequest,
+                         background: BackgroundTasks, authorization: str = Header(default='')):
+    verify_service_credentials(authorization)
+    from rag.app.youtube.worker import sync_channel
+    background.add_task(sync_channel, str(channel_id), str(request.sync_id))
+    return {'status': 'queued'}
 
 
 def verify_revisions(scope):
@@ -104,9 +161,8 @@ def verify_revisions(scope):
 @app.post('/v1/chat', response_model=Answer)
 async def chat(request: Request, authorization: str = Header(default='')):
     verify_service_credentials(authorization)
-    if (request.scope.get('scope_type') not in {'vehicle', 'category'}
-            or not request.scope.get('scope_id')
-            or not (request.scope.get('document_ids') or request.scope.get('content_sources') or request.vehicle_profile)):
+    if (request.scope.get('scope_type') not in {'auto', 'vehicle', 'category'}
+            or not request.scope.get('scope_id')):
         raise HTTPException(422, 'A resolved knowledge scope is required.')
     try:
         await asyncio.to_thread(verify_revisions, request.scope)
@@ -134,6 +190,10 @@ async def mechanic_questions(request: MechanicQuestionsRequest, authorization: s
 
 
 if __name__ == '__main__':
+    rag_logger = logging.getLogger('rag')
+    rag_logger.setLevel(logging.INFO)
+    rag_logger.addHandler(logging.StreamHandler())
+    rag_logger.propagate = False
     import uvicorn
     uvicorn.run(app, host=os.getenv('RAG_HTTP_HOST', '127.0.0.1'),
                 port=int(os.getenv('RAG_HTTP_PORT', '8001')))

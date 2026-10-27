@@ -6,7 +6,9 @@ from backend import db
 
 def guide_text(html):
     soup = BeautifulSoup(html, 'html.parser')
-    for element in soup.find_all(['script', 'style', 'iframe', 'noscript']):
+    # Flattening table cells loses their relationships and bypasses the
+    # display-only policy. Keep surrounding prose as answer evidence.
+    for element in soup.find_all(['script', 'style', 'iframe', 'noscript', 'table']):
         element.decompose()
     # Keep ordered instructions numbered, rather than flattening them into prose.
     for listing in soup.find_all(['ol', 'ul']):

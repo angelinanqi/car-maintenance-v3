@@ -1,0 +1,28 @@
+{
+  "name": "frontend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "node scripts/next.mjs build --webpack",
+    "start": "node scripts/next.mjs start"
+  },
+  "dependencies": {
+    "@chakra-ui/react": "^3.37.0",
+    "@emotion/react": "^11.14.0",
+    "@next/env": "16.3.3",
+    "@tiptap/extension-image": "^3.31.0",
+    "@tiptap/extension-youtube": "^3.31.0",
+    "@tiptap/pm": "^3.31.0",
+    "@tiptap/react": "^3.31.0",
+    "@tiptap/starter-kit": "^3.31.0",
+    "next": "16.3.3",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "react-markdown": "^10.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "@types/react": "^19.2.18",
+    "typescript": "^6.0.3"
+  }
+}

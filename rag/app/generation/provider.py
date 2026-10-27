@@ -15,16 +15,18 @@ class GenerationClient:
         self.model = None
         self.fallback_reason = None
 
-    def generate(self, prompt: str, *, schema: dict | None = None) -> str:
+    def generate(self, prompt: str, *, schema: dict | None = None, images=None) -> str:
         self.provider = self.model = self.fallback_reason = None
         if settings.LLM_PROVIDER == "ollama":
+            if images:
+                raise ValueError('Original-image answering requires the configured Gemini provider')
             client = OllamaClient()
         else:
             try:
                 client = GeminiClient()
-                answer = client.generate(prompt, schema=schema)
+                answer = client.generate(prompt, schema=schema, images=images) if images else client.generate(prompt, schema=schema)
             except GeminiError as error:
-                if not settings.LLM_FALLBACK_ENABLED or not error.retryable:
+                if images or not settings.LLM_FALLBACK_ENABLED or not error.retryable:
                     logger.warning("llm_error provider=gemini reason=%s", error)
                     raise
                 self.fallback_reason = str(error)

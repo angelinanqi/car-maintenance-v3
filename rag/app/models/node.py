@@ -96,10 +96,12 @@ class Cell(Node):
 @dataclass
 class List(Node):
     ordered: bool = False
+    start: int = 1
 
     def to_dict(self) -> dict:
         data = super().to_dict()
         data["ordered"] = self.ordered
+        data["start"] = self.start
 
         return data
 

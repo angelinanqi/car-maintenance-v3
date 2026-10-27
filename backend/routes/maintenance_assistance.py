@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import Field
 from backend import auth, db, settings
 from backend.locks import content_lock
-from backend.models import InputModel
+from shared.models import InputModel
 from backend.services import maintenance_assistance as service
 
 router = APIRouter(prefix='/admin/maintenance-assistance', tags=['Maintenance assistance'],

@@ -26,6 +26,16 @@ if LLM_FALLBACK_ENABLED not in {"true", "false"}:
     raise ValueError("LLM_FALLBACK_ENABLED must be true or false")
 LLM_FALLBACK_ENABLED = LLM_FALLBACK_ENABLED == "true"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
+GOOGLE_CLOUD_PROJECT = os.getenv("GOOGLE_CLOUD_PROJECT", "").strip()
+GOOGLE_CLOUD_LOCATION = os.getenv("GOOGLE_CLOUD_LOCATION", "").strip() or "global"
+# A Cloud project without an API key uses Application Default Credentials,
+# including GOOGLE_APPLICATION_CREDENTIALS for local service-account files.
+_cloud_default = "true" if GOOGLE_CLOUD_PROJECT and not GEMINI_API_KEY else "false"
+_cloud_mode = (os.getenv("GOOGLE_GENAI_USE_ENTERPRISE") or
+               os.getenv("GOOGLE_GENAI_USE_VERTEXAI") or _cloud_default).strip().lower()
+if _cloud_mode not in {"true", "false"}:
+    raise ValueError("GOOGLE_GENAI_USE_ENTERPRISE must be true or false")
+GEMINI_USE_CLOUD = _cloud_mode == "true"
 # Select an accessible model in your account; there is no assumed model default.
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "").strip()
 GEMINI_TIMEOUT = float(os.getenv("GEMINI_TIMEOUT") or "30")
@@ -43,18 +53,20 @@ EMBEDDING_DIMENSION = int(os.getenv("EMBEDDING_DIMENSION") or "768")
 OUTPUT_DIR = path_setting("OUTPUT_DIR", "output")
 CHROMA_PATH = path_setting("CHROMA_PATH", str(OUTPUT_DIR / "embeddings/chroma"))
 MANUAL_COLLECTION = os.getenv("MANUAL_COLLECTION") or "rag_chunks"
+# Soft character target for packing whole source blocks. No word overlap.
 CHUNK_SIZE = int(os.getenv("CHUNK_SIZE") or "2000")
-CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP") or "200")
 RAG_RETRIEVAL_MODE = os.getenv("RAG_RETRIEVAL_MODE") or "hybrid"
 RAG_CANDIDATES = int(os.getenv("RAG_CANDIDATES") or "20")
 RAG_RRF_K = int(os.getenv("RAG_RRF_K") or "60")
-RAG_CONTEXT_CHARS = int(os.getenv("RAG_CONTEXT_CHARS") or "6000")
-RAG_RERANK = (os.getenv("RAG_RERANK") or "false").lower() == "true"
+RAG_CONTEXT_CHARS = int(os.getenv("RAG_CONTEXT_CHARS") or "16000")
+# In the chat path this reranks retrieved visual candidates before their budgets;
+# paragraph order stays hybrid-ranked. These are the evaluated candidate defaults.
+RAG_RERANK = (os.getenv("RAG_RERANK") or "true").lower() == "true"
+# Supply a bounded set of original pages/crops in the existing answer call.
+RAG_VISUAL_INPUTS = (os.getenv('RAG_VISUAL_INPUTS') or 'true').lower() == 'true'
 RERANK_MODEL = "cross-encoder/ms-marco-MiniLM-L6-v2"
 if RAG_RETRIEVAL_MODE not in {"dense", "hybrid", "adaptive", "lexical"}:
     raise ValueError("RAG_RETRIEVAL_MODE must be dense, hybrid, adaptive or lexical")
-if not 0 <= CHUNK_OVERLAP < CHUNK_SIZE:
-    raise ValueError("CHUNK_OVERLAP must be nonnegative and less than CHUNK_SIZE")
 if min(RAG_CANDIDATES, RAG_RRF_K, RAG_CONTEXT_CHARS) < 1:
     raise ValueError("RAG_CANDIDATES, RAG_RRF_K and RAG_CONTEXT_CHARS must be positive")
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY", "").strip()

@@ -6,9 +6,9 @@ from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from backend import settings
-from backend.models import SourceAttachmentReference
-from backend.models import MechanicQuestionDraft
-from backend.mechanic_questions import general_questions
+from shared.models import SourceAttachmentReference
+from shared.models import MechanicQuestionDraft
+from shared.mechanic_questions import general_questions
 
 logger = logging.getLogger(__name__)
 

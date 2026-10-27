@@ -34,6 +34,97 @@ class _MyCarState extends State<MyCar> {
   bool _schedule = true;
   String _filter = 'All';
 
+  void _garage() => showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    builder: (sheetContext) => ListenableBuilder(
+      listenable: widget.state,
+      builder: (context, _) => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Your garage',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 12),
+              for (final vehicle in widget.state.vehicles)
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(
+                    widget.state.selectedVehicle?.id == vehicle.id
+                        ? Icons.check_circle
+                        : Icons.directions_car_outlined,
+                  ),
+                  title: Text(vehicle.name),
+                  subtitle: Text(
+                    '${vehicle.model}\n${vehicle.plateNumber} · ${vehicle.mileage} km',
+                  ),
+                  trailing: IconButton(
+                    tooltip: 'Edit ${vehicle.name}',
+                    icon: const Icon(Icons.edit_outlined),
+                    onPressed: widget.state.saving
+                        ? null
+                        : () {
+                            Navigator.pop(sheetContext);
+                            Navigator.push(
+                              this.context,
+                              MaterialPageRoute(
+                                builder: (_) => VehicleProfilePage(
+                                  state: widget.state,
+                                  vehicle: vehicle,
+                                ),
+                              ),
+                            );
+                          },
+                  ),
+                  onTap: widget.state.saving
+                      ? null
+                      : () async {
+                          try {
+                            await widget.state.selectVehicle(vehicle.id);
+                            if (sheetContext.mounted)
+                              Navigator.pop(sheetContext);
+                          } catch (_) {
+                            if (context.mounted)
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    'Could not change vehicle. Please retry.',
+                                  ),
+                                ),
+                              );
+                          }
+                        },
+                ),
+              const SizedBox(height: 12),
+              FilledButton.icon(
+                onPressed: widget.state.saving
+                    ? null
+                    : () {
+                        Navigator.pop(sheetContext);
+                        Navigator.push(
+                          this.context,
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                VehicleProfilePage(state: widget.state),
+                          ),
+                        );
+                      },
+                icon: const Icon(Icons.add),
+                label: const Text('Add vehicle'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+
   @override
   void initState() {
     super.initState();
@@ -207,8 +298,6 @@ class _MyCarState extends State<MyCar> {
           ),
         if (vehicle != null) ...[
           VehicleSelector(state: state),
-          const SizedBox(height: 12),
-          Text('Maintenance', style: Theme.of(context).textTheme.headlineSmall),
           const SizedBox(height: 8),
           Wrap(
             spacing: 12,
@@ -235,9 +324,6 @@ class _MyCarState extends State<MyCar> {
               ),
             ],
           ),
-          const Text(
-            'The odometer is the total distance your car has travelled.',
-          ),
           const SizedBox(height: 16),
           FilledButton.icon(
             onPressed: state.saving || state.loading ? null : _log,
@@ -254,27 +340,31 @@ class _MyCarState extends State<MyCar> {
             onSelectionChanged: (v) => setState(() => _schedule = v.first),
           ),
           if (_schedule) ...[
-            const ModuleSection(
-              title: 'Maintenance items',
-              description:
-                  'Open an item to view its schedule or record completed work.',
-            ),
-            Text(
-              vehicle.manufacturerScheduleAvailable
-                  ? 'Published manufacturer information is available. Each item shows which schedule it uses.'
-                  : 'No published manufacturer schedule is available for this vehicle. You can keep service records and set personal intervals.',
-            ),
-            const SizedBox(height: 12),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: OutlinedButton.icon(
-                onPressed: state.saving || state.loading
-                    ? null
-                    : () => _addItem(vehicle),
-                icon: const Icon(Icons.add),
-                label: const Text('Add item'),
+            Padding(
+              padding: const EdgeInsets.only(top: 20, bottom: 8),
+              child: Wrap(
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 12,
+                children: [
+                  Text(
+                    'Maintenance',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  TextButton.icon(
+                    onPressed: state.saving || state.loading
+                        ? null
+                        : () => _addItem(vehicle),
+                    icon: const Icon(Icons.add, size: 18),
+                    label: const Text('Add item'),
+                  ),
+                ],
               ),
             ),
+            if (!vehicle.manufacturerScheduleAvailable)
+              const Text(
+                'No manufacturer schedule published. You can set personal intervals.',
+              ),
             if (tasks.isEmpty)
               const ModuleMessage(
                 icon: Icons.build_outlined,
@@ -291,11 +381,7 @@ class _MyCarState extends State<MyCar> {
               const Divider(height: 1),
             ],
           ] else ...[
-            const ModuleSection(
-              title: 'Service history',
-              description:
-                  'Work already completed for this vehicle. Open a record to see all details or correct an entry.',
-            ),
+            const ModuleSection(title: 'Service history'),
             Wrap(
               spacing: 8,
               runSpacing: 4,
@@ -346,6 +432,12 @@ class _MyCarState extends State<MyCar> {
         appBar: AppBar(
           title: const Text('My Car'),
           actions: [
+            if (state.signedIn)
+              IconButton(
+                tooltip: 'Manage garage',
+                onPressed: state.loading || state.saving ? null : _garage,
+                icon: const Icon(Icons.garage_outlined),
+              ),
             if (state.signedIn)
               IconButton(
                 tooltip: 'Refresh maintenance',
@@ -403,7 +495,7 @@ class _TaskRow extends StatelessWidget {
   Widget build(BuildContext context) => InkWell(
     onTap: onTap,
     child: Padding(
-      padding: const EdgeInsets.symmetric(vertical: 18),
+      padding: const EdgeInsets.symmetric(vertical: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -424,12 +516,16 @@ class _TaskRow extends StatelessWidget {
             style: Theme.of(context).textTheme.bodySmall,
           ),
           const SizedBox(height: 10),
-          _StatusLabel(status: status),
-          if (status.nextKm != null || status.nextDate != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Text(_nextService(status)),
-            ),
+          Wrap(
+            spacing: 12,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              _StatusLabel(status: status),
+              if (status.nextKm != null || status.nextDate != null)
+                Text(_nextService(status)),
+            ],
+          ),
         ],
       ),
     ),

@@ -21,6 +21,15 @@ def embed_query(query: str) -> list[float]:
         return _query_embedder.embed_query(query)
 
 
+def embed_documents(texts: tuple[str, ...]) -> list[list[float]]:
+    """Use the same encoder for current published guide snapshots."""
+    global _query_embedder
+    with _query_lock:
+        if _query_embedder is None:
+            _query_embedder = Embedder()
+        return _query_embedder.embed_documents(list(texts))
+
+
 class Embedder:
     def __init__(self):
         import torch
@@ -39,8 +48,13 @@ class Embedder:
         """
         inputs = [f"search_document: {text}" for text in texts]
         lengths = self.model.tokenizer(inputs, truncation=False, return_length=True)["length"]
-        if any(length > self.model.max_seq_length for length in lengths):
-            raise ValueError("A chunk exceeds the embedding model's token limit; fix chunk boundaries instead of silently truncating it")
+        for index, length in enumerate(lengths, start=1):
+            if length > self.model.max_seq_length:
+                raise ValueError(
+                    f"Chunk #{index} has {length} tokens including its context and embedding prefix; "
+                    f"the embedding model limit is {self.model.max_seq_length}. "
+                    "Review the source block boundaries before reindexing; no text was truncated."
+                )
         embeddings = self.model.encode(
             inputs,
             normalize_embeddings=True,

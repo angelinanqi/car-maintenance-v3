@@ -3,15 +3,20 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../data/accident_repository.dart';
+import '../data/accident_location.dart';
 
 class AccidentForm extends StatefulWidget {
   final AccidentRepository repository;
   final Map<String, dynamic>? record;
+  final Map<String, dynamic>? draft;
+  final Future<String> Function()? currentLocation;
   final VoidCallback? onHelp;
   const AccidentForm({
     super.key,
     required this.repository,
     this.record,
+    this.draft,
+    this.currentLocation,
     this.onHelp,
   });
   @override
@@ -26,7 +31,6 @@ class _AccidentFormState extends State<AccidentForm>
   final _insurer = TextEditingController();
   final _details = TextEditingController();
   final _location = TextEditingController();
-  String _type = 'Road accident';
   DateTime _occurredAt = DateTime.now();
   late String _id;
   Timer? _autosave;
@@ -36,6 +40,10 @@ class _AccidentFormState extends State<AccidentForm>
   bool _loaded = false;
   bool _busy = false;
   bool _dirty = false;
+  bool _locating = false;
+  bool _finishing = false;
+  int _locationVersion = 0;
+  String? _locationFeedback;
   String? _feedback;
   @override
   void initState() {
@@ -53,6 +61,7 @@ class _AccidentFormState extends State<AccidentForm>
         if (_loaded && mounted) _changed();
       });
     }
+    _location.addListener(() => _locationVersion++);
     _load();
   }
 
@@ -83,7 +92,9 @@ class _AccidentFormState extends State<AccidentForm>
       _feedback = null;
     });
     try {
-      final draft = widget.record ?? await widget.repository.load();
+      final isNew = widget.record == null && widget.draft == null;
+      final draft =
+          widget.record ?? widget.draft ?? widget.repository.newDraft();
       if (!mounted) return;
       final photos = (draft['photos'] as List).cast<String>().toList();
       _name.text = draft['name'] as String;
@@ -95,15 +106,18 @@ class _AccidentFormState extends State<AccidentForm>
           draft['id'] as String? ??
           DateTime.now().microsecondsSinceEpoch.toString();
       _location.text = draft['location'] as String? ?? '';
-      _type = draft['type'] as String? ?? 'Road accident';
       _occurredAt =
-          DateTime.tryParse(draft['occurredAt'] as String? ?? '') ??
+          DateTime.tryParse(draft['occurredAt'] as String? ?? '')?.toLocal() ??
           DateTime.now();
       setState(() {
         _photos = photos;
         _loaded = true;
         _dirty = false;
       });
+      if (isNew) {
+        await _save();
+        if (mounted) _captureLocation();
+      }
     } catch (_) {
       if (mounted) {
         setState(
@@ -119,7 +133,7 @@ class _AccidentFormState extends State<AccidentForm>
   Map<String, dynamic> _draft([List<String>? photos]) => {
     'version': 1,
     'id': _id,
-    'type': _type,
+    'type': widget.record?['type'] ?? widget.draft?['type'] ?? 'Road accident',
     'location': _location.text.trim(),
     'occurredAt': _occurredAt.toIso8601String(),
     'name': _name.text.trim(),
@@ -154,7 +168,9 @@ class _AccidentFormState extends State<AccidentForm>
       if (mounted) {
         setState(() {
           _dirty = revision != _revision;
-          _feedback = 'Draft saved on this device. Nothing has been submitted.';
+          _feedback = widget.record == null
+              ? 'Draft saved on this device.'
+              : 'Changes saved to this accident form.';
         });
       }
       return true;
@@ -176,6 +192,70 @@ class _AccidentFormState extends State<AccidentForm>
     }
   }
 
+  Future<void> _captureLocation() async {
+    if (_locating || _finishing) return;
+    final version = _locationVersion;
+    setState(() {
+      _locating = true;
+      _locationFeedback = null;
+    });
+    try {
+      final location =
+          await (widget.currentLocation ?? AccidentLocation().current)();
+      if (!mounted || _finishing || version != _locationVersion) return;
+      _location.text = location;
+      setState(
+        () => _locationFeedback =
+            'Current location filled. Edit it if the accident happened elsewhere.',
+      );
+    } on AccidentLocationException catch (error) {
+      if (mounted) setState(() => _locationFeedback = error.message);
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => _locationFeedback =
+              'Current location could not be retrieved. Enter the accident location yourself, or retry.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _locating = false);
+    }
+  }
+
+  Future<void> _finish() async {
+    if (!await _save() || !mounted) return;
+    _autosave?.cancel();
+    setState(() {
+      _finishing = true;
+      _busy = true;
+    });
+    try {
+      if (widget.record == null) {
+        await widget.repository.completeDraft(_draft());
+      }
+      if (mounted) {
+        setState(() {
+          _dirty = false;
+          _busy = false;
+        });
+        Navigator.pop(context, true);
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => _feedback =
+              'The accident form could not be moved to history. Your draft is kept. Please retry.',
+        );
+      }
+    } finally {
+      if (mounted)
+        setState(() {
+          _busy = false;
+          _finishing = false;
+        });
+    }
+  }
+
   Future<void> _pick(ImageSource source) async {
     if (_photos.length >= 6 || !await _save() || !mounted) return;
     setState(() {
@@ -183,10 +263,18 @@ class _AccidentFormState extends State<AccidentForm>
       _feedback = null;
     });
     try {
+      await widget.repository.rememberPhotoTarget(
+        _id,
+        savedRecord: widget.record != null,
+      );
       final photo = await widget.repository.pickPhoto(source);
-      if (photo == null) return;
+      if (photo == null) {
+        await widget.repository.clearPhotoTarget();
+        return;
+      }
       final photos = [..._photos, photo];
       await _persist(_draft(photos));
+      await widget.repository.clearPhotoTarget();
       if (mounted) {
         setState(() {
           _photos = photos;
@@ -275,7 +363,13 @@ class _AccidentFormState extends State<AccidentForm>
     },
     child: Scaffold(
       appBar: AppBar(
-        title: const Text('Incident information'),
+        title: Text(
+          widget.record != null
+              ? 'Saved accident form'
+              : widget.draft != null
+              ? 'Accident draft'
+              : 'New accident form',
+        ),
         actions: [
           if (widget.onHelp != null)
             TextButton(
@@ -313,30 +407,10 @@ class _AccidentFormState extends State<AccidentForm>
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
                 const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  isExpanded: true,
-                  itemHeight: null,
-                  initialValue: _type,
-                  decoration: const InputDecoration(labelText: 'Incident type'),
-                  items:
-                      [
-                            'Road accident',
-                            'Vehicle breakdown',
-                            'Flat tyre',
-                            'Overheating',
-                            'Battery problem',
-                            'Other',
-                          ]
-                          .map(
-                            (t) => DropdownMenuItem(value: t, child: Text(t)),
-                          )
-                          .toList(),
-                  onChanged: !_loaded || _busy
-                      ? null
-                      : (v) {
-                          _type = v!;
-                          _changed();
-                        },
+                Text(
+                  widget.draft != null || widget.record != null
+                      ? 'Your saved accident time and location are kept. You can correct them below.'
+                      : 'The accident time starts at the current time. Edit the time and location if you are recording an earlier accident.',
                 ),
                 const SizedBox(height: 12),
                 OutlinedButton(
@@ -345,7 +419,11 @@ class _AccidentFormState extends State<AccidentForm>
                       : () async {
                           final day = await showDatePicker(
                             context: context,
-                            initialDate: _occurredAt,
+                            initialDate: _occurredAt.isAfter(DateTime.now())
+                                ? DateTime.now()
+                                : _occurredAt.isBefore(DateTime(2000))
+                                ? DateTime(2000)
+                                : _occurredAt,
                             firstDate: DateTime(2000),
                             lastDate: DateTime.now(),
                           );
@@ -365,17 +443,41 @@ class _AccidentFormState extends State<AccidentForm>
                           _changed();
                         },
                   child: Text(
-                    'When: ${MaterialLocalizations.of(context).formatMediumDate(_occurredAt)} at ${MaterialLocalizations.of(context).formatTimeOfDay(TimeOfDay.fromDateTime(_occurredAt))}',
+                    'Accident time: ${MaterialLocalizations.of(context).formatMediumDate(_occurredAt)} at ${MaterialLocalizations.of(context).formatTimeOfDay(TimeOfDay.fromDateTime(_occurredAt))}',
                   ),
+                ),
+                TextButton.icon(
+                  onPressed: !_loaded || _busy
+                      ? null
+                      : () {
+                          _occurredAt = DateTime.now();
+                          _changed();
+                        },
+                  icon: const Icon(Icons.schedule),
+                  label: const Text('Use current time'),
                 ),
                 const SizedBox(height: 12),
                 TextField(
                   controller: _location,
                   enabled: _loaded && !_busy,
                   decoration: const InputDecoration(
-                    labelText: 'Location description',
+                    labelText: 'Accident location',
+                    helperText:
+                        'Address, road name, landmark or GPS coordinates',
                   ),
                 ),
+                TextButton.icon(
+                  onPressed: !_loaded || _busy || _locating
+                      ? null
+                      : _captureLocation,
+                  icon: const Icon(Icons.my_location),
+                  label: Text(
+                    _locating
+                        ? 'Getting current location...'
+                        : 'Use current location',
+                  ),
+                ),
+                if (_locationFeedback != null) Text(_locationFeedback!),
                 const SizedBox(height: 20),
                 ExpansionTile(
                   title: const Text('2. Other driver and vehicle'),
@@ -498,32 +600,29 @@ class _AccidentFormState extends State<AccidentForm>
                 ),
                 const SizedBox(height: 8),
                 const Text(
-                  'Save a draft to continue later, or keep this incident in history. Photos stay on this device.',
+                  'Save a draft to continue later, or save this completed form to past accidents. Photos stay on this device.',
                 ),
                 const SizedBox(height: 12),
                 FilledButton(
-                  onPressed: _loaded && !_busy ? _save : null,
-                  child: Text(_busy ? 'Saving...' : 'Save draft'),
-                ),
-                OutlinedButton(
                   onPressed: !_loaded || _busy
                       ? null
                       : () async {
-                          if (!await _save()) return;
-                          try {
-                            await widget.repository.saveRecord(_draft());
-                            if (context.mounted) Navigator.pop(context, true);
-                          } catch (error) {
-                            if (mounted) {
-                              setState(
-                                () => _feedback =
-                                    'Incident record could not be saved. Your draft is kept. Please retry.',
-                              );
-                            }
-                          }
+                          if (await _save() && context.mounted && !_dirty)
+                            Navigator.pop(context);
                         },
-                  child: const Text('Save incident record'),
+                  child: Text(
+                    _busy
+                        ? 'Saving...'
+                        : widget.record != null
+                        ? 'Save changes and close'
+                        : 'Save draft and close',
+                  ),
                 ),
+                if (widget.record == null)
+                  OutlinedButton(
+                    onPressed: !_loaded || _busy ? null : _finish,
+                    child: const Text('Save to past accidents'),
+                  ),
               ],
             ),
     ),

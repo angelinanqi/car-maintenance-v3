@@ -2,7 +2,7 @@
 from fastapi import HTTPException
 from starlette.concurrency import run_in_threadpool
 
-from backend.mechanic_questions import DETAILS_TO_NOTE, vehicle_summary
+from shared.mechanic_questions import DETAILS_TO_NOTE, vehicle_summary
 from backend.models import MechanicPreparation
 from backend.services import chat, rag_client, vehicle_profiles
 
@@ -15,8 +15,11 @@ def load_context(request, user):
     questions = []
     if request.session_id:
         session = chat.authorize_session(request.session_id, request.session_token, user)
-        kind = 'vehicle' if session.get('vehicle_id') else 'category'
-        chat.enforce_vehicle(user, kind, session[kind + '_id'], session.get('user_vehicle_id'))
+        if session.get('automatic'):
+            chat.automatic_scope(session, user)
+        else:
+            kind = 'vehicle' if session.get('vehicle_id') else 'category'
+            chat.enforce_vehicle(user, kind, session[kind + '_id'], session.get('user_vehicle_id'))
         if personal_id != session.get('user_vehicle_id'):
             raise HTTPException(409, 'This conversation belongs to a different active vehicle.')
         # Assistant answers may be uncertain. They are not evidence for a diagnosis.

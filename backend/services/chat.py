@@ -40,15 +40,47 @@ def authorize_session(session_id, token, user):
     return row
 
 
+def enforce_automatic_vehicle(row, user):
+    """Enforce the saved personal-vehicle identity, including a general chat."""
+    vehicle = vehicle_profiles.active_vehicle(user)
+    personal_id = vehicle['id'] if vehicle else None
+    catalogue_id = vehicle['catalogue_id'] if vehicle else None
+    if personal_id != row.get('user_vehicle_id') or catalogue_id != row.get('vehicle_id'):
+        raise HTTPException(409, 'The active vehicle changed. Start or restore its separate conversation.')
+    return catalogue_id or 'general'
+
+
+def automatic_scope(row, user):
+    return scopes.resolve('auto', enforce_automatic_vehicle(row, user))
+
+
 def load(request, user):
     token = request.session_token
+    automatic = not request.scope_type and not request.scope_id and not request.car_model
     if request.session_id:
         row = authorize_session(request.session_id, token, user)
+        if row.get('automatic'):
+            if request.scope_type or request.scope_id:
+                raise HTTPException(409, 'Start a new chat to change conversation mode.')
+            scope = automatic_scope(row, user)
+            profile = vehicle_profiles.load(user)
+            return row, token, scope, recent_messages(row['id']), profile, personal_maintenance.load(user, profile)
         kind = "vehicle" if row.get("vehicle_id") else "category"
         identity = row[kind + "_id"]
         if (request.scope_type and request.scope_type != kind) or (request.scope_id and request.scope_id != identity):
             raise HTTPException(409, "Start a new chat to change knowledge scope.")
     else:
+        if automatic:
+            vehicle = vehicle_profiles.active_vehicle(user)
+            token = secrets.token_urlsafe(32)
+            values = {'automatic': True, 'user_id': user['id'],
+                      'user_vehicle_id': vehicle['id'] if vehicle else None,
+                      'vehicle_id': vehicle['catalogue_id'] if vehicle else None,
+                      'token_hash': hashlib.sha256(token.encode()).hexdigest()}
+            scope = automatic_scope(values, user)
+            profile = vehicle_profiles.load(user)
+            row = db.insert('chat_sessions', values)
+            return row, token, scope, [], profile, personal_maintenance.load(user, profile)
         kind, identity = request.scope_type, request.scope_id
         if not kind or not identity:
             # Old explicit vehicle clients can start a fresh scoped session;
@@ -110,10 +142,16 @@ async def send(request, user):
         current = await run_in_threadpool(scopes.resolve, scope["scope_type"], scope["scope_id"])
         if current != scope:
             raise HTTPException(409, "Knowledge associations changed. Please retry your question.")
-        await run_in_threadpool(enforce_vehicle, user, scope['scope_type'], scope['scope_id'], row.get('user_vehicle_id'))
-        from backend.services.source_assets import attachments
+        if row.get('automatic'):
+            await run_in_threadpool(enforce_automatic_vehicle, row, user)
+        else:
+            await run_in_threadpool(enforce_vehicle, user, scope['scope_type'], scope['scope_id'], row.get('user_vehicle_id'))
+        from backend.services.source_assets import attachments, resolve_manual_sources
         answer['attachments'] = await run_in_threadpool(attachments, answer.get('attachments', []), current, identity)
-        if answer['attachments']:
+        answer['sources'], answer['manual_links'] = await run_in_threadpool(
+            resolve_manual_sources, answer.get('sources', []), current, identity, user,
+            browse=answer.get('response_type') == 'insufficient_information')
+        if answer['attachments'] or answer['sources'] or answer['manual_links']:
             final_scope = await run_in_threadpool(scopes.resolve, scope['scope_type'], scope['scope_id'])
             if final_scope != scope:
                 raise HTTPException(409, 'Knowledge associations changed while resolving sources. Retry your question.')

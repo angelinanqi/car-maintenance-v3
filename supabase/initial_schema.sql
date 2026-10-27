@@ -194,6 +194,8 @@ create table public.manufacturer_schedules (
     revision integer not null default 1 check (revision > 0),
     status text not null default 'draft' check (status in ('draft', 'published', 'superseded')),
     entries jsonb not null default '[]' check (jsonb_typeof(entries) = 'array'),
+    admin_note text not null default '' check (length(admin_note) <= 4000),
+    work_context jsonb not null default '{}' check (jsonb_typeof(work_context) = 'object'),
     verified_at timestamptz,
     created_at timestamptz not null default now(),
     updated_at timestamptz not null default now(),
@@ -216,6 +218,48 @@ create table public.maintenance_assistance (
     updated_at timestamptz not null default now(),
     unique(document_id, source_revision)
 );
+
+create table public.admin_review_questions (
+    id uuid primary key default gen_random_uuid(),
+    document_id uuid not null references public.documents(id) on delete restrict,
+    source_revision uuid not null,
+    vehicle_id uuid references public.knowledge_vehicles(id) on delete restrict,
+    schedule_id uuid references public.manufacturer_schedules(id) on delete set null,
+    item_id uuid references public.maintenance_items(id) on delete restrict,
+    source_page integer check (source_page > 0),
+    title text not null check (length(trim(title)) between 1 and 300),
+    question text not null check (length(trim(question)) between 1 and 4000),
+    excerpt text not null default '' check (length(excerpt) <= 2000),
+    status text not null default 'open' check (status in ('open', 'resolved')),
+    resolution text not null default '' check (length(resolution) <= 4000),
+    version integer not null default 1 check (version > 0),
+    created_by uuid references public.app_users(id) on delete set null,
+    resolved_at timestamptz,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now(),
+    check (schedule_id is null or vehicle_id is not null),
+    check (item_id is null or vehicle_id is not null),
+    check ((status = 'resolved') = (resolved_at is not null)),
+    check (status <> 'resolved' or length(trim(resolution)) > 0)
+);
+create index admin_questions_document on public.admin_review_questions(document_id, status);
+create index admin_questions_vehicle on public.admin_review_questions(vehicle_id, status);
+
+-- Saved channel sources and resumable ingestion requests.
+create table public.youtube_channels (
+    id uuid primary key default gen_random_uuid(),
+    url text not null unique check (length(url) between 1 and 500),
+    channel_id text check (channel_id ~ '^UC[A-Za-z0-9_-]{22}$'),
+    channel_title text not null default '',
+    status text not null default 'queued' check (status in ('queued', 'syncing', 'ready', 'failed')),
+    sync_id uuid not null default gen_random_uuid(),
+    summary jsonb not null default '{}'::jsonb check (jsonb_typeof(summary) = 'object'),
+    error text,
+    last_synced_at timestamptz,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now()
+);
+create index youtube_channels_pending on public.youtube_channels(status, created_at, id);
 
 create table public.knowledge_videos (
     id uuid primary key default gen_random_uuid(),
@@ -345,11 +389,15 @@ create table public.chat_sessions (
     token_hash text not null check (token_hash ~ '^[0-9a-f]{64}$'),
     user_id uuid not null references public.app_users(id) on delete cascade,
     user_vehicle_id text,
+    automatic boolean not null default false,
     vehicle_id uuid references public.knowledge_vehicles(id) on delete restrict,
     category_id uuid references public.guide_categories(id) on delete restrict,
     created_at timestamptz not null default now(),
     updated_at timestamptz not null default now(),
-    check (num_nonnulls(vehicle_id, category_id) = 1),
+    constraint chat_sessions_context_check check (
+        (automatic and category_id is null and ((vehicle_id is null) = (user_vehicle_id is null))) or
+        (not automatic and num_nonnulls(vehicle_id, category_id) = 1)
+    ),
     -- Delete context-bound chats when their personal vehicle is deleted.
     foreign key(user_id, user_vehicle_id) references public.user_vehicles(user_id, id) on delete cascade
 );
@@ -372,9 +420,9 @@ create table public.chat_settings (
 );
 -- Configurable presets only; no demo vehicles, accounts or safety content.
 insert into public.chat_settings(id, starter_questions) values ('default', array[
-    'Understanding my service records',
-    'Finding the correct owner manual',
-    'Understanding tyre pressure labels'
+    'How do I check tyre pressure?',
+    'What should I check before a long drive?',
+    'How do I check my engine oil?'
 ]);
 
 -- Shared timestamp handling and immutable conversation identity.
@@ -388,7 +436,8 @@ $$;
 create function public.chat_scope_immutable() returns trigger
 language plpgsql set search_path = '' as $$
 begin
-    if new.vehicle_id is distinct from old.vehicle_id or new.category_id is distinct from old.category_id
+    if new.automatic is distinct from old.automatic
+        or new.vehicle_id is distinct from old.vehicle_id or new.category_id is distinct from old.category_id
         or new.user_id is distinct from old.user_id or new.user_vehicle_id is distinct from old.user_vehicle_id then
         raise exception 'Start a new chat to change owner or knowledge scope';
     end if;
@@ -456,7 +505,7 @@ begin
         'app_users', 'app_sessions', 'vehicle_manufacturers', 'vehicle_models',
         'knowledge_vehicles', 'maintenance_items', 'documents', 'guide_categories',
         'guides', 'guide_images', 'document_vehicles', 'document_categories',
-        'manufacturer_schedules', 'maintenance_assistance', 'knowledge_videos', 'emergency_playbooks',
+        'manufacturer_schedules', 'maintenance_assistance', 'admin_review_questions', 'knowledge_videos', 'youtube_channels', 'emergency_playbooks',
         'emergency_contacts', 'user_vehicles', 'user_tasks', 'service_records',
         'learning_progress', 'incident_records', 'chat_sessions', 'chat_messages', 'chat_settings'
     ] loop

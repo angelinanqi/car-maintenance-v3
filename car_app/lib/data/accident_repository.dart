@@ -13,6 +13,9 @@ class AccidentRepository {
   String get _draftFile =>
       owner == null ? 'accident_draft.json' : 'accident_draft_$owner.json';
   String get _recordsFile => 'incidents_${owner ?? 'guest'}.json';
+  String get _draftsFile => 'accident_drafts_${owner ?? 'guest'}.json';
+  String get _photoTargetFile =>
+      'accident_photo_target_${owner ?? 'guest'}.json';
   Future<void> _writes = Future.value();
   Future<void> _write(Future<void> Function() operation) {
     final result = _writes.then((_) => operation());
@@ -21,28 +24,66 @@ class AccidentRepository {
   }
 
   Future<Map<String, dynamic>> load() async {
+    final saved = await drafts();
+    return saved.isEmpty ? newDraft() : saved.first;
+  }
+
+  Map<String, dynamic> newDraft() {
+    final now = DateTime.now();
+    return {
+      'version': 1,
+      'id': now.microsecondsSinceEpoch.toString(),
+      'type': 'Road accident',
+      'location': '',
+      'occurredAt': now.toIso8601String(),
+      'name': '',
+      'plate': '',
+      'phone': '',
+      'insurer': '',
+      'details': '',
+      'photos': <String>[],
+    };
+  }
+
+  Future<List<Map<String, dynamic>>> drafts() async {
+    final manifest = await store.read(_draftsFile);
+    if (manifest != null) {
+      return (manifest['drafts'] as List)
+          .map((row) => Map<String, dynamic>.from(row as Map))
+          .toList();
+    }
+    // Import the earlier single draft without deleting its original file.
     final data = await store.read(_draftFile);
     if (data != null && data['version'] != 1) {
       throw const FormatException('Unsupported accident draft');
     }
-    return data ??
-        {
-          'version': 1,
-          'id': DateTime.now().microsecondsSinceEpoch.toString(),
-          'type': 'Road accident',
-          'location': '',
-          'occurredAt': DateTime.now().toIso8601String(),
-          'name': '',
-          'plate': '',
-          'phone': '',
-          'insurer': '',
-          'details': '',
-          'photos': <String>[],
-        };
+    return data == null ? [] : [data];
   }
 
-  Future<void> save(Map<String, dynamic> draft) =>
-      _write(() => store.write(_draftFile, draft));
+  Future<void> save(Map<String, dynamic> draft) => _write(() async {
+    final rows = await drafts();
+    rows.removeWhere((row) => row['id'] == draft['id']);
+    rows.insert(0, {
+      ...draft,
+      'updatedAt': DateTime.now().toUtc().toIso8601String(),
+    });
+    await store.write(_draftsFile, {'drafts': rows});
+  });
+
+  Future<void> completeDraft(Map<String, dynamic> draft) => _write(() async {
+    // Save history first. If removing the draft fails, the saved form is safe.
+    await _saveRecord(draft);
+    final rows = await drafts();
+    rows.removeWhere((row) => row['id'] == draft['id']);
+    await store.write(_draftsFile, {'drafts': rows});
+  });
+
+  Future<void> discardDraft(String id) => _write(() async {
+    final rows = await drafts();
+    rows.removeWhere((row) => row['id'] == id);
+    await store.write(_draftsFile, {'drafts': rows});
+    // Photos may also be referenced by saved forms; retain their files.
+  });
 
   Future<List<Map<String, dynamic>>> records() async {
     final data = await store.read(_recordsFile);
@@ -55,10 +96,18 @@ class AccidentRepository {
       );
   }
 
-  Future<void> saveRecord(Map<String, dynamic> record) => _write(() async {
+  Future<void> saveRecord(Map<String, dynamic> record) =>
+      _write(() => _saveRecord(record));
+
+  Future<void> _saveRecord(Map<String, dynamic> record) async {
     final rows = await records();
     final id = record['id'] as String;
+    Map<String, dynamic>? previous;
+    for (final row in rows) {
+      if (row['id'] == id) previous = row;
+    }
     final next = {
+      ...?previous,
       ...record,
       'updatedAt': DateTime.now().toUtc().toIso8601String(),
       'pendingSync': true,
@@ -66,7 +115,8 @@ class AccidentRepository {
     rows.removeWhere((r) => r['id'] == id);
     rows.add(next);
     await store.write(_recordsFile, {'records': rows});
-  });
+  }
+
   Future<bool> backupEnabled() async =>
       owner != null &&
       (await store.read('incident_backup_$owner.json'))?['enabled'] == true;
@@ -157,17 +207,32 @@ class AccidentRepository {
     return image == null ? null : store.savePhoto(image.path);
   }
 
+  Future<void> rememberPhotoTarget(String id, {required bool savedRecord}) =>
+      store.write(_photoTargetFile, {'id': id, 'savedRecord': savedRecord});
+
+  Future<void> clearPhotoTarget() => store.write(_photoTargetFile, {});
+
   Future<void> recoverLostPhotos() async {
     if (!Platform.isAndroid) return;
     final recovered = await picker.retrieveLostData();
     if (recovered.exception != null) throw recovered.exception!;
     if (recovered.files == null || recovered.files!.isEmpty) return;
-    final draft = await load();
+    final target = await store.read(_photoTargetFile);
+    final savedRecord = target?['savedRecord'] == true;
+    final rows = savedRecord ? await records() : await drafts();
+    final matches = rows.where((row) => row['id'] == target?['id']).toList();
+    // Old app versions did not save a picker target; recover into the latest draft.
+    final draft = matches.isNotEmpty ? matches.first : await load();
     final photos = (draft['photos'] as List).cast<String>().toList();
     for (final image in recovered.files!) {
       if (photos.length >= 6) break;
       photos.add(await store.savePhoto(image.path));
     }
-    await save({...draft, 'photos': photos});
+    if (savedRecord && matches.isNotEmpty) {
+      await saveRecord({...draft, 'photos': photos});
+    } else {
+      await save({...draft, 'photos': photos});
+    }
+    await clearPhotoTarget();
   }
 }

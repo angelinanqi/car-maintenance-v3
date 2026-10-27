@@ -25,7 +25,7 @@ class _EmergencyDownloadsState extends State<EmergencyDownloads> {
     _guides = widget.guides;
   }
 
-  Future<void> _change(EmergencyGuide? guide, {bool remove = false}) async {
+  Future<void> _change(EmergencyGuide? guide) async {
     setState(() {
       _busy = true;
       _message = null;
@@ -33,9 +33,6 @@ class _EmergencyDownloadsState extends State<EmergencyDownloads> {
     try {
       List<EmergencyGuide> result;
       if (guide == null) {
-        result = await widget.content.refreshEmergency();
-      } else if (remove) {
-        await widget.content.removeOfflineGuide(guide.id);
         result = await widget.content.refreshEmergency();
       } else {
         result = await widget.content.saveOfflineGuide(guide.id);
@@ -45,9 +42,7 @@ class _EmergencyDownloadsState extends State<EmergencyDownloads> {
           _guides = result;
           _message = widget.content.warning == null
               ? (guide == null
-                    ? 'Guide catalogue refreshed.'
-                    : remove
-                    ? 'Downloaded copy removed. Bundled guidance is kept.'
+                    ? 'Published guides synced and saved for offline use.'
                     : 'Guide and illustrations saved on this device.')
               : 'Could not refresh all content. Available local guidance has been kept. Retry when connected.';
         });
@@ -73,7 +68,7 @@ class _EmergencyDownloadsState extends State<EmergencyDownloads> {
         const EmergencyNotice(
           title: 'Keep guidance on your phone',
           message:
-              'Bundled safety guides are always included. Download published guides and their illustrations while connected.',
+              'Published guides and their illustrations download automatically while connected. Open the app online once before relying on offline guidance.',
         ),
         const SizedBox(height: 16),
         OutlinedButton.icon(
@@ -98,8 +93,6 @@ class _EmergencyDownloadsState extends State<EmergencyDownloads> {
           Text(
             !guide.available
                 ? 'Instructions unavailable; review required'
-                : guide.bundled
-                ? 'Included with the app · available offline'
                 : guide.savedOffline
                 ? 'Saved on this device'
                 : 'Internet needed until downloaded',
@@ -120,13 +113,6 @@ class _EmergencyDownloadsState extends State<EmergencyDownloads> {
                         : 'Save offline',
                   ),
                 ),
-                if (guide.savedOffline)
-                  TextButton(
-                    onPressed: _busy
-                        ? null
-                        : () => _change(guide, remove: true),
-                    child: const Text('Remove offline copy'),
-                  ),
               ],
             ),
         ],

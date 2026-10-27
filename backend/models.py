@@ -2,25 +2,14 @@ from datetime import date, datetime
 from typing import Literal
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from backend.settings import CHAT_MAX_MESSAGE_LENGTH, CHAT_HISTORY_LIMIT
+from shared.models import InputModel, MechanicQuestionDraft
 
 Vehicle = str
 DocumentType = Literal["owners_manual", "maintenance_booklet", "service_manual", "other_reference"]
 DocumentStatus = Literal["uploaded", "processing", "awaiting_index", "processed", "failed"]
-
-
-class InputModel(BaseModel):
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
-
-
-class MechanicQuestion(InputModel):
-    question: str = Field(min_length=1, max_length=300)
-    reason: str = Field(min_length=1, max_length=300)
-
-
-class MechanicQuestionDraft(InputModel):
-    concern_summary: str = Field(min_length=1, max_length=600)
-    questions: list[MechanicQuestion] = Field(min_length=3, max_length=5)
 
 
 class MechanicPreparationRequest(InputModel):
@@ -34,67 +23,6 @@ class MechanicPreparation(MechanicQuestionDraft):
     vehicle_summary: str
     details_to_note: list[str]
     tailored: bool = False
-
-
-class PersonalVehicleProfile(InputModel):
-    """Private, database-loaded context; never accepted from a mobile client."""
-    vehicle_id: str = Field(min_length=1, max_length=200)
-    catalogue_id: UUID
-    name: str = Field(max_length=200)
-    plate_number: str = Field(max_length=40)
-    mileage_km: int = Field(ge=0, le=2147483647)
-    catalogue_name: str
-    manufacturer: str | None = None
-    model: str | None = None
-    year: str
-    engine: str
-    variant: str
-    powertrain: Literal['petrol', 'diesel']
-    updated_at: datetime
-
-
-class SavedMaintenanceService(InputModel):
-    title: str
-    date: datetime
-    mileage_km: int = Field(ge=0)
-
-
-class MaintenanceStatus(InputModel):
-    label: str
-    nextKm: int | None = None
-    remainingKm: int | None = None
-    nextDate: date | None = None
-
-
-class MaintenanceTaskSummary(InputModel):
-    task_id: str
-    title: str
-    category: str
-    action: Literal['inspect', 'replace', 'service']
-    schedule_source: Literal['none', 'custom', 'manufacturer']
-    status: MaintenanceStatus
-    latest_service: SavedMaintenanceService | None = None
-
-
-class PersonalMaintenanceContext(InputModel):
-    """Private server-loaded evidence; never part of the public chat input."""
-    vehicle_id: str
-    catalogue_id: UUID
-    as_of: date
-    total_tasks: int = Field(ge=0)
-    tasks: list[MaintenanceTaskSummary] = Field(default_factory=list, max_length=50)
-    total_standalone_services: int = Field(ge=0)
-    standalone_services: list[SavedMaintenanceService] = Field(default_factory=list, max_length=50)
-
-
-class SourceAttachmentReference(BaseModel):
-    """Private RAG descriptors; display content is resolved by the backend."""
-    model_config = ConfigDict(extra='forbid')
-    kind: Literal['table', 'image']
-    element_id: str = Field(pattern=r'^(table|image)-\d{5,}$', max_length=80)
-    document_id: UUID
-    source_revision: UUID
-    source_fidelity_verified: bool = False
 
 
 class DocumentEdit(InputModel):
@@ -339,3 +267,55 @@ class Dashboard(BaseModel):
     playbooks: int
     steps: int
     contacts: int
+
+
+class ChatMessage(InputModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=CHAT_MAX_MESSAGE_LENGTH)
+
+
+class ChatRequest(InputModel):
+    message: str = Field(min_length=1, max_length=CHAT_MAX_MESSAGE_LENGTH)
+    car_model: str | None = None
+    conversation: list[ChatMessage] = Field(default_factory=list, max_length=CHAT_HISTORY_LIMIT)
+    scope_type: Literal["vehicle", "category"] | None = None
+    scope_id: str | None = None
+    session_id: str | None = Field(default=None, max_length=36)
+    session_token: str | None = Field(default=None, max_length=128)
+
+    @model_validator(mode='after')
+    def paired_scope(self):
+        if bool(self.scope_type) != bool(self.scope_id):
+            raise ValueError('Supply both scope_type and scope_id, or omit both for automatic chat.')
+        return self
+
+
+class Rule(InputModel):
+    type: Literal["recurring", "milestone", "informational"] = "recurring"
+    distanceKm: int | None = Field(default=None, gt=0)
+    months: int | None = Field(default=None, gt=0)
+    distanceMilestones: list[int] = Field(default_factory=list)
+    monthMilestones: list[int] = Field(default_factory=list)
+    vehicleStartDate: date | None = None
+    conditions: str = ""
+    notes: str = ""
+    sourceDocumentId: UUID | None = None
+    sourcePage: int | None = Field(default=None, gt=0)
+    sourceRevision: UUID | None = None
+    sourceTableId: str | None = Field(default=None, max_length=80)
+    sourceSuggestionId: str | None = Field(default=None, max_length=120)
+
+    @model_validator(mode="after")
+    def check_structure(self):
+        for values in (self.distanceMilestones, self.monthMilestones):
+            if any(value <= 0 for value in values) or values != sorted(set(values)):
+                raise ValueError("Milestones must be unique positive numbers in ascending order")
+        if self.type != "recurring" and (self.distanceKm or self.months):
+            raise ValueError("Only recurring rules may contain intervals")
+        if self.type != "milestone" and (self.distanceMilestones or self.monthMilestones):
+            raise ValueError("Only milestone rules may contain milestones")
+        if (self.sourceTableId or self.sourceSuggestionId) and not (self.sourceDocumentId and self.sourceRevision):
+            raise ValueError("Assisted source references require a document and revision")
+        if self.sourceSuggestionId and not self.sourceTableId:
+            raise ValueError("A source suggestion requires its table reference")
+        return self

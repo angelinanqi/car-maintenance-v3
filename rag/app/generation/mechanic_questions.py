@@ -2,8 +2,8 @@
 import json
 import logging
 
-from backend.mechanic_questions import general_questions
-from backend.models import MechanicQuestionDraft
+from shared.mechanic_questions import general_questions
+from shared.models import MechanicQuestionDraft
 from rag.app.generation.provider import GenerationClient
 from rag.app.safety import policy_risk
 

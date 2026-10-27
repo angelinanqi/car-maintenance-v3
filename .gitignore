@@ -28,7 +28,7 @@ dist/
 
 # Generated runtime data; never remove from a deployed installation
 output/
-data/
+/data/
 *.log
 *.pid
 
@@ -45,3 +45,7 @@ htmlcov/
 *.swp
 tempCodeRunnerFile.py
 
+gemini-api-key.json
+
+# archive of files excluded from the production repository
+/dumpster/

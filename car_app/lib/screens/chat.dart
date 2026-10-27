@@ -1,12 +1,11 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import '../app_state.dart';
 import '../data/chat_repository.dart';
 import '../data/api_client.dart';
 import '../data/content_repository.dart';
 import '../models/chat_message.dart';
-import '../models/mechanic_preparation.dart';
 import 'mechanic_preparation.dart';
+import 'vehicle_profile.dart';
 import '../widgets/vehicle_selector.dart';
 import '../widgets/sign_in_prompt.dart';
 import '../widgets/chat_message_view.dart';
@@ -41,22 +40,18 @@ class _ChatState extends State<Chat> {
   final _inputFocus = FocusNode();
   final List<ChatMessage> _messages = [];
   String? _vehicleId;
-  String? _scope;
   String? _topic;
   String? _error;
   ChatRequest? _failedRequest;
+  ChatRequest? _inFlightRequest;
   bool _pending = false;
   int _generation = 0;
-  List<Map<String, dynamic>> _knowledgeScopes = [];
-  Map<String, dynamic>? _knowledgeScope;
   String? _sessionId;
   String? _sessionToken;
   String? _accountId;
   Map<String, dynamic>? _contextData;
   final Map<String, Map<String, dynamic>> _conversations = {};
   String _conversationKey = '';
-  bool _scopesLoading = false;
-  String? _scopeError;
   bool _showLatest = false;
   List<String> _starterQuestions = [];
 
@@ -64,63 +59,19 @@ class _ChatState extends State<Chat> {
   void initState() {
     super.initState();
     _vehicleId = widget.state.selectedVehicle?.id;
-    _scope = widget.state.selectedVehicle?.effectiveScope ?? 'general';
     _accountId = widget.state.accountId;
     _contextData = widget.contextData;
+    _scroll.addListener(_scrollChanged);
+    _switchConversation();
     _topic = widget.topic;
     _text.text = widget.prompt ?? '';
-    _scroll.addListener(_scrollChanged);
-    _loadScopes();
+    _loadStarterQuestions();
   }
 
   void _scrollChanged() {
     if (!_scroll.hasClients) return;
     final show = _scroll.position.extentAfter > 240;
     if (show != _showLatest) setState(() => _showLatest = show);
-  }
-
-  Future<void> _loadScopes() async {
-    unawaited(_loadStarterQuestions());
-    if (widget.repository is! FastApiChatRepository) return;
-    setState(() {
-      _scopesLoading = true;
-      _scopeError = null;
-    });
-    try {
-      final repository = widget.repository as FastApiChatRepository;
-      final scopes = await repository.api.getList('/knowledge/scopes');
-      if (!mounted) return;
-      setState(() {
-        _knowledgeScopes = scopes;
-        if (_knowledgeScope != null) {
-          final matches = scopes.where(
-            (s) =>
-                s['scope_id'] == _knowledgeScope!['scope_id'] &&
-                s['scope_type'] == _knowledgeScope!['scope_type'] &&
-                s['available'] == true,
-          );
-          if (matches.isEmpty) {
-            _knowledgeScope = null;
-          }
-        }
-        if (_knowledgeScope == null) {
-          final draft = _text.text;
-          final topic = _topic;
-          _selectActiveScope();
-          if (_text.text.isEmpty) _text.text = draft;
-          _topic ??= topic;
-        }
-      });
-    } catch (_) {
-      if (mounted) {
-        setState(
-          () => _scopeError =
-              'Sources could not refresh. Check your connection and try again.',
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _scopesLoading = false);
-    }
   }
 
   Future<void> _loadStarterQuestions() async {
@@ -133,7 +84,7 @@ class _ChatState extends State<Chat> {
       final cached = await content.chatStarters();
       if (mounted) setState(() => _starterQuestions = cached);
     } catch (_) {
-      // A corrupt local preference must not block source selection or chat.
+      // A corrupt local preference must not block chat.
     }
     if (content.api == null) return;
     try {
@@ -144,25 +95,15 @@ class _ChatState extends State<Chat> {
     }
   }
 
-  void _selectActiveScope() {
-    final vehicle = widget.state.selectedVehicle;
-    final matches = _knowledgeScopes.where(
-      (s) =>
-          s['available'] == true &&
-          (vehicle != null
-              ? s['scope_type'] == 'vehicle' &&
-                    s['scope_id'] == vehicle.knowledgeScopeId
-              : _contextData?['categoryId'] != null &&
-                    s['scope_type'] == 'category' &&
-                    s['scope_id'] == _contextData!['categoryId']),
-    );
-    _switchScope(matches.isEmpty ? null : matches.first);
-  }
-
-  void _switchScope(Map<String, dynamic>? scope) {
+  void _switchConversation() {
+    final key = '${widget.state.accountId}:${widget.state.selectedVehicle?.id}';
+    if (key == _conversationKey) return;
     if (_pending) {
       _generation++;
       _pending = false;
+      _failedRequest = _inFlightRequest;
+      _error =
+          'The vehicle changed before this reply arrived. Retry your question to continue.';
     }
     if (_conversationKey.isNotEmpty) {
       _conversations[_conversationKey] = {
@@ -176,10 +117,7 @@ class _ChatState extends State<Chat> {
         'topic': _topic,
       };
     }
-    final key =
-        '${widget.state.accountId}:${widget.state.selectedVehicle?.id}:${scope?['scope_type']}:${scope?['scope_id']}:${_contextData?['kind']}:${_contextData?['id']}';
     _clear();
-    _knowledgeScope = scope;
     _conversationKey = key;
     _topic = _contextData?['title'] as String?;
     _text.clear();
@@ -205,26 +143,23 @@ class _ChatState extends State<Chat> {
   void didUpdateWidget(Chat oldWidget) {
     super.didUpdateWidget(oldWidget);
     final selected = widget.state.selectedVehicle?.id;
-    final scope = widget.state.selectedVehicle?.effectiveScope ?? 'general';
     if (_accountId != widget.state.accountId) {
       _accountId = widget.state.accountId;
       _conversations.clear();
       _conversationKey = '';
-      _knowledgeScope = null;
       _contextData = null;
       _clear();
       _text.clear();
-      _selectActiveScope();
+      _switchConversation();
     }
-    if (selected != _vehicleId || scope != _scope) {
-      if (_contextData?['kind'] == 'Maintenance item') _contextData = null;
+    if (selected != _vehicleId) {
+      _contextData = null;
       _vehicleId = selected;
-      _scope = scope;
-      _selectActiveScope();
+      _switchConversation();
     }
     if (widget.requestNumber != oldWidget.requestNumber) {
       _contextData = widget.contextData;
-      _selectActiveScope();
+      _switchConversation();
       _topic = widget.topic;
       _text.text = widget.prompt ?? '';
     }
@@ -245,6 +180,7 @@ class _ChatState extends State<Chat> {
     _pending = false;
     _error = null;
     _failedRequest = null;
+    _inFlightRequest = null;
     _topic = null;
     _sessionId = null;
     _sessionToken = null;
@@ -294,13 +230,6 @@ class _ChatState extends State<Chat> {
       );
       return;
     }
-    if (_knowledgeScope == null) {
-      setState(
-        () => _error =
-            'Choose an available vehicle manual or published category in Conversation settings.',
-      );
-      return;
-    }
     final text = _text.text.trim();
     if (retry == null && text.isEmpty) return;
     final limit = widget.repository is FastApiChatRepository
@@ -316,8 +245,6 @@ class _ChatState extends State<Chat> {
           message: text,
           vehicle: widget.state.selectedVehicle,
           context: _contextData,
-          scopeType: _knowledgeScope?['scope_type'] as String?,
-          scopeId: _knowledgeScope?['scope_id'] as String?,
           sessionId: _sessionId,
           sessionToken: _sessionToken,
         );
@@ -335,6 +262,7 @@ class _ChatState extends State<Chat> {
         _text.clear();
       }
       _pending = true;
+      _inFlightRequest = request;
       _error = null;
       _failedRequest = null;
     });
@@ -349,6 +277,9 @@ class _ChatState extends State<Chat> {
       setState(() {
         _sessionId = reply.sessionId;
         _sessionToken = reply.sessionToken;
+        // A lesson/item link supplies context for its initial question only.
+        // Later questions resolve their topic from the conversation itself.
+        _contextData = null;
         final answer = ChatMessage(
           text: reply.text,
           isUser: false,
@@ -364,163 +295,66 @@ class _ChatState extends State<Chat> {
         _error = error is ApiException && error.statusCode == 503
             ? 'The AI service is temporarily unavailable. Your question is kept here; try again shortly.'
             : error is ApiException && [401, 403].contains(error.statusCode)
-            ? 'Your account or source access has changed. Sign in again or choose an available source. Your question is kept here.'
+            ? 'Your account access has changed. Sign in again to continue. Your question is kept here.'
             : 'The answer could not be loaded. Check your connection and try again. Your question is kept here.';
         _failedRequest = request;
       });
     } finally {
       if (mounted && generation == _generation) {
-        setState(() => _pending = false);
+        setState(() {
+          _pending = false;
+          _inFlightRequest = null;
+        });
       }
     }
   }
 
-  Future<void> _settings() async {
+  Future<void> _chooseVehicle() async {
     FocusManager.instance.primaryFocus?.unfocus();
     await showModalBottomSheet<void>(
       context: context,
-      isScrollControlled: true,
       useSafeArea: true,
-      builder: (sheetContext) => FractionallySizedBox(
-        heightFactor: 0.9,
-        child: StatefulBuilder(
-          builder: (context, updateSheet) => ListenableBuilder(
+      isScrollControlled: true,
+      builder: (context) => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+        child: SingleChildScrollView(
+          child: ListenableBuilder(
             listenable: widget.state,
             builder: (context, _) => Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 0, 8, 8),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          'Conversation settings',
-                          style: Theme.of(context).textTheme.titleLarge,
-                        ),
-                      ),
-                      IconButton(
-                        tooltip: 'Close conversation settings',
-                        onPressed: () => Navigator.pop(sheetContext),
-                        icon: const Icon(Icons.close),
-                      ),
-                    ],
-                  ),
+                Text(
+                  'Your vehicle',
+                  style: Theme.of(context).textTheme.titleLarge,
                 ),
-                Expanded(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.only(bottom: 24),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        VehicleSelector(state: widget.state),
-                        const Padding(
-                          padding: EdgeInsets.fromLTRB(20, 8, 20, 16),
-                          child: Text(
-                            'Your active vehicle supplies saved vehicle details, service records and calculated maintenance status. Choose published reference material below.',
-                          ),
+                const SizedBox(height: 12),
+                VehicleSelector(state: widget.state),
+                const SizedBox(height: 12),
+                const Text(
+                  'Questions use the selected vehicle details and maintenance. Each vehicle keeps a separate conversation during this visit.',
+                ),
+                if (widget.state.vehicles.isEmpty) ...[
+                  const SizedBox(height: 16),
+                  FilledButton.icon(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      Navigator.push(
+                        this.context,
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              VehicleProfilePage(state: widget.state),
                         ),
-                        if (_scopesLoading)
-                          const LinearProgressIndicator(
-                            semanticsLabel: 'Loading knowledge sources',
-                          ),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 20),
-                          child: DropdownButtonFormField<String>(
-                            initialValue: _knowledgeScope == null
-                                ? null
-                                : '${_knowledgeScope!['scope_type']}:${_knowledgeScope!['scope_id']}',
-                            key: ValueKey(
-                              '${_knowledgeScope?['scope_type']}:${_knowledgeScope?['scope_id']}',
-                            ),
-                            decoration: const InputDecoration(
-                              labelText: 'Knowledge source',
-                            ),
-                            items: _knowledgeScopes
-                                .where(
-                                  (s) =>
-                                      s['scope_type'] == 'category' ||
-                                      s['scope_id'] ==
-                                          widget
-                                              .state
-                                              .selectedVehicle
-                                              ?.knowledgeScopeId,
-                                )
-                                .map(
-                                  (s) => DropdownMenuItem<String>(
-                                    value:
-                                        '${s['scope_type']}:${s['scope_id']}',
-                                    enabled: s['available'] == true,
-                                    child: Text(
-                                      '${s['label']}${s['available'] == true ? '' : ' (unavailable)'}',
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                )
-                                .toList(),
-                            isExpanded: true,
-                            onChanged: _pending
-                                ? null
-                                : (value) {
-                                    setState(
-                                      () => _switchScope(
-                                        _knowledgeScopes.firstWhere(
-                                          (s) =>
-                                              '${s['scope_type']}:${s['scope_id']}' ==
-                                              value,
-                                        ),
-                                      ),
-                                    );
-                                    updateSheet(() {});
-                                  },
-                          ),
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-                          child: Text(
-                            _knowledgeScope == null
-                                ? 'No source selected. Choose an available vehicle manual or published category to ask a question.'
-                                : 'Each source has its own conversation. Switching back restores its messages during this visit.',
-                          ),
-                        ),
-                        if (_scopeError != null)
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
-                            child: Text(
-                              _scopeError!,
-                              style: TextStyle(
-                                color: Theme.of(context).colorScheme.error,
-                              ),
-                            ),
-                          ),
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: TextButton.icon(
-                            onPressed: _pending || _scopesLoading
-                                ? null
-                                : () async {
-                                    final future = _loadScopes();
-                                    updateSheet(() {});
-                                    await future;
-                                    if (sheetContext.mounted) {
-                                      updateSheet(() {});
-                                    }
-                                  },
-                            icon: const Icon(Icons.refresh),
-                            label: const Text('Refresh knowledge sources'),
-                          ),
-                        ),
-                        if (_topic != null)
-                          Padding(
-                            padding: const EdgeInsets.all(20),
-                            child: Text('Topic: $_topic'),
-                          ),
-                        const Padding(
-                          padding: EdgeInsets.fromLTRB(20, 12, 20, 0),
-                          child: Text(aiReferenceNotice),
-                        ),
-                      ],
-                    ),
+                      );
+                    },
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add vehicle'),
                   ),
+                ],
+                const SizedBox(height: 12),
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Done'),
                 ),
               ],
             ),
@@ -538,7 +372,7 @@ class _ChatState extends State<Chat> {
         builder: (context) => AlertDialog(
           title: const Text('Start a new conversation?'),
           content: const Text(
-            'This clears the messages for the current source. Other conversations are kept during this visit.',
+            'This clears the current conversation. Conversations for other vehicles are kept during this visit.',
           ),
           actions: [
             TextButton(
@@ -560,72 +394,57 @@ class _ChatState extends State<Chat> {
       _clear();
       _text.clear();
       _contextData = null;
-      _selectActiveScope();
+      _switchConversation();
     });
     _scrollDown();
   }
 
+  List<String> _suggestions() {
+    final vehicle = widget.state.selectedVehicle;
+    final suggestions = <String>[];
+    if (vehicle != null && widget.state.tasksFor(vehicle.id).isNotEmpty) {
+      suggestions.add('What maintenance is due?');
+    } else if (vehicle != null &&
+        widget.state.recordsFor(vehicle.id).isNotEmpty) {
+      suggestions.add('Summarise my recent services.');
+    }
+    for (final prompt in _starterQuestions) {
+      final value = prompt.trim();
+      if (value.isNotEmpty &&
+          value.length <= 100 &&
+          !suggestions.any((s) => s.toLowerCase() == value.toLowerCase())) {
+        suggestions.add(value);
+      }
+      if (suggestions.length == 3) break;
+    }
+    return suggestions;
+  }
+
   Widget _introduction() => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 24),
+    padding: const EdgeInsets.only(top: 32, bottom: 24),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'A car question? Start here.',
+          'What’s on your mind?',
           style: Theme.of(context).textTheme.headlineSmall,
         ),
         const SizedBox(height: 12),
         const Text(
-          'Describe what you noticed, or ask about a word in your manual. Everyday language is fine.',
+          'A warning light, a service record, a word in your manual. Ask in your own words.',
         ),
-        if (widget.state.selectedVehicle != null) ...[
-          const SizedBox(height: 28),
-          Text(
-            'Your maintenance',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'Ask about ${widget.state.selectedVehicle!.name}. Saved service records and due status are loaded with each reply.',
-            style: Theme.of(context).textTheme.bodyMedium,
-          ),
-          const SizedBox(height: 8),
-          for (final prompt in const [
-            'What maintenance is due next?',
-            'When did I last change my engine oil?',
-            'What is due next and how do I check it?',
-          ])
-            Align(
-              alignment: Alignment.centerLeft,
-              child: TextButton.icon(
-                style: TextButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 12),
-                  alignment: Alignment.centerLeft,
-                ),
-                onPressed: _pending || _knowledgeScope == null
-                    ? null
-                    : () {
-                        _text.text = prompt;
-                        _inputFocus.requestFocus();
-                      },
-                icon: const Icon(Icons.north_west, size: 18),
-                label: Text(prompt),
-              ),
-            ),
-        ],
-        const SizedBox(height: 20),
-        Text(aiReferenceNotice, style: Theme.of(context).textTheme.bodySmall),
         const SizedBox(height: 24),
-        if (_starterQuestions.isNotEmpty)
-          Text(
-            'More questions',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-        if (_starterQuestions.isNotEmpty) const SizedBox(height: 8),
-        for (final prompt in _starterQuestions)
+        for (final prompt in _suggestions())
           Align(
             alignment: Alignment.centerLeft,
             child: TextButton.icon(
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 4,
+                  vertical: 12,
+                ),
+                alignment: Alignment.centerLeft,
+              ),
               onPressed: _pending
                   ? null
                   : () {
@@ -636,6 +455,11 @@ class _ChatState extends State<Chat> {
               label: Text(prompt),
             ),
           ),
+        const SizedBox(height: 24),
+        Text(
+          'AI guidance can be incomplete. Confirm repairs and specifications with a qualified mechanic.',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
       ],
     ),
   );
@@ -643,20 +467,6 @@ class _ChatState extends State<Chat> {
   Widget _feedback() => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
-      if (_scopeError != null || (!_scopesLoading && _knowledgeScope == null))
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(_scopeError ?? 'Choose a published source before sending.'),
-              TextButton(
-                onPressed: _settings,
-                child: const Text('Choose source'),
-              ),
-            ],
-          ),
-        ),
       if (_pending)
         Semantics(
           liveRegion: true,
@@ -670,11 +480,7 @@ class _ChatState extends State<Chat> {
                   child: CircularProgressIndicator(strokeWidth: 2),
                 ),
                 SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    'Looking through your selected sources…\nSome answers take a little longer.',
-                  ),
-                ),
+                Expanded(child: Text('Checking your sources…')),
               ],
             ),
           ),
@@ -716,8 +522,10 @@ class _ChatState extends State<Chat> {
     final theme = Theme.of(context);
     final signedIn = widget.state.signedIn;
     return Scaffold(
+      backgroundColor: theme.colorScheme.surface,
       appBar: AppBar(
-        title: const Text('Ask AI'),
+        backgroundColor: theme.colorScheme.surface,
+        title: const Text('Assistant'),
         actions: [
           if (signedIn && widget.repository is FastApiChatRepository)
             IconButton(
@@ -752,22 +560,35 @@ class _ChatState extends State<Chat> {
                           color: theme.colorScheme.surface,
                           child: ListTile(
                             dense: true,
-                            leading: const Icon(Icons.tune),
-                            title: const Text('Conversation settings'),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 20,
+                            ),
+                            leading: Icon(
+                              Icons.directions_car_outlined,
+                              color: theme.colorScheme.primary,
+                            ),
+                            title: Text(
+                              widget.state.selectedVehicle?.name ??
+                                  'General car questions',
+                              style: theme.textTheme.titleSmall,
+                            ),
                             subtitle: constraints.maxHeight < 500
                                 ? null
                                 : Text(
-                                    _scopesLoading
-                                        ? 'Loading sources…'
-                                        : _topic ??
-                                              _knowledgeScope?['label']
-                                                  as String? ??
-                                              'Choose a source to get started',
+                                    widget.state.selectedVehicle == null
+                                        ? 'Add a vehicle for personalised help'
+                                        : widget
+                                              .state
+                                              .selectedVehicle!
+                                              .plateNumber
+                                              .isEmpty
+                                        ? 'Saved details and relevant references'
+                                        : '${widget.state.selectedVehicle!.plateNumber} · Change vehicle',
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                   ),
-                            trailing: const Icon(Icons.chevron_right),
-                            onTap: _settings,
+                            trailing: const Icon(Icons.expand_more, size: 20),
+                            onTap: _pending ? null : _chooseVehicle,
                           ),
                         ),
                         Expanded(
@@ -800,7 +621,10 @@ class _ChatState extends State<Chat> {
                                             source['source_type'] ==
                                                 'personal_maintenance' &&
                                             source['vehicle_id'] ==
-                                                widget.state.selectedVehicle?.id,
+                                                widget
+                                                    .state
+                                                    .selectedVehicle
+                                                    ?.id,
                                       ) ??
                                       false;
                                   return ChatMessageView(
@@ -853,8 +677,7 @@ class _ChatState extends State<Chat> {
                                     textInputAction: TextInputAction.send,
                                     onSubmitted: (_) => _send(),
                                     decoration: const InputDecoration(
-                                      labelText: 'Your question',
-                                      hintText: 'Ask a question',
+                                      hintText: 'Ask about your car…',
                                       hintMaxLines: 1,
                                     ),
                                   ),
@@ -871,7 +694,6 @@ class _ChatState extends State<Chat> {
                                         tooltip: 'Send question',
                                         onPressed:
                                             _pending ||
-                                                _knowledgeScope == null ||
                                                 _failedRequest != null ||
                                                 value.text.trim().isEmpty
                                             ? null

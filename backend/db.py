@@ -1,6 +1,8 @@
 """Server-only Supabase access. No credentials are exposed to the browser."""
 from functools import lru_cache
+from math import ceil
 
+import httpx
 from fastapi import HTTPException
 from supabase import create_client
 from supabase.client import ClientOptions
@@ -17,7 +19,8 @@ def client():
         options=ClientOptions(
             auto_refresh_token=False, persist_session=False,
             postgrest_client_timeout=settings.SUPABASE_TIMEOUT,
-            storage_client_timeout=settings.SUPABASE_TIMEOUT,
+            storage_client_timeout=ceil(settings.SUPABASE_TIMEOUT),
+            httpx_client=httpx.Client(http2=True, timeout=settings.SUPABASE_TIMEOUT),
         ),
     )
 

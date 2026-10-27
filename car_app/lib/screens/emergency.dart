@@ -5,7 +5,7 @@ import '../data/content_repository.dart';
 import '../data/accident_repository.dart';
 import '../models/content.dart';
 import '../widgets/emergency_widgets.dart';
-import 'accident_form.dart';
+import 'accident_reports.dart';
 import 'incident_history.dart';
 import 'emergency_guide.dart';
 import 'emergency_help.dart';
@@ -20,7 +20,7 @@ class Emergency extends StatefulWidget {
   State<Emergency> createState() => _EmergencyState();
 }
 
-class _EmergencyState extends State<Emergency> {
+class _EmergencyState extends State<Emergency> with WidgetsBindingObserver {
   late final ContentRepository _content;
   late AccidentRepository _accidents;
   String? _owner;
@@ -36,6 +36,7 @@ class _EmergencyState extends State<Emergency> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _content = widget.repository ?? ContentRepository(widget.state.store);
     _owner = widget.state.emergencyOwnerId ?? widget.state.accountId;
     _accidents = AccidentRepository(
@@ -74,8 +75,14 @@ class _EmergencyState extends State<Emergency> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _syncTimer?.cancel();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _refresh();
   }
 
   Future<void> _sync() async {
@@ -188,6 +195,13 @@ class _EmergencyState extends State<Emergency> {
 
   void _help() => openEmergencyHelp(context, widget.state, _content);
 
+  void _openAccidentForm() => Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (_) => AccidentReports(repository: _accidents, onHelp: _help),
+    ),
+  );
+
   void _openGuide(EmergencyGuide guide) => Navigator.push(
     context,
     MaterialPageRoute(
@@ -214,74 +228,6 @@ class _EmergencyState extends State<Emergency> {
     if (mounted) setState(() => _guides = guides);
   }
 
-  Future<void> _startIncident() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Start a new incident?'),
-        content: const Text(
-          'Your current draft will be kept in incident history before a new draft starts.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Start new incident'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
-    try {
-      final old = await _accidents.load();
-      if ([
-            'details',
-            'name',
-            'plate',
-            'phone',
-            'insurer',
-            'location',
-          ].any((key) => (old[key] as String? ?? '').isNotEmpty) ||
-          (old['photos'] as List).isNotEmpty) {
-        await _accidents.saveRecord(old);
-      }
-      await _accidents.save({
-        'version': 1,
-        'id': DateTime.now().microsecondsSinceEpoch.toString(),
-        'name': '',
-        'plate': '',
-        'phone': '',
-        'insurer': '',
-        'details': '',
-        'photos': <String>[],
-        'type': 'Road accident',
-        'location': '',
-        'occurredAt': DateTime.now().toIso8601String(),
-      });
-      if (mounted) {
-        await Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => AccidentForm(repository: _accidents, onHelp: _help),
-          ),
-        );
-      }
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Could not start a new incident. Your saved files have been kept. Please retry.',
-            ),
-          ),
-        );
-      }
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final general = _guides
@@ -294,8 +240,27 @@ class _EmergencyState extends State<Emergency> {
       appBar: AppBar(title: const Text('Emergency')),
       bottomNavigationBar: EmergencyHelpBar(onHelp: _help),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
         children: [
+          Material(
+            color: Theme.of(context).colorScheme.errorContainer,
+            borderRadius: BorderRadius.circular(16),
+            clipBehavior: Clip.antiAlias,
+            child: ListTile(
+              leading: Icon(
+                Icons.call_outlined,
+                color: Theme.of(context).colorScheme.error,
+              ),
+              title: const Text('Injuries, fire or immediate danger?'),
+              subtitle: const Text('Call 999'),
+              trailing: Icon(
+                Icons.arrow_forward,
+                color: Theme.of(context).colorScheme.error,
+              ),
+              onTap: () => dialAssistance(context, '999'),
+            ),
+          ),
+          const SizedBox(height: 16),
           const EmergencyNotice(
             title: 'First, protect yourself',
             message:
@@ -325,18 +290,6 @@ class _EmergencyState extends State<Emergency> {
                 ),
               ),
           ],
-          Wrap(
-            crossAxisAlignment: WrapCrossAlignment.center,
-            spacing: 8,
-            children: [
-              const Text('Injuries, fire or immediate danger?'),
-              TextButton.icon(
-                onPressed: () => dialAssistance(context, '999'),
-                icon: const Icon(Icons.call_outlined),
-                label: const Text('Call 999'),
-              ),
-            ],
-          ),
           const SizedBox(height: 16),
           Text(
             'Help for your situation',
@@ -345,7 +298,7 @@ class _EmergencyState extends State<Emergency> {
           const SizedBox(height: 12),
           EmergencyAction(
             icon: Icons.car_repair_outlined,
-            title: 'Car stopped or something wrong',
+            title: 'Car trouble',
             subtitle: 'Get help without knowing the cause.',
             onTap: () => Navigator.push(
               context,
@@ -365,23 +318,18 @@ class _EmergencyState extends State<Emergency> {
             title: 'Minor road accident',
             subtitle:
                 'Property damage with no injuries. Safety first, details later.',
-            onTap: () {
-              if (accidents.length == 1) {
-                _openGuide(accidents.first);
-              } else {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => EmergencySituations(
-                      guides: accidents,
-                      onOpen: _openGuide,
-                      onHelp: _help,
-                      accident: true,
-                    ),
-                  ),
-                );
-              }
-            },
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => EmergencySituations(
+                  guides: accidents,
+                  onOpen: _openGuide,
+                  onHelp: _help,
+                  accident: true,
+                  onRecordAccident: _openAccidentForm,
+                ),
+              ),
+            ),
           ),
           if (_loading)
             const Text(
@@ -400,41 +348,26 @@ class _EmergencyState extends State<Emergency> {
             ),
           const SizedBox(height: 24),
           Text(
-            'When you can record details',
+            'Accident records',
             style: Theme.of(context).textTheme.titleLarge,
           ),
           const SizedBox(height: 8),
-          const Text(
-            'Save what you know on this device. You can finish later.',
-          ),
-          const SizedBox(height: 12),
           if (_photoWarning != null) Text(_photoWarning!),
           if (_hasGuestRecords && widget.state.signedIn)
             TextButton(
               onPressed: _offerGuestImport,
               child: const Text('Associate guest incident records'),
             ),
-          OutlinedButton.icon(
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (_) =>
-                    AccidentForm(repository: _accidents, onHelp: _help),
-              ),
-            ),
-            icon: const Icon(Icons.edit_note),
-            label: const Text('Continue incident draft'),
-          ),
-          TextButton.icon(
-            onPressed: _startIncident,
-            icon: const Icon(Icons.add),
-            label: const Text('Start new incident'),
+          EmergencyAction(
+            onTap: _openAccidentForm,
+            icon: Icons.edit_note,
+            title: 'Accident forms',
+            subtitle: 'Start a form or continue a saved draft',
           ),
           EmergencyAction(
             icon: Icons.history,
-            title: 'Incident records and backup',
-            subtitle:
-                'Review saved records. Optional account backup covers text only.',
+            title: 'History and backup',
+            subtitle: 'Past forms and optional account text backup',
             onTap: () => Navigator.push(
               context,
               MaterialPageRoute(
@@ -459,12 +392,14 @@ class EmergencySituations extends StatelessWidget {
   final ValueChanged<EmergencyGuide> onOpen;
   final VoidCallback onHelp;
   final bool accident;
+  final VoidCallback? onRecordAccident;
   const EmergencySituations({
     super.key,
     required this.guides,
     required this.onOpen,
     required this.onHelp,
     this.accident = false,
+    this.onRecordAccident,
   });
   @override
   Widget build(BuildContext context) {
@@ -489,6 +424,18 @@ class EmergencySituations extends StatelessWidget {
                 : 'Choose what you notice, or use general breakdown guidance. You can call for help at any time.',
           ),
           const SizedBox(height: 24),
+          if (accident && onRecordAccident != null) ...[
+            FilledButton.icon(
+              onPressed: onRecordAccident,
+              icon: const Icon(Icons.assignment_outlined),
+              label: const Text('Accident forms and saved drafts'),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Start a new accident form, continue a saved draft, or review past forms. Available offline.',
+            ),
+            const SizedBox(height: 24),
+          ],
           if (!accident) ...[
             if (unknown.isEmpty)
               EmergencyAction(
@@ -526,8 +473,10 @@ class EmergencySituations extends StatelessWidget {
               onTap: () => onOpen(guide),
             ),
           if (guides.isEmpty)
-            const Text(
-              'No reviewed guides are available here yet. Call for help below; you do not need to choose a situation.',
+            Text(
+              accident
+                  ? 'No reviewed accident guides are available yet. You can still record an accident or call for help.'
+                  : 'No reviewed guides are available here yet. Call for help below; you do not need to choose a situation.',
             ),
         ],
       ),

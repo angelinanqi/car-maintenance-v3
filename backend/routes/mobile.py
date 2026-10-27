@@ -1,44 +1,22 @@
-"""Account-owned mobile persistence. Shared catalogues remain in admin.py."""
+"""Account-owned mobile persistence."""
 from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import Field, field_validator, model_validator
 
 from backend import auth, db, settings
 from backend.locks import content_lock
-from backend.models import InputModel
-from backend.routes.admin import Rule, catalogue, item_lessons
+from shared.models import InputModel
+from backend.models import Rule
+from backend.services.personal_records import valid_id, owned, put
+from backend.services.catalogue import catalogue, item_lessons
 from backend.services.maintenance import as_date, status
 from backend.services.personal_maintenance import load_tasks, personal_schedules, record_view
 
 
-def require_user(request: Request, identity=Depends(auth.current_session)):
-    if request.method not in {'GET', 'HEAD', 'OPTIONS'}:
-        auth.check_csrf(request, identity)
-    return identity['user']
-
-
 router = APIRouter(prefix='/mobile/me', tags=['Mobile personal data'])
-
-
-def valid_id(value):
-    if not value or len(value) > 200 or any(c not in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_:-' for c in value):
-        raise HTTPException(422, 'Invalid personal record identifier.')
-    return value
-
-
-def owned(table, user_id, record_id, *, optional=False):
-    rows = db.all_rows(table, user_id=str(user_id), id=valid_id(record_id))
-    if not rows and not optional:
-        raise HTTPException(404, 'Record not found.')
-    return rows[0] if rows else None
-
-
-def put(table, user_id, record_id, values):
-    return db.client().table(table).upsert(
-        {**values, 'id': valid_id(record_id), 'user_id': str(user_id)}, on_conflict='user_id,id').execute().data[0]
 
 
 class VehicleInput(InputModel):
@@ -127,7 +105,7 @@ class IncidentInput(InputModel):
 
 
 @router.get('')
-def snapshot(user=Depends(require_user)):
+def snapshot(user=Depends(auth.require_user)):
     owner = user['id']
     with content_lock('mobile:' + owner):
         vehicles = db.all_rows('user_vehicles', user_id=owner)
@@ -166,7 +144,7 @@ def snapshot(user=Depends(require_user)):
 
 
 @router.put('/active-vehicle')
-def set_active(request: ActiveVehicleInput, user=Depends(require_user)):
+def set_active(request: ActiveVehicleInput, user=Depends(auth.require_user)):
     with content_lock('mobile:' + user['id']):
         owned('user_vehicles', user['id'], request.id)
         db.update('app_users', user['id'], {'active_vehicle_id': request.id})
@@ -174,7 +152,7 @@ def set_active(request: ActiveVehicleInput, user=Depends(require_user)):
 
 
 @router.put('/vehicles/{record_id}')
-def save_vehicle(record_id: str, request: VehicleInput, user=Depends(require_user)):
+def save_vehicle(record_id: str, request: VehicleInput, user=Depends(auth.require_user)):
     with content_lock('mobile:' + user['id']):
         old = owned('user_vehicles', user['id'], record_id, optional=True)
         if old and old['catalogue_id'] != str(request.catalogueId):
@@ -194,7 +172,7 @@ def save_vehicle(record_id: str, request: VehicleInput, user=Depends(require_use
 
 
 @router.delete('/vehicles/{record_id}', status_code=204)
-def remove_vehicle(record_id: str, user=Depends(require_user)):
+def remove_vehicle(record_id: str, user=Depends(auth.require_user)):
     with content_lock('mobile:' + user['id']):
         owned('user_vehicles', user['id'], record_id)
         db.client().table('user_vehicles').delete().eq('user_id', user['id']).eq('id', record_id).execute()
@@ -202,7 +180,7 @@ def remove_vehicle(record_id: str, user=Depends(require_user)):
 
 
 @router.put('/tasks/{record_id}')
-def save_task(record_id: str, request: TaskInput, user=Depends(require_user)):
+def save_task(record_id: str, request: TaskInput, user=Depends(auth.require_user)):
     if request.id != record_id:
         raise HTTPException(422, 'The request and path identifiers must match.')
     with content_lock('mobile:' + user['id']):
@@ -227,7 +205,7 @@ def save_task(record_id: str, request: TaskInput, user=Depends(require_user)):
 
 
 @router.delete('/tasks/{record_id}', status_code=204)
-def remove_task(record_id: str, user=Depends(require_user)):
+def remove_task(record_id: str, user=Depends(auth.require_user)):
     with content_lock('mobile:' + user['id']):
         task = owned('user_tasks', user['id'], record_id)
         vehicle = owned('user_vehicles', user['id'], task['vehicle_id'])
@@ -238,7 +216,7 @@ def remove_task(record_id: str, user=Depends(require_user)):
 
 
 @router.put('/records/{record_id}')
-def save_record(record_id: str, request: RecordInput, user=Depends(require_user)):
+def save_record(record_id: str, request: RecordInput, user=Depends(auth.require_user)):
     if request.id != record_id or as_date(request.date.isoformat()) > datetime.now().date():
         raise HTTPException(422, 'Use matching identifiers and a service date that is not in the future.')
     with content_lock('mobile:' + user['id']):
@@ -262,7 +240,7 @@ def save_record(record_id: str, request: RecordInput, user=Depends(require_user)
 
 
 @router.put('/progress/{guide_id}')
-def save_progress(guide_id: UUID, request: ProgressInput, user=Depends(require_user)):
+def save_progress(guide_id: UUID, request: ProgressInput, user=Depends(auth.require_user)):
     guide = db.get('guides', guide_id)
     if guide['status'] != 'published' or (guide['category_id'] and not db.get('guide_categories', guide['category_id'])['published']):
         raise HTTPException(404, 'Published lesson not found.')
@@ -271,13 +249,13 @@ def save_progress(guide_id: UUID, request: ProgressInput, user=Depends(require_u
 
 
 @router.get('/incidents')
-def incidents(offset: int = Query(0, ge=0), limit: int = Query(settings.API_PAGE_SIZE, ge=1, le=1000), user=Depends(require_user)):
+def incidents(offset: int = Query(0, ge=0), limit: int = Query(settings.API_PAGE_SIZE, ge=1, le=1000), user=Depends(auth.require_user)):
     return [{**r['payload'], 'id': r['id'], 'cloudRevision': r['revision'], 'pendingSync': False}
             for r in db.list_rows('incident_records', user_id=user['id'], offset=offset, limit=limit)]
 
 
 @router.put('/incidents/{record_id}')
-def save_incident(record_id: str, request: IncidentInput, user=Depends(require_user)):
+def save_incident(record_id: str, request: IncidentInput, user=Depends(auth.require_user)):
     if request.id != record_id:
         raise HTTPException(422, 'The request and path identifiers must match.')
     with content_lock('mobile:' + user['id']):

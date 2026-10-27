@@ -18,16 +18,25 @@ RESTRICTED_ANSWER = (
 )
 
 
-def policy_risk(question):
+def immediate_emergency(question):
+    """Existing conservative fast path; repair requests require interpretation."""
     text = question.lower()
     explanation = bool(re.match(r"\s*(what (?:is|are|does)|how does|explain)\b", text))
-    interval = bool(re.search(r"\b(how often|interval|schedule)\b|when.*\b(change|replace|service)\b", text))
     if not explanation and re.search(r"\b(brakes?|braking)\b.{0,45}\b(failed|fail(?:ing)?|not working|stopped working|don't work|won't work|no longer work)\b", text):
-        return "emergency"
+        return True
     if not explanation and re.search(r"\b(overheating|overheated|on fire|fuel leak|leaking fuel|leaking petrol|smell (?:of )?(?:fuel|petrol))\b", text):
-        return "emergency"
+        return True
     if not explanation and re.search(r"\bbrake pedal\b.{0,35}\b(goes? to|on|hits?) the floor\b|\b(fuel|petrol|gasoline)\b.{0,20}\bleak(?:ing)?\b", text):
+        return True
+    return False
+
+
+def policy_risk(question):
+    """Backstop over the resolved request, not excluded actions in raw history."""
+    if immediate_emergency(question):
         return "emergency"
+    text = question.lower()
+    interval = bool(re.search(r"\b(how often|interval|schedule)\b|when.*\b(change|replace|service)\b", text))
     if not interval and re.search(REPAIR, text) and any(re.search(component, text) for component in RESTRICTED_COMPONENTS):
         return "high_risk"
     if re.search(r"\b(repair|rebuild|fix|disable|bypass)\b.*\b(brakes?|braking|steering)\b", text):
@@ -42,6 +51,38 @@ def policy_risk(question):
     ):
         return "caution"
     return "normal"
+
+
+def enforce_policy(intent):
+    """Produce a consistent route/risk once for all downstream consumers."""
+    risks = {policy_risk(intent.question), intent.risk}
+    if intent.route == "emergency" or "emergency" in risks:
+        intent.route, intent.risk = "emergency", "emergency"
+    elif intent.route == "restricted" or "high_risk" in risks:
+        intent.route, intent.risk = "restricted", "high_risk"
+    elif "caution" in risks:
+        intent.risk = "caution"
+    return intent
+
+
+def videos_allowed(intent):
+    return bool(intent and intent.route in {"rag", "rag_with_external_warning"}
+                and intent.risk == "normal" and intent.instructional and not intent.specification)
+
+
+def emergency_topics(text):
+    """Match existing protocol catalogue topics; this does not authorize actions."""
+    text = text.lower().replace('-', ' ')
+    result = set()
+    if re.search(r'\boverheat\w*', text):
+        result.add('overheating')
+    if re.search(r'\bfire\b', text):
+        result.add('fire')
+    if re.search(r'\b(fuel|petrol|gasoline)\b', text) and re.search(r'\b(leak\w*|smell)\b', text):
+        result.add('fuel-leak')
+    if re.search(r'\bbrakes?\b', text) and re.search(r'\b(fail\w*|floor|not working|stopped working|no longer work|don.t work|won.t work)\b', text):
+        result.add('brake-failure')
+    return result
 
 
 def emergency_guidance(question):
