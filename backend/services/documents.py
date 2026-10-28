@@ -405,7 +405,7 @@ def finish_extraction(document_id):
     directory = work_directory(document_id)
     pending = directory / "pending-extraction.json"
     checkpoint = json.loads(pending.read_text(encoding="utf-8"))
-    row = retry_connection(lambda: db.get("documents", document_id))
+    row = db.get("documents", document_id)
     if row["source_revision"] != checkpoint["source_revision"] or row["status"] != "processing":
         # Never rewind an acknowledged index or publish an obsolete revision.
         pending.unlink(missing_ok=True)

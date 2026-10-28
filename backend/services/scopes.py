@@ -52,16 +52,31 @@ def resolve(scope_type, scope_id, *, require_available=True):
 
 
 def catalog(*, admin=False):
+    vehicles = db.all_rows('knowledge_vehicles')
+    categories = db.all_rows('guide_categories')
+    documents = {d['id'] for d in db.all_rows('documents', status='processed')
+                 if d.get('published') and d.get('chunk_count', 0) > 0
+                 and d.get('indexed_revision') and d['indexed_revision'] == d.get('source_revision')}
+    links = {'vehicle': db.all_rows('document_vehicles'),
+             'category': db.all_rows('document_categories')}
+    sources = content_sources.load('auto', None)
     result = []
-    for kind, table in (("vehicle", "knowledge_vehicles"), ("category", "guide_categories")):
-        for row in db.all_rows(table):
-            scope = resolve(kind, row["id"], require_available=False)
-            if admin or scope["published"]:
+    for kind, rows in (('vehicle', vehicles), ('category', categories)):
+        for row in rows:
+            published = row.get('published', False)
+            if kind == 'category':
+                published = published and row.get('knowledge_published', False)
+            if admin or published:
+                document_ids = {link['document_id'] for link in links[kind]
+                                if link[kind + '_id'] == row['id'] and link['document_id'] in documents}
+                content_count = sum(1 for source in sources if kind == 'vehicle'
+                                    or source['source_type'] != 'learning_guide'
+                                    or source.get('category_id') in {None, row['id']})
                 result.append({"scope_type": kind, "scope_id": row["id"], "label": row["name"],
-                               "code": row.get("code"), "published": scope["published"],
-                               "available": scope["published"] and bool(scope["document_ids"] or scope['content_sources']),
-                               "document_count": len(scope["document_ids"]),
-                               "content_count": len(scope['content_sources'])})
+                               "code": row.get("code"), "published": published,
+                               "available": published and bool(document_ids or content_count),
+                               "document_count": len(document_ids),
+                               "content_count": content_count})
     return result
 
 

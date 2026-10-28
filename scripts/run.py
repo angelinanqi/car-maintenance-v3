@@ -257,6 +257,11 @@ def main():
 
 
 if __name__ == "__main__":
+    # Next.js prints Unicode status markers even when Windows redirects stdout.
+    # Keep log forwarding alive in consoles whose default encoding is cp1252.
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
     def interrupt(signum, frame):
         raise KeyboardInterrupt
 

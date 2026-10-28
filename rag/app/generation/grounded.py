@@ -116,13 +116,19 @@ def answer_schema(labels, reference_labels=()):
         "required": ["outcome", "blocks", "references", "clarification"], "additionalProperties": False}
 
 
-def factual_numbers(text):
+def factual_numbers(text, *, personal=False):
     # Comparison only: preserve original source/output text. Unicode's standard
     # compatibility forms handle numeric glyphs without per-manual mappings.
     text = unicodedata.normalize("NFKC", text)
     # Ordered-list markers are presentation, not manufacturer values.
     text = re.sub(r"(?m)^\s*\d+[.)]\s+", "", text)
-    return re.findall(r"\d+(?:[.,]\d+)*", text)
+    if personal:
+        # Saved JSON uses plain integers. Formatting 39500 as 39,500 must not
+        # turn a supported odometer reading into an unsupported value.
+        text = re.sub(r"(?<![\d.,])\d{1,3}(?:,\d{3})+(?![\d.,])",
+                      lambda match: match.group().replace(',', ''), text)
+    numbers = re.findall(r"\d+(?:[.,]\d+)*", text)
+    return [str(int(value)) if personal and value.isdecimal() else value for value in numbers]
 
 
 def numeric_error(text, source, *, specification=False):
@@ -132,9 +138,9 @@ def numeric_error(text, source, *, specification=False):
     a number belongs to a particular condition or that a sentence is entailed.
     Personal facts retain strict value checking because they must not be recalculated.
     """
-    numbers = factual_numbers(text)
-    measurements = re.findall(r"(\d+(?:\.\d+)?)\s*(kpa|psi|nm|litres?|liters?)\b", text, re.I)
     personal = source["label"].startswith("P")
+    numbers = factual_numbers(text, personal=personal)
+    measurements = re.findall(r"(\d+(?:\.\d+)?)\s*(kpa|psi|nm|litres?|liters?)\b", text, re.I)
     exact_value = bool(measurements) or (specification and bool(numbers))
     if source.get('source_type') == 'general':
         # General background cannot bypass the existing factory-value check.
@@ -153,7 +159,7 @@ def numeric_error(text, source, *, specification=False):
         table = json.loads(source_text)
         # Coordinates/spans are generated metadata, never manufacturer values.
         source_text = table_literal_text(table)
-    supported = factual_numbers(source_text + " " + source.get("title", ""))
+    supported = factual_numbers(source_text + " " + source.get("title", ""), personal=personal)
     if any(number not in supported for number in numbers):
         return "unsupported_number"
     if not personal and exact_value:
@@ -161,12 +167,16 @@ def numeric_error(text, source, *, specification=False):
                 {"owners_manual", "maintenance_booklet", "service_manual"} or not source["source_fidelity_verified"]):
             return "unverified_measurement"
     for value, unit in measurements:
+        if unit.lower().startswith(('litre', 'liter')):
+            unit_pattern = r"(?:l|litres?|liters?)"
+        else:
+            unit_pattern = re.escape(unit)
         if structured_table:
             # Units often live in explicit column headers rather than value cells.
             # This checks literal support only; generation must establish applicability.
-            matched = re.search(r'\b' + re.escape(unit) + r'\b', source_text, re.I)
+            matched = re.search(r'\b' + unit_pattern + r'\b', source_text, re.I)
         else:
-            matched = re.search(r"\b" + re.escape(value) + r"\s*" + re.escape(unit) + r"\b", source_text, re.I)
+            matched = re.search(r"\b" + re.escape(value) + r"\s*" + unit_pattern + r"\b", source_text, re.I)
         if not matched:
             return "number_unit_mismatch"
     return None
