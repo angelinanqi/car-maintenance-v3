@@ -9,6 +9,14 @@ import 'vehicle_profile.dart';
 import '../widgets/vehicle_selector.dart';
 import '../widgets/sign_in_prompt.dart';
 import '../widgets/chat_message_view.dart';
+import '../data/companion_repository.dart';
+import '../models/companion.dart';
+import '../models/content.dart';
+import '../widgets/learning_activity.dart';
+import '../widgets/service_plan_view.dart';
+import '../widgets/guide_content.dart';
+import 'saved_items.dart';
+import 'service_forms.dart';
 
 class Chat extends StatefulWidget {
   final AppState state;
@@ -19,6 +27,7 @@ class Chat extends StatefulWidget {
   final Map<String, dynamic>? contextData;
   final VoidCallback? onEmergency;
   final VoidCallback? onMaintenance;
+  final VoidCallback? onLearn;
   const Chat({
     super.key,
     required this.state,
@@ -29,6 +38,7 @@ class Chat extends StatefulWidget {
     this.contextData,
     this.onEmergency,
     this.onMaintenance,
+    this.onLearn,
   });
   @override
   State<Chat> createState() => _ChatState();
@@ -54,6 +64,24 @@ class _ChatState extends State<Chat> {
   String _conversationKey = '';
   bool _showLatest = false;
   List<String> _starterQuestions = [];
+  Map<String, dynamic>? _discovery;
+  Lesson? _lesson;
+  ServicePlan? _plan;
+  int _step = 0;
+  bool _showActivity = false, _toolBusy = false;
+  bool _home = true;
+  String? _toolError;
+  int _activityGeneration = 0;
+  String? _savedExplanationId;
+  CompanionRepository? get _companion =>
+      widget.repository is FastApiChatRepository
+      ? CompanionRepository(widget.repository as FastApiChatRepository)
+      : null;
+  Map<String, dynamic>? get _activity => _lesson != null
+      ? _lesson!.activityAt(_step)
+      : _plan?.id != null
+      ? _plan!.activity
+      : null;
 
   @override
   void initState() {
@@ -66,6 +94,7 @@ class _ChatState extends State<Chat> {
     _topic = widget.topic;
     _text.text = widget.prompt ?? '';
     _loadStarterQuestions();
+    _loadCompanion();
   }
 
   void _scrollChanged() {
@@ -115,6 +144,11 @@ class _ChatState extends State<Chat> {
         'failedRequest': _failedRequest,
         'offset': _scroll.hasClients ? _scroll.offset : 0.0,
         'topic': _topic,
+        'lesson': _lesson,
+        'plan': _plan,
+        'step': _step,
+        'showActivity': _showActivity,
+        'home': _home,
       };
     }
     _clear();
@@ -130,6 +164,13 @@ class _ChatState extends State<Chat> {
       _error = saved['error'] as String?;
       _failedRequest = saved['failedRequest'] as ChatRequest?;
       _topic = saved['topic'] as String?;
+      _lesson = saved['lesson'] as Lesson?;
+      _plan = saved['plan'] as ServicePlan?;
+      _step = saved['step'] as int? ?? 0;
+      _showActivity = saved['showActivity'] == true;
+      _home = saved['home'] == true;
+    } else {
+      _restoreSession(key);
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && _scroll.hasClients) {
@@ -151,17 +192,30 @@ class _ChatState extends State<Chat> {
       _clear();
       _text.clear();
       _switchConversation();
+      _discovery = null;
+      _loadCompanion();
     }
     if (selected != _vehicleId) {
       _contextData = null;
       _vehicleId = selected;
       _switchConversation();
+      _loadCompanion();
     }
     if (widget.requestNumber != oldWidget.requestNumber) {
       _contextData = widget.contextData;
       _switchConversation();
       _topic = widget.topic;
       _text.text = widget.prompt ?? '';
+      if (_contextData?['kind'] == 'explore_guide') {
+        final id = _contextData!['guide_id'] as String;
+        _contextData = null;
+        _text.clear();
+        _openGuide(id);
+      } else if (_contextData?['kind'] == 'service_plan') {
+        _contextData = null;
+        _text.clear();
+        _openPlan();
+      }
     }
   }
 
@@ -184,6 +238,327 @@ class _ChatState extends State<Chat> {
     _topic = null;
     _sessionId = null;
     _sessionToken = null;
+    _savedExplanationId = null;
+    _home = true;
+    _lesson = null;
+    _plan = null;
+    _step = 0;
+    _showActivity = false;
+    _toolError = null;
+    _toolBusy = false;
+  }
+
+  Future<void> _loadCompanion() async {
+    if (_companion == null || !widget.state.signedIn) return;
+    final key = _conversationKey;
+    try {
+      final data = await _companion!.discovery();
+      if (mounted && key == _conversationKey) setState(() => _discovery = data);
+    } catch (error) {
+      if (mounted && key == _conversationKey)
+        setState(() => _toolError = error.toString());
+    }
+  }
+
+  Future<void> _rememberSession({bool clear = false}) async {
+    final key = _conversationKey;
+    final session = _sessionId;
+    final data =
+        await widget.state.store.read('companion_sessions.json') ??
+        <String, dynamic>{};
+    if (clear) {
+      data.remove(key);
+    } else if (session != null) {
+      data[key] = session;
+    }
+    await widget.state.store.write('companion_sessions.json', data);
+  }
+
+  Future<void> _restoreSession(
+    String key, {
+    String? sessionId,
+    String? messageId,
+  }) async {
+    if (_companion == null || !widget.state.signedIn) return;
+    final generation = _generation;
+    final activityGeneration = _activityGeneration;
+    try {
+      final saved = await widget.state.store.read('companion_sessions.json');
+      final identity = sessionId ?? saved?[key] as String?;
+      if (identity == null || !mounted || key != _conversationKey || _pending)
+        return;
+      final data = await _companion!.resume(identity, messageId: messageId);
+      if (!mounted ||
+          key != _conversationKey ||
+          generation != _generation ||
+          activityGeneration != _activityGeneration ||
+          _pending)
+        return;
+      setState(() {
+        _sessionId = data['session_id'] as String;
+        _sessionToken = data['session_token'] as String;
+        _messages.clear();
+        _home = false;
+        _savedExplanationId = messageId;
+        for (final raw in data['messages'] as List) {
+          final row = Map<String, dynamic>.from(raw as Map);
+          _messages.add(
+            ChatMessage(
+              text: row['content'] as String,
+              isUser: row['role'] == 'user',
+              reply: row['reply'] == null
+                  ? null
+                  : ChatReply.fromJson(
+                      Map<String, dynamic>.from(row['reply'] as Map),
+                    ),
+            ),
+          );
+        }
+      });
+      final activity = data['activity'] as Map?;
+      if (activity?['kind'] == 'guide') {
+        await _openGuide(
+          activity!['guide_id'] as String,
+          stepId: activity['step_id'] as String?,
+        );
+      } else if (activity?['kind'] == 'plan') {
+        await _openPlan(planId: activity!['plan_id'] as String);
+      }
+    } catch (error) {
+      if (mounted &&
+          key == _conversationKey &&
+          (sessionId != null ||
+              error is! ApiException ||
+              error.statusCode != 404)) {
+        setState(
+          () => _toolError =
+              'Could not restore the previous activity. ${error.toString()}',
+        );
+      }
+    }
+  }
+
+  Future<void> _tool(Future<void> Function(String key) action) async {
+    if (_toolBusy || _pending || _companion == null) return;
+    final key = _conversationKey;
+    _activityGeneration++;
+    setState(() {
+      _toolBusy = true;
+      _toolError = null;
+    });
+    try {
+      await action(key);
+    } catch (error) {
+      if (mounted && key == _conversationKey)
+        setState(() => _toolError = error.toString());
+    } finally {
+      if (mounted && key == _conversationKey) setState(() => _toolBusy = false);
+    }
+  }
+
+  Future<void> _openGuide(String id, {String? stepId}) => _tool((key) async {
+    final lesson = await _companion!.guide(id);
+    if (!mounted || key != _conversationKey) return;
+    final found = lesson.sections.indexWhere((section) => section.id == stepId);
+    setState(() {
+      _lesson = lesson;
+      _plan = null;
+      _step = found < 0 ? 0 : found;
+      _showActivity = true;
+      _home = false;
+    });
+    _scrollToStart();
+    await _companion!.progress(lesson, _step);
+    if (_sessionId != null) await _companion!.activity(_sessionId!, _activity);
+  });
+
+  Future<void> _openPlan({String? planId}) => _tool((key) async {
+    final vehicle = widget.state.selectedVehicle;
+    if (vehicle == null)
+      throw const ApiException(
+        'Add or select a vehicle to prepare its service plan.',
+      );
+    final plan = planId == null
+        ? await _companion!.preview(vehicle.id)
+        : await _companion!.plan(planId);
+    if (!mounted || key != _conversationKey) return;
+    setState(() {
+      _plan = plan;
+      _lesson = null;
+      _showActivity = true;
+      _home = false;
+    });
+    _scrollToStart();
+  });
+
+  Future<void> _savePlan({bool notes = false, bool ask = false}) =>
+      _tool((key) async {
+        var plan = _plan!;
+        if (plan.id == null) plan = await _companion!.savePlan(plan);
+        if (!mounted || key != _conversationKey) return;
+        setState(() => _plan = plan);
+        if (notes) {
+          await Navigator.push<void>(
+            context,
+            MaterialPageRoute(
+              builder: (_) => MechanicPreparationPage(
+                state: widget.state,
+                repository: widget.repository as FastApiChatRepository,
+                planId: plan.id,
+                initialNotes: plan.asNotes(),
+                initialQuestion:
+                    'Help me prepare questions about my saved service plan.',
+              ),
+            ),
+          );
+        } else if (ask) {
+          setState(() => _showActivity = false);
+          _inputFocus.requestFocus();
+        } else {
+          await _companion!.save({
+            'kind': 'plan',
+            'title': 'My next service',
+            'plan_id': plan.id,
+          });
+          if (mounted && key == _conversationKey)
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(const SnackBar(content: Text('Plan saved')));
+        }
+      });
+
+  Future<void> _saved() async {
+    if (_companion == null || _pending || _toolBusy) return;
+    final key = _conversationKey;
+    final item = await Navigator.push<Map<String, dynamic>>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SavedItemsPage(repository: _companion!),
+      ),
+    );
+    if (!mounted || item == null || key != _conversationKey) return;
+    final vehicleId = item['vehicle_id'] as String?;
+    if (vehicleId != null && vehicleId != widget.state.selectedVehicle?.id) {
+      setState(
+        () => _toolError =
+            'Select the vehicle associated with this saved item, then reopen it.',
+      );
+      return;
+    }
+    if (item['kind'] == 'guide') {
+      await _openGuide(item['guide_id'] as String);
+    } else if (item['kind'] == 'plan') {
+      await _openPlan(planId: item['plan_id'] as String);
+    } else if (item['kind'] == 'explanation') {
+      await _restoreSession(
+        key,
+        sessionId: (item['payload'] as Map)['session_id'] as String,
+        messageId: item['message_id'] as String,
+      );
+      if (mounted && key == _conversationKey) {
+        setState(() {
+          _showActivity = false;
+          _lesson = null;
+          _plan = null;
+        });
+        _scrollToStart();
+      }
+    }
+  }
+
+  void _readGuide() {
+    final lesson = _lesson!;
+    Navigator.push<void>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => Scaffold(
+          appBar: AppBar(title: Text(lesson.title)),
+          body: SingleChildScrollView(
+            padding: const EdgeInsets.all(20),
+            child: GuideContent(content: lesson.content),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _activityView() {
+    if (_lesson != null)
+      return LearningActivity(
+        lesson: _lesson!,
+        index: _step,
+        busy: _pending || _toolBusy,
+        onStep: (index) => _tool((key) async {
+          await _companion!.progress(_lesson!, index);
+          if (!mounted || key != _conversationKey) return;
+          setState(() => _step = index);
+          _scrollToStart();
+          if (_sessionId != null)
+            await _companion!.activity(_sessionId!, _activity);
+        }),
+        onAsk: () {
+          setState(() => _showActivity = false);
+          _inputFocus.requestFocus();
+        },
+        onSimplify: () {
+          _text.text = 'Please explain this section more simply.';
+          _send(null, 'simplify');
+        },
+        onPlan: () => _openPlan(),
+        onRead: _readGuide,
+        onSave: () => _tool((key) async {
+          await _companion!.save({
+            'kind': 'guide',
+            'title': _lesson!.title,
+            'guide_id': _lesson!.id,
+          });
+          if (mounted && key == _conversationKey)
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(const SnackBar(content: Text('Guide saved')));
+        }),
+        onComplete: () => _tool((key) async {
+          await _companion!.progress(_lesson!, _step, completed: true);
+          await _loadCompanion();
+          if (mounted && key == _conversationKey)
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Guide marked as completed')),
+            );
+        }),
+        onRelated: (id) => _openGuide(id),
+      );
+    return ServicePlanView(
+      plan: _plan!,
+      busy: _pending || _toolBusy,
+      onSave: () => _savePlan(),
+      onRefresh: () => _openPlan(),
+      onNotes: () => _savePlan(notes: true),
+      onAsk: () => _savePlan(ask: true),
+      onGuide: (id) => _openGuide(id),
+      onRecord: (id) => _tool((key) async {
+        await widget.state.refresh();
+        if (!mounted || key != _conversationKey) return;
+        final tasks = widget.state
+            .tasksFor(_plan!.vehicleId)
+            .where((task) => task.id == id);
+        if (tasks.isEmpty)
+          throw const ApiException(
+            'Refresh maintenance before recording this item.',
+          );
+        await showDialog<bool>(
+          context: context,
+          builder: (_) => ServiceLogDialog(
+            state: widget.state,
+            vehicle: widget.state.selectedVehicle!,
+            task: tasks.first,
+          ),
+        );
+        if (!mounted || key != _conversationKey) return;
+        final refreshed = await _companion!.preview(_plan!.vehicleId);
+        if (mounted && key == _conversationKey)
+          setState(() => _plan = refreshed);
+      }),
+    );
   }
 
   void _prepareForMechanic() {
@@ -220,7 +595,11 @@ class _ChatState extends State<Chat> {
     }
   });
 
-  Future<void> _send([ChatRequest? retry]) async {
+  void _scrollToStart() => WidgetsBinding.instance.addPostFrameCallback((_) {
+    if (mounted && _scroll.hasClients) _scroll.jumpTo(0);
+  });
+
+  Future<void> _send([ChatRequest? retry, String? assistance]) async {
     if (_pending) return;
     if (!widget.state.signedIn) return;
     if (_failedRequest != null && retry == null) {
@@ -247,6 +626,8 @@ class _ChatState extends State<Chat> {
           context: _contextData,
           sessionId: _sessionId,
           sessionToken: _sessionToken,
+          activity: _activity,
+          assistance: assistance,
         );
     if (request.backendMessage.length > limit) {
       setState(
@@ -265,6 +646,9 @@ class _ChatState extends State<Chat> {
       _inFlightRequest = request;
       _error = null;
       _failedRequest = null;
+      _showActivity = false;
+      _home = false;
+      _savedExplanationId = null;
     });
     _scrollDown();
     // Lay out the submitted question before a fast reply can replace the
@@ -277,6 +661,7 @@ class _ChatState extends State<Chat> {
       setState(() {
         _sessionId = reply.sessionId;
         _sessionToken = reply.sessionToken;
+        if (reply.activityNotice != null) _toolError = reply.activityNotice;
         // A lesson/item link supplies context for its initial question only.
         // Later questions resolve their topic from the conversation itself.
         _contextData = null;
@@ -287,6 +672,11 @@ class _ChatState extends State<Chat> {
         );
         _messages.add(answer);
       });
+      try {
+        await _rememberSession();
+      } catch (_) {
+        /* The server conversation remains available. */
+      }
       // Keep the beginning of a long answer in view. Do not interrupt someone
       // who scrolled back to read an earlier message while waiting.
     } catch (error) {
@@ -296,6 +686,8 @@ class _ChatState extends State<Chat> {
             ? 'The AI service is temporarily unavailable. Your question is kept here; try again shortly.'
             : error is ApiException && [401, 403].contains(error.statusCode)
             ? 'Your account access has changed. Sign in again to continue. Your question is kept here.'
+            : error is ApiException && error.statusCode == 409
+            ? error.message
             : 'The answer could not be loaded. Check your connection and try again. Your question is kept here.';
         _failedRequest = request;
       });
@@ -388,6 +780,12 @@ class _ChatState extends State<Chat> {
       );
       if (start != true || !mounted) return;
     }
+    try {
+      await _rememberSession(clear: true);
+    } catch (_) {
+      /* Preserve server history. */
+    }
+    if (!mounted) return;
     setState(() {
       _conversations.remove(_conversationKey);
       _conversationKey = '';
@@ -400,14 +798,7 @@ class _ChatState extends State<Chat> {
   }
 
   List<String> _suggestions() {
-    final vehicle = widget.state.selectedVehicle;
     final suggestions = <String>[];
-    if (vehicle != null && widget.state.tasksFor(vehicle.id).isNotEmpty) {
-      suggestions.add('What maintenance is due?');
-    } else if (vehicle != null &&
-        widget.state.recordsFor(vehicle.id).isNotEmpty) {
-      suggestions.add('Summarise my recent services.');
-    }
     for (final prompt in _starterQuestions) {
       final value = prompt.trim();
       if (value.isNotEmpty &&
@@ -426,14 +817,95 @@ class _ChatState extends State<Chat> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'What’s on your mind?',
+          'Start with something\nyou can use.',
           style: Theme.of(context).textTheme.headlineSmall,
         ),
         const SizedBox(height: 12),
         const Text(
-          'A warning light, a service record, a word in your manual. Ask in your own words.',
+          'Begin with the basics, explore your next service, or bring a question of your own.',
         ),
         const SizedBox(height: 24),
+        if ((_discovery?['resume'] as List? ?? []).isNotEmpty)
+          ...(_discovery!['resume'] as List).map((raw) {
+            final item = raw as Map;
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    'Continue exploring',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  Text(item['title'] as String),
+                  if (item['changed'] == true)
+                    const Text(
+                      'The guide has been updated since your last visit.',
+                    ),
+                  FilledButton(
+                    onPressed: _toolBusy
+                        ? null
+                        : () => _openGuide(
+                            item['guide_id'] as String,
+                            stepId: item['step_id'] as String?,
+                          ),
+                    child: const Text('Continue learning'),
+                  ),
+                ],
+              ),
+            );
+          }),
+        if ((_discovery?['featured'] as List? ?? []).isNotEmpty)
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surfaceContainerLow,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Builder(
+              builder: (context) {
+                final guide = (_discovery!['featured'] as List).first as Map;
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (guide['beginner_friendly'] == true)
+                      const Text('A starting point for new owners'),
+                    const SizedBox(height: 8),
+                    Text(
+                      guide['title'] as String,
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(guide['description'] as String? ?? ''),
+                    const SizedBox(height: 16),
+                    FilledButton(
+                      onPressed: _toolBusy
+                          ? null
+                          : () => _openGuide(guide['id'] as String),
+                      child: const Text('Explore with me'),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+        if (_companion != null) ...[
+          const SizedBox(height: 16),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Plan my next service'),
+            subtitle: const Text('Use my records and service schedule'),
+            trailing: const Icon(Icons.arrow_forward),
+            onTap: _toolBusy ? null : () => _openPlan(),
+          ),
+        ],
+        ListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('Browse learning guides'),
+          subtitle: const Text('Choose a topic to explore'),
+          trailing: const Icon(Icons.arrow_forward),
+          onTap: widget.onLearn,
+        ),
         for (final prompt in _suggestions())
           Align(
             alignment: Alignment.centerLeft,
@@ -525,8 +997,14 @@ class _ChatState extends State<Chat> {
       backgroundColor: theme.colorScheme.surface,
       appBar: AppBar(
         backgroundColor: theme.colorScheme.surface,
-        title: const Text('Assistant'),
+        title: const Text('Car guide'),
         actions: [
+          if (signedIn && _companion != null)
+            IconButton(
+              tooltip: 'Saved',
+              onPressed: _toolBusy || _pending ? null : _saved,
+              icon: const Icon(Icons.bookmark_outline),
+            ),
           if (signedIn && widget.repository is FastApiChatRepository)
             IconButton(
               tooltip: 'Prepare questions for a mechanic',
@@ -546,7 +1024,7 @@ class _ChatState extends State<Chat> {
               icon: Icons.chat_bubble_outline,
               title: 'Make sense of your car questions',
               message:
-                  'Sign in to use the AI Assistant. Learning and emergency guidance work independently.',
+                  'Sign in to explore with Car guide. Learning guides and emergency help are also available without an account.',
             )
           : SafeArea(
               top: false,
@@ -591,6 +1069,84 @@ class _ChatState extends State<Chat> {
                             onTap: _pending ? null : _chooseVehicle,
                           ),
                         ),
+                        if (_toolBusy)
+                          const LinearProgressIndicator(
+                            semanticsLabel: 'Loading activity',
+                          ),
+                        if (_toolError != null)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 20,
+                              vertical: 8,
+                            ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: Semantics(
+                                    liveRegion: true,
+                                    child: Text(
+                                      _toolError!,
+                                      style: TextStyle(
+                                        color: theme.colorScheme.error,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                IconButton(
+                                  tooltip: 'Dismiss activity message',
+                                  onPressed: () =>
+                                      setState(() => _toolError = null),
+                                  icon: const Icon(Icons.close),
+                                ),
+                              ],
+                            ),
+                          ),
+                        if (_messages.isNotEmpty ||
+                            _lesson != null ||
+                            _plan != null)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 20),
+                            child: Align(
+                              alignment: Alignment.centerLeft,
+                              child: Wrap(
+                                spacing: 8,
+                                children: [
+                                  TextButton(
+                                    onPressed: _pending
+                                        ? null
+                                        : () => setState(() {
+                                            _showActivity = false;
+                                            _home = true;
+                                          }),
+                                    child: const Text('Starting points'),
+                                  ),
+                                  if (!_showActivity &&
+                                      (_lesson != null || _plan != null))
+                                    TextButton(
+                                      onPressed: () => setState(() {
+                                        _showActivity = true;
+                                        _home = false;
+                                      }),
+                                      child: Text(
+                                        _lesson == null
+                                            ? 'Return to service plan'
+                                            : 'Return to learning',
+                                      ),
+                                    ),
+                                  if (_messages.isNotEmpty &&
+                                      (_home || _showActivity))
+                                    TextButton(
+                                      onPressed: () => setState(() {
+                                        _showActivity = false;
+                                        _home = false;
+                                      }),
+                                      child: const Text('Conversation'),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ),
                         Expanded(
                           child: Stack(
                             children: [
@@ -602,11 +1158,18 @@ class _ChatState extends State<Chat> {
                                   horizontal: 20,
                                   vertical: 8,
                                 ),
-                                itemCount: _messages.isEmpty
+                                itemCount:
+                                    _showActivity || _home || _messages.isEmpty
                                     ? 2
                                     : _messages.length + 1,
                                 itemBuilder: (context, index) {
-                                  if (_messages.isEmpty) {
+                                  if (_showActivity &&
+                                      (_lesson != null || _plan != null)) {
+                                    return index == 0
+                                        ? _feedback()
+                                        : _activityView();
+                                  }
+                                  if (_home || _messages.isEmpty) {
                                     return index == 0
                                         ? _feedback()
                                         : _introduction();
@@ -615,6 +1178,10 @@ class _ChatState extends State<Chat> {
                                     return _feedback();
                                   }
                                   final message = _messages[index];
+                                  if (_savedExplanationId != null &&
+                                      message.reply?.messageId !=
+                                          _savedExplanationId)
+                                    return const SizedBox.shrink();
                                   final hasCurrentMaintenance =
                                       message.reply?.sources.any(
                                         (source) =>
@@ -627,14 +1194,81 @@ class _ChatState extends State<Chat> {
                                                     ?.id,
                                       ) ??
                                       false;
-                                  return ChatMessageView(
-                                    key: ValueKey('$_conversationKey:$index'),
-                                    message: message,
-                                    repository: widget.repository,
-                                    onEmergency: widget.onEmergency,
-                                    onMaintenance: hasCurrentMaintenance
-                                        ? widget.onMaintenance
-                                        : null,
+                                  return Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
+                                    children: [
+                                      if (_savedExplanationId != null)
+                                        const Text(
+                                          'Saved explanation · Historical answer. Ask a specific question for a current explanation.',
+                                        ),
+                                      ChatMessageView(
+                                        key: ValueKey(
+                                          '$_conversationKey:$index',
+                                        ),
+                                        message: message,
+                                        repository: widget.repository,
+                                        onEmergency: widget.onEmergency,
+                                        onMaintenance: hasCurrentMaintenance
+                                            ? widget.onMaintenance
+                                            : null,
+                                      ),
+                                      if (!message.isUser &&
+                                          message.reply?.suggestServicePlan ==
+                                              true)
+                                        Align(
+                                          alignment: Alignment.centerLeft,
+                                          child: FilledButton.tonal(
+                                            onPressed: _toolBusy || _pending
+                                                ? null
+                                                : () => _openPlan(),
+                                            child: const Text(
+                                              'Plan my next service',
+                                            ),
+                                          ),
+                                        ),
+                                      if (!message.isUser &&
+                                          message.reply?.messageId != null &&
+                                          _companion != null)
+                                        Align(
+                                          alignment: Alignment.centerLeft,
+                                          child: TextButton.icon(
+                                            icon: const Icon(
+                                              Icons.bookmark_add_outlined,
+                                              size: 18,
+                                            ),
+                                            label: const Text(
+                                              'Save explanation',
+                                            ),
+                                            onPressed: _toolBusy
+                                                ? null
+                                                : () => _tool((key) async {
+                                                    await _companion!.save({
+                                                      'kind': 'explanation',
+                                                      'title':
+                                                          message.text.length >
+                                                              80
+                                                          ? '${message.text.substring(0, 77)}…'
+                                                          : message.text,
+                                                      'message_id': message
+                                                          .reply!
+                                                          .messageId,
+                                                    });
+                                                    if (mounted &&
+                                                        key == _conversationKey)
+                                                      ScaffoldMessenger.of(
+                                                        context,
+                                                      ).showSnackBar(
+                                                        const SnackBar(
+                                                          content: Text(
+                                                            'Explanation saved',
+                                                          ),
+                                                        ),
+                                                      );
+                                                  }),
+                                          ),
+                                        ),
+                                    ],
                                   );
                                 },
                               ),

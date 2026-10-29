@@ -2,6 +2,7 @@
 
 import TableEvidence from "./TableEvidence";
 import TaskCheck from "./TaskCheck";
+import AIScheduleDraft from "./AIScheduleDraft";
 import { useEffect, useRef, useState } from "react";
 import {
   Badge,
@@ -57,6 +58,7 @@ export default function MaintenanceAssistance({
   const { reviewQuestions } = useContent();
   const [review, setReview] = useState<Review | null>(null);
   const [step, setStep] = useState(0);
+  const [aiMode, setAiMode] = useState(false);
   const [tableId, setTableId] = useState("");
   const [selection, setSelection] = useState<Selection | null>(null);
   const [selectionBaseline, setSelectionBaseline] = useState<Selection | null>(
@@ -86,7 +88,7 @@ export default function MaintenanceAssistance({
   );
   const accepted =
     review?.suggestions.filter(
-      (task) => task.status === "accepted" && task.mapped_item_id,
+      (task) => !task.ai_draft && task.status === "accepted" && task.mapped_item_id,
     ) || [];
   const blockedItems = reviewQuestions
     .filter(
@@ -103,7 +105,7 @@ export default function MaintenanceAssistance({
   );
   const tasks =
     review?.suggestions.filter(
-      (task) => taskFilter === "all" || task.status === taskFilter,
+      (task) => !task.ai_draft && (taskFilter === "all" || task.status === taskFilter),
     ) || [];
   const activeTask = tasks[Math.min(taskIndex, Math.max(0, tasks.length - 1))];
 
@@ -119,9 +121,11 @@ export default function MaintenanceAssistance({
       .then((next) => {
         if (!alive.current) return;
         setReview(next);
+        const aiRows = next.suggestions.filter((task) => task.ai_draft?.vehicle_id === vehicleId);
+        setAiMode(aiRows.length > 0);
         const table =
           next.catalogue.tables.find(
-            (table) => table.table_id === next.selections[0]?.table_id,
+            (table) => table.table_id === (aiRows[0]?.table_id || next.selections[0]?.table_id),
           ) || next.catalogue.tables[0];
         setTableId(table?.table_id || "");
         const initial = table
@@ -137,8 +141,8 @@ export default function MaintenanceAssistance({
         setSelection(initial);
         setSelectionBaseline(initial);
         setStep(
-          next.suggestions.length
-            ? next.suggestions.some((task) => task.status === "suggested")
+          next.suggestions.some((task) => !task.ai_draft)
+            ? next.suggestions.some((task) => !task.ai_draft && task.status === "suggested")
               ? 1
               : 2
             : 0,
@@ -159,12 +163,13 @@ export default function MaintenanceAssistance({
       controller.abort();
       onDirty(false);
     };
-  }, [document.id, document.source_revision, onDirty, attempt]);
+  }, [document.id, document.source_revision, vehicleId, onDirty, attempt]);
 
   async function run(
     action: (state: Review) => Promise<Review>,
     success: string,
     nextStep?: number,
+    refreshOnError = true,
   ) {
     if (!review || activeRequest.current || disabled) return false;
     activeRequest.current = true;
@@ -191,9 +196,11 @@ export default function MaintenanceAssistance({
         setError((cause as Error).message);
         // A first request may have saved before a later request failed. Refresh
         // the version without throwing away the admin's unsaved field values.
-        try {
-          setReview(await loadReview(document.id, document.source_revision));
-        } catch {}
+        if (refreshOnError) {
+          try {
+            setReview(await loadReview(document.id, document.source_revision));
+          } catch {}
+        }
       }
       return false;
     } finally {
@@ -224,6 +231,28 @@ export default function MaintenanceAssistance({
     setManualName("");
     setManualLocation("");
     setNotice("");
+  }
+  async function confirmTable(state: Review) {
+    if (!selection) throw new Error("Choose a table and its task-name columns first.");
+    const choices = [
+      ...state.selections.filter((choice) => choice.table_id !== selection.table_id),
+      selection,
+    ].sort((a, b) => a.table_id.localeCompare(b.table_id));
+    const saved = await updateReview(state, "/confirmation", "PUT", { tables: choices });
+    setSelectionBaseline(selection);
+    return saved;
+  }
+  async function draftSchedule() {
+    if (!review || !selection || locked) return;
+    const existing = review.suggestions.some((row) => row.ai_draft?.vehicle_id === vehicleId && row.table_id === tableId);
+    if (existing && !window.confirm("Replace the unaccepted AI draft for this table? Saved edits to those rows will be replaced.")) return;
+    const saved = await run(async (state) => {
+      const confirmed = await confirmTable(state);
+      return updateReview(confirmed, "/schedule-draft", "POST", {
+        vehicle_id: vehicleId, table_id: tableId, replace_existing: existing,
+      });
+    }, "AI draft saved. Review its evidence and each proposed rule before accepting.");
+    if (saved) setAiMode(true);
   }
   function moveStep(next: number) {
     if (
@@ -257,12 +286,12 @@ export default function MaintenanceAssistance({
   return (
     <Box borderWidth="1px" borderRadius="10px" p={4}>
       <Stack gap={4}>
-        <Heading size="md">Find service tasks in this manual</Heading>
+        <Heading size="md">Draft service tasks from this manual</Heading>
         <Text fontSize="sm" color="muted">
-          Work through the table and check the task names. The service intervals
-          still need to be entered and checked against the manual.
+          Choose a maintenance table to draft operations, timing and conditions with AI,
+          or extract task names for manual interval entry. Check each proposal against the original.
         </Text>
-        <Flex as="ol" gap={2} listStyleType="none" p={0} m={0} wrap="wrap">
+        {!aiMode && <Flex as="ol" gap={2} listStyleType="none" p={0} m={0} wrap="wrap">
           {["Choose the table", "Check the tasks", "Add to schedule"].map(
             (label, index) => (
               <Box as="li" key={label}>
@@ -271,7 +300,7 @@ export default function MaintenanceAssistance({
                   variant={step === index ? "solid" : "outline"}
                   aria-current={step === index ? "step" : undefined}
                   disabled={
-                    locked || (index > 0 && !review?.suggestions.length)
+                    locked || (index > 0 && !review?.suggestions.some((task) => !task.ai_draft))
                   }
                   onClick={() => moveStep(index)}
                 >
@@ -280,7 +309,7 @@ export default function MaintenanceAssistance({
               </Box>
             ),
           )}
-        </Flex>
+        </Flex>}
         {loading && <Text role="status">Opening saved table checks…</Text>}
         {error && <Text role="alert">{error}</Text>}
         {notice && <Text role="status">{notice}</Text>}
@@ -295,7 +324,24 @@ export default function MaintenanceAssistance({
             Reload saved checks
           </Button>
         )}
-        {review && step === 0 && (
+        {review && aiMode && <AIScheduleDraft
+          review={review} document={document} vehicleId={vehicleId} tableId={tableId}
+          items={items} existingItemIds={existingItemIds} blockedItems={blockedItems}
+          disabled={locked} onDirty={setTaskDirty} onItem={onItem} onNavigate={onNavigate}
+          onImport={onImport} onBack={() => { setAiMode(false); setStep(0); }}
+          onSave={(row, body) => run(
+            (state) => updateReview(state, `/schedule-draft/${encodeURIComponent(row.suggestion_id)}`, "PATCH", body),
+            body.status === "accepted" ? "Reviewed row accepted. Select it below to add it to the schedule draft." : "AI row review saved.",
+            undefined, false,
+          )}
+          onAsk={(row) => setAsking({
+            document_id: document.id, source_revision: document.source_revision,
+            source_type: document.source_type, vehicle_id: vehicleId, schedule_id: scheduleId || null,
+            item_id: row.mapped_item_id, title: (row.edited_name || row.suggested_name).slice(0, 300),
+            excerpt: (row.original_text || "").slice(0, 2000), source_page: row.ai_draft?.source_page || null,
+          })}
+        />}
+        {review && !aiMode && step === 0 && (
           <>
             <Heading size="sm">Which table lists the service tasks?</Heading>
             <Text fontSize="sm">
@@ -453,23 +499,24 @@ export default function MaintenanceAssistance({
                     {note}
                   </Text>
                 ))}
+                <Flex gap={3} wrap="wrap">
+                  <Button
+                    disabled={locked || !selection.columns.length || review.suggestions.some((row) =>
+                      row.ai_draft?.vehicle_id === vehicleId && row.table_id === tableId && row.status === "accepted")}
+                    onClick={draftSchedule}
+                  >{busy ? "Preparing draft…" : "Draft schedule with AI"}</Button>
+                  {review.suggestions.some((row) => row.ai_draft?.vehicle_id === vehicleId && row.table_id === tableId) && (
+                    <Button variant="outline" disabled={locked || selectionDirty} onClick={() => setAiMode(true)}>Review saved AI draft</Button>
+                  )}
+                </Flex>
+                <Text fontSize="sm" color="muted">AI drafting may take a few minutes. Keep this page open until the draft is saved. Accepted rows must be marked for recheck before replacing their draft.</Text>
                 <Button
+                  variant="outline"
                   disabled={locked || !selection.columns.length}
                   onClick={() =>
                     run(
                       async (state) => {
-                        const choices = [
-                          ...state.selections.filter(
-                            (choice) => choice.table_id !== selection.table_id,
-                          ),
-                          selection,
-                        ].sort((a, b) => a.table_id.localeCompare(b.table_id));
-                        const saved = await updateReview(
-                          state,
-                          "/confirmation",
-                          "PUT",
-                          { tables: choices },
-                        );
+                        const saved = await confirmTable(state);
                         const next = await updateReview(
                           saved,
                           "/suggestions",
@@ -484,7 +531,7 @@ export default function MaintenanceAssistance({
                     )
                   }
                 >
-                  Find tasks from these names
+                  Extract task names only
                 </Button>
               </>
             )}
@@ -572,11 +619,11 @@ export default function MaintenanceAssistance({
             </Box>
           </>
         )}
-        {review && step === 1 && (
+        {review && !aiMode && step === 1 && (
           <>
             <Text>
               {
-                review.suggestions.filter((task) => task.status === "suggested")
+                review.suggestions.filter((task) => !task.ai_draft && task.status === "suggested")
                   .length
               }{" "}
               awaiting a check · {accepted.length} accepted
@@ -688,7 +735,7 @@ export default function MaintenanceAssistance({
             </Button>
           </>
         )}
-        {review && step === 2 && (
+        {review && !aiMode && step === 2 && (
           <>
             <Heading size="sm">Ready to add to your draft</Heading>
             <Text>

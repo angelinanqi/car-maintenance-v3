@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../app_state.dart';
+import '../data/api_client.dart';
 import '../models/maintenance.dart';
 import '../models/vehicle.dart';
 import '../widgets/module_widgets.dart';
@@ -93,11 +94,12 @@ class _ServiceLogDialogState extends State<ServiceLogDialog> {
         ),
       );
       if (mounted) Navigator.pop(context, true);
-    } catch (_) {
+    } catch (error) {
       if (mounted) {
         setState(
-          () => _error =
-              'Record could not be saved. Your entries have been kept. Please try again.',
+          () => _error = error is ApiException
+              ? error.message
+              : 'Record could not be saved. Your entries have been kept. Please try again.',
         );
       }
     } finally {
@@ -271,9 +273,13 @@ class _ServiceLogDialogState extends State<ServiceLogDialog> {
               ),
               validator: (v) {
                 final number = int.tryParse(v?.trim() ?? '');
-                return number == null || number < 0 || number > 2147483647
-                    ? 'Enter kilometres from 0 to 2,147,483,647'
-                    : null;
+                if (number == null || number < 0 || number > 2147483647) {
+                  return 'Enter kilometres from 0 to 2,147,483,647';
+                }
+                if (number > widget.vehicle.mileage) {
+                  return 'Exceeds the current odometer. Update it in My Car first.';
+                }
+                return null;
               },
             ),
             const ModuleSection(

@@ -24,6 +24,7 @@ export default function DocumentCoverage({
   onDirty,
   onSaved,
   disabled = false,
+  prepare = false,
 }) {
   const { knowledge, refresh } = useContent();
   const coverage = documentCoverage(document.id, knowledge);
@@ -69,6 +70,8 @@ export default function DocumentCoverage({
   async function save(event) {
     event.preventDefault();
     if (busy) return;
+    const shouldPrepare = prepare && event.nativeEvent.submitter?.value !== "save";
+    let coverageSaved = false;
     if (!draft.vehicle_ids.length && !draft.category_ids.length) {
       setError(
         "Choose at least one vehicle or topic so we know where this document belongs.",
@@ -89,11 +92,18 @@ export default function DocumentCoverage({
         body: { vehicle_ids, category_ids },
       });
       setBaseline(draft);
-      setNotice("Coverage saved. You can continue with the next step below.");
+      coverageSaved = true;
+      if (shouldPrepare) {
+        const force = document.status === "processed" ? "?force=true" : "";
+        await request(`/documents/${document.id}/process${force}`, { method: "POST" });
+        setNotice("Coverage saved and preparation requested. You can return later.");
+      } else {
+        setNotice("Coverage saved. You can continue with the next step below.");
+      }
       await refresh({ documentsOnly: true });
       onSaved?.();
     } catch (cause) {
-      setError(cause.message);
+      setError(`${coverageSaved && shouldPrepare ? "Coverage was saved, but preparation was not confirmed. " : ""}${cause.message}`);
       await refresh({ documentsOnly: true });
     } finally {
       setBusy(false);
@@ -237,10 +247,20 @@ export default function DocumentCoverage({
               ))}
             </Stack>
           </Box>
-          <Flex>
-            <Button type="submit" loading={busy} disabled={!dirty}>
-              Save coverage
+          <Flex gap={3} wrap="wrap">
+            <Button
+              type="submit"
+              value={prepare ? "prepare" : "save"}
+              loading={busy}
+              disabled={!prepare && !dirty}
+            >
+              {prepare ? "Save coverage and prepare" : "Save coverage"}
             </Button>
+            {prepare && (
+              <Button type="submit" value="save" variant="outline" disabled={busy || !dirty}>
+                Save coverage only
+              </Button>
+            )}
           </Flex>
         </Stack>
       </Fieldset.Root>

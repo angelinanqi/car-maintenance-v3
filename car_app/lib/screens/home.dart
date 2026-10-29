@@ -75,7 +75,7 @@ class Home extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Ask about your car',
+                            'Understand your car',
                             style: theme.textTheme.headlineSmall?.copyWith(
                               color: colors.onPrimary,
                             ),
@@ -83,7 +83,7 @@ class Home extends StatelessWidget {
                           const SizedBox(height: 8),
                           Text(
                             state.signedIn
-                                ? 'Understand a warning light, your manual or your next service.'
+                                ? 'Explore a guide, ask a question or plan your next service.'
                                 : 'Sign in for answers with supporting sources.',
                             style: theme.textTheme.bodyMedium?.copyWith(
                               color: colors.onPrimary,
@@ -94,7 +94,7 @@ class Home extends StatelessWidget {
                             children: [
                               Expanded(
                                 child: Text(
-                                  'Ask the assistant',
+                                  'Open Car guide',
                                   style: theme.textTheme.labelLarge?.copyWith(
                                     color: colors.onPrimary,
                                   ),

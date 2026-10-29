@@ -50,7 +50,8 @@ def retrieve_manual(query_embedding, top_k, *, scope, query):
 
 
 async def handle_query(query, *, scope, history=None, vehicle_profile=None,
-                       maintenance_context=None, top_k=settings.RAG_TOP_K):
+                       maintenance_context=None, activity_context=None, assistance=None, top_k=settings.RAG_TOP_K,
+                       admin_trace=None):
     if not query.strip() or top_k < 1:
         raise ValueError("Provide a nonempty query and positive top_k")
     if not scope.get("scope_id") or scope.get("scope_type") not in {"auto", "vehicle", "category"}:
@@ -69,7 +70,7 @@ async def handle_query(query, *, scope, history=None, vehicle_profile=None,
     timings, diagnostics = {}, {}
     history = bounded_history(history)
     client = GenerationClient()
-    records, eligible, videos, attachments = [], [], [], []
+    records, eligible, videos, attachments, excluded = [], [], [], [], []
     reference_candidates = []
     useful = False
     cited_labels = []
@@ -129,8 +130,16 @@ async def handle_query(query, *, scope, history=None, vehicle_profile=None,
                 return retrieve_manual(embedding, max(top_k, settings.RAG_CANDIDATES), scope=scope, query=retrieval_query)
 
             def search_content():
-                return retrieve_content(retrieval_query, scope.get("content_sources", []), top_k,
-                                        query_embedding=embedding)
+                sources = scope.get('content_sources', [])
+                found = retrieve_content(retrieval_query, sources, top_k, query_embedding=embedding)
+                if activity_context and activity_context.get('kind') == 'guide':
+                    # Keep the selected published guide available without blocking topic changes.
+                    from rag.app.retrieval.content import records_for
+                    selected = [source for source in sources if source['source_type'] == 'learning_guide'
+                                and source['source_id'] == activity_context.get('source_id')]
+                    existing = {record.chunk_id for record in found}
+                    found.extend(record for record in records_for(selected) if record.chunk_id not in existing)
+                return found
 
             def search_videos():
                 if not scope.get("video_ids") or embedding is None or not videos_allowed(intent):
@@ -198,6 +207,7 @@ async def handle_query(query, *, scope, history=None, vehicle_profile=None,
                     generated = await asyncio.to_thread(
                         generate, intent.question, eligible, client, scope=scope, risk=intent.risk,
                         vehicle_profile=vehicle_profile, maintenance_context=maintenance_context,
+                        activity_context=activity_context, assistance=assistance,
                         diagnostics=diagnostics, intent=intent, history=history, latest_message=query,
                         references=[{k: v for k, v in item.items() if k not in {'descriptor', 'image_input', 'image_source'}}
                                     for item in reference_candidates], **visual_options)
@@ -259,10 +269,13 @@ async def handle_query(query, *, scope, history=None, vehicle_profile=None,
             if record.metadata.get("source_type") in {"learning_guide", "emergency_protocol"}:
                 sources.append(public_source(record, label))
             else:
+                section_path = record.metadata.get("section_path") or []
+                if isinstance(section_path, str):
+                    section_path = json.loads(section_path)
                 sources.append({"label": label, "source_type": "manual", "chunk_id": record.chunk_id,
                                 "document_id": record.metadata.get("document_id", record.metadata.get("document_name")),
                                 "source_revision": record.metadata.get("index_revision"),
-                                "section_path": record.metadata.get("section_path", [])})
+                                "section_path": section_path})
         if relevance.get("profile_relevant"):
             sources.append({"label": "P1", "source_type": "personal_vehicle_profile", "title": "Saved vehicle profile",
                             "vehicle_id": vehicle_profile["vehicle_id"]})
@@ -278,9 +291,14 @@ async def handle_query(query, *, scope, history=None, vehicle_profile=None,
                     source['element_id'] = descriptor['element_id']
                 sources.append(source)
     timings["total_ms"] = round((perf_counter() - start) * 1000, 1)
+    if admin_trace is not None:
+        from rag.app.document_testing import collect_trace
+        admin_trace.update(collect_trace(records, eligible, excluded, sources, diagnostics, client, timings["total_ms"]))
     logger.info("rag_query %s", json.dumps({"scope_id": scope["scope_id"], "response_type": response_type,
                 "provider": client.provider, "model": client.model, **timings, **diagnostics}))
     return {"route": route, "answer": answer, "videos": public_videos, "attachments": attachments,
+            "suggested_activity": 'service_plan' if intent and intent.suggest_service_plan and vehicle_profile
+                and route in {'rag', 'rag_with_external_warning'} and response_type not in {'restricted', 'emergency'} else None,
             "external_warning": route == "rag_with_external_warning",
             "manual_relevant": relevance.get("manual_relevant", False), "response_type": response_type, "sources": sources}
 

@@ -27,6 +27,7 @@ import { uploadGuideImage } from "@/api/guides.mjs";
 import { hasGuideContent } from "@/lib/guideContent.mjs";
 import { listAll } from "@/api/client.mjs";
 import useUnsavedChanges from "@/components/admin/useUnsavedChanges";
+import CompanionEditor from "@/components/CompanionEditor";
 
 export default function CreateArticlePage() {
   return (
@@ -89,7 +90,15 @@ function GuideForm({ guide }) {
     guide?.maintenance_item_ids || [],
   );
   const [items, setItems] = useState([]);
+  const initialCompanion = {
+    beginner_friendly: guide?.beginner_friendly || false,
+    featured_in_companion: guide?.featured_in_companion || false,
+    learning_outcomes: guide?.learning_outcomes || [],
+    exploration: guide?.exploration || null,
+  };
+  const [companion, setCompanion] = useState(initialCompanion);
   const changed =
+    JSON.stringify(companion) !== JSON.stringify(initialCompanion) ||
     title !== (guide?.title || "") ||
     category !== (guide?.category_id || "") ||
     editorHTML !== (guide?.content || "<p></p>") ||
@@ -144,6 +153,8 @@ function GuideForm({ guide }) {
       reading_minutes: readingMinutes ? Number(readingMinutes) : null,
       related_lesson_ids: relatedLessons,
       maintenance_item_ids: relatedItems,
+      ...companion,
+      learning_outcomes: companion.learning_outcomes.map((text) => text.trim()).filter(Boolean),
     });
     setGuideId(saved.id);
     return saved.id;
@@ -218,6 +229,7 @@ function GuideForm({ guide }) {
               disabled={saving}
               onClick={() => {
                 const changed =
+                  JSON.stringify(companion) !== JSON.stringify(initialCompanion) ||
                   title !== (guide?.title || "") ||
                   category !== (guide?.category_id || "") ||
                   editorHTML !== (guide?.content || "<p></p>") ||
@@ -372,6 +384,7 @@ function GuideForm({ guide }) {
             onChange={(html) => setEditorHTML(html)}
           />
         </Field.Root>
+        <CompanionEditor value={companion} onChange={setCompanion} content={editorHTML} uploadImage={uploadImage} />
       </Stack>
     </AdminLayout>
   );

@@ -34,9 +34,21 @@ def save(document_id, request, reviewer):
                         raise HTTPException(422, 'A reviewed image needs an identifying title.')
                     assets[digest] = {'title': review.title, 'description': review.description,
                                      'uncertainty': review.uncertainty,
-                                     'reviewed_by': reviewer['id'], 'reviewed_at': documents.now()}
+                                     'reviewed_by': reviewer['user']['id'], 'reviewed_at': documents.now()}
                 else:
                     assets.pop(digest, None)
+        from backend.services import extraction_corrections
+        files = extraction_corrections.read_bundle(row)
+        if extraction_corrections.HISTORY in files:
+            # Corrected text/tables stay authoritative when reviewing an image.
+            from shared.visual_identity import apply_reviews
+            for record in manifest['elements']:
+                record.pop('identity_review', None)
+            apply_reviews(manifest, assets)
+            files['elements.json'] = json.dumps(manifest, ensure_ascii=False).encode()
+            files['metadata/visual-reviews.json'] = json.dumps({
+                'source_sha256': sha256(source).hexdigest(), 'assets': assets}).encode()
+            return extraction_corrections.commit(row, files)
         directory = documents.work_directory(document_id)
         directory.mkdir(parents=True, exist_ok=True)
         staged = directory / 'visual-reviews.tmp'

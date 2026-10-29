@@ -14,9 +14,11 @@ import {
 } from "@chakra-ui/react";
 import AdminLayout from "@/components/layouts/AdminLayout";
 import FileModal from "@/components/modals/FileModal";
+import DocumentTestSummary from "@/components/admin/DocumentTestSummary";
 import { AdminSelect } from "@/components/admin/NativeControls";
 import { useContent } from "@/components/ContentProvider";
 import { documentJourney, coverageNames } from "@/lib/adminJourney.mjs";
+import { matchesTestFilter } from "@/lib/documentTestFollowUp.mjs";
 
 export default function DocumentsPage() {
   return (
@@ -26,16 +28,19 @@ export default function DocumentsPage() {
   );
 }
 function DocumentLibrary() {
-  const { documents, knowledge, saveDocument, refresh, loading } = useContent();
+  const { documents, knowledge, saveDocument, refresh, loading, documentTests, documentTestError } = useContent();
   const search = useSearchParams();
   const router = useRouter();
   const [uploadOpen, setUploadOpen] = useState(search.get("add") === "1");
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("current");
   const preferredVehicle = search.get("vehicle") || "";
+  const testFilter = filter.startsWith("tests:") ? filter.slice(6) : "";
   const rows = documents
     .filter((document) => {
       const journey = documentJourney(document, knowledge);
+      const summary = documentTests?.[document.id];
+      const testsNeedAttention = !document.superseded_by_id && !documentTestError && matchesTestFilter(summary, "attention");
       const text = [
         document.name,
         document.original_filename,
@@ -48,8 +53,10 @@ function DocumentLibrary() {
         filter === "all" ||
         (filter === "current" && !document.superseded_by_id) ||
         (filter === "unfinished" &&
-          !["available", "replaced", "preparing"].includes(journey.stage)) ||
-        filter === journey.stage;
+          (!["available", "replaced", "preparing"].includes(journey.stage) ||
+            testsNeedAttention)) ||
+        filter === journey.stage ||
+        (testFilter && !documentTestError && !document.superseded_by_id && matchesTestFilter(summary, testFilter));
       return text.includes(query.trim().toLowerCase()) && matchesFilter;
     })
     .sort(
@@ -96,6 +103,10 @@ function DocumentLibrary() {
               <option value="unfinished">Needs your attention</option>
               <option value="preparing">Being prepared</option>
               <option value="available">Published documents</option>
+              <option value="tests:attention">Tests needing follow-up</option>
+              <option value="tests:needs_fixing">Test answers needing fixes</option>
+              <option value="tests:outdated">Outdated test results</option>
+              <option value="tests:failed">Failed test runs</option>
               <option value="replaced">Previous versions</option>
               <option value="all">All documents</option>
             </AdminSelect>
@@ -116,7 +127,9 @@ function DocumentLibrary() {
         )}
         {documents.length > 0 && !rows.length && (
           <Box bg="white" p={6} borderRadius="12px">
-            <Text>No documents match this search.</Text>
+            <Text>{(testFilter || filter === "unfinished") && (documentTestError || !documentTests)
+              ? "Test follow-up could not be checked. Retry loading before using this filter."
+              : "No documents match this search."}</Text>
             <Button
               mt={3}
               variant="outline"
@@ -168,6 +181,8 @@ function DocumentLibrary() {
                       {document.document_type?.replaceAll("_", " ")} · Added{" "}
                       {document.date}
                     </Text>
+                    <DocumentTestSummary documentId={document.id} documentName={document.name} summary={documentTests?.[document.id]}
+                      error={documentTestError} loading={loading} filter={testFilter} />
                   </Box>
                   <Button
                     asChild
@@ -178,7 +193,7 @@ function DocumentLibrary() {
                     }
                   >
                     <NextLink
-                      href={`/admin/kb/${document.superseded_by_id || document.id}`}
+                      href={`/admin/kb/${document.superseded_by_id || document.id}${journey.stage === "review" ? "#document-review" : ""}`}
                     >
                       {journey.next}
                       <Box as="span" srOnly>

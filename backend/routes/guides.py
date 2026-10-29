@@ -6,6 +6,7 @@ import logging
 from bs4 import BeautifulSoup
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from PIL import Image, UnidentifiedImageError
+from pydantic import ValidationError
 
 from backend import auth, db
 from backend.locks import content_lock
@@ -17,6 +18,13 @@ logger = logging.getLogger(__name__)
 
 
 def validate_guide(values, guide_id=None):
+    from backend.services.learning_companion import validate_exploration
+    # Re-validate merged patches, including nullable optional fields.
+    try:
+        values = GuideInput.model_validate(values).model_dump(mode='json')
+    except ValidationError:
+        raise HTTPException(422, 'Guide fields do not match the required format.') from None
+    validate_exploration(values)
     if guide_id and str(guide_id) in values.get("related_lesson_ids", []):
         raise HTTPException(422, "A guide cannot link to itself as a related lesson.")
     if values["category_id"]:
@@ -28,10 +36,12 @@ def validate_guide(values, guide_id=None):
     for item_id in values.get("maintenance_item_ids", []):
         db.get("maintenance_items", item_id)
     soup = BeautifulSoup(values["content"], "html.parser")
-    for media in soup.find_all(["img", "iframe"]):
-        source = media.get("src", "")
-        if not source.startswith(("https://", "http://")):
-            raise HTTPException(422, "Images and videos must use durable http(s) URLs.")
+    bodies = [soup, *[BeautifulSoup(step['example_html'], 'html.parser') for step in (values.get('exploration') or {}).get('steps', [])]]
+    for body in bodies:
+        for media in body.find_all(["img", "iframe"]):
+            source = media.get("src", "")
+            if not source.startswith(("https://", "http://")):
+                raise HTTPException(422, "Images and videos must use durable http(s) URLs.")
     if values["status"] == "published" and not (soup.get_text(strip=True) or soup.find(["img", "iframe"])):
         raise HTTPException(422, "Add content before publishing this guide.")
     # The editor renders using TipTap's schema; raw HTML is never injected into the UI.
@@ -78,7 +88,7 @@ def edit_guide(guide_id: UUID, request: GuidePatch):
         old = db.get("guides", guide_id)
         values = GuideInput(**{key: old[key] for key in GuideInput.model_fields if key in old}).model_dump(mode="json")
         values.update(request.model_dump(mode="json", exclude_unset=True))
-        validate_guide(values, guide_id)
+        values = validate_guide(values, guide_id)
         values["published_at"] = (
             old["published_at"] or datetime.now(timezone.utc).isoformat()
             if values["status"] == "published" else None

@@ -69,6 +69,7 @@ class PersonalMaintenanceContext(InputModel):
     tasks: list[MaintenanceTaskSummary] = Field(default_factory=list, max_length=50)
     total_standalone_services: int = Field(ge=0)
     standalone_services: list[SavedMaintenanceService] = Field(default_factory=list, max_length=50)
+    service_plan: dict | None = None
 
 
 class SourceAttachmentReference(BaseModel):

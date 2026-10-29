@@ -14,12 +14,6 @@ class ContentRepository {
   String? warning;
   ContentRepository(this.store, {this.api});
 
-  static const defaultChatStarters = [
-    'How do I check tyre pressure?',
-    'What should I check before a long drive?',
-    'How do I check my engine oil?',
-  ];
-
   Future<List<String>> chatStarters({bool refresh = false}) async {
     if (refresh && api != null) {
       final data = await api!.get('/mobile/chat-starters');
@@ -29,7 +23,7 @@ class ContentRepository {
     }
     final saved = await store.read('chat_starters.json');
     return saved == null
-        ? List.of(defaultChatStarters)
+        ? <String>[]
         : (saved['questions'] as List).cast<String>();
   }
 
@@ -49,22 +43,7 @@ class ContentRepository {
       if (row['status'] != 'published') continue;
       final category = row['category_id'] as String?;
       final key = category ?? '';
-      grouped
-          .putIfAbsent(key, () => [])
-          .add(
-            Lesson(
-              row['id'] as String,
-              row['title'] as String,
-              row['content'] as String,
-              categoryId: category,
-              introduction: row['description'] as String? ?? '',
-              readingMinutes: row['reading_minutes'] as int?,
-              relatedLessonIds: (row['related_lesson_ids'] as List? ?? [])
-                  .cast<String>(),
-              maintenanceItemIds: (row['maintenance_item_ids'] as List? ?? [])
-                  .cast<String>(),
-            ),
-          );
+      grouped.putIfAbsent(key, () => []).add(Lesson.fromJson(row));
     }
     return grouped.entries
         .map(
@@ -82,18 +61,7 @@ class ContentRepository {
       throw const ApiException('No backend connection configured.');
     }
     final row = await api!.get('/guides/${Uri.encodeComponent(id)}');
-    return Lesson(
-      row['id'] as String,
-      row['title'] as String,
-      row['content'] as String,
-      categoryId: row['category_id'] as String?,
-      introduction: row['description'] as String? ?? '',
-      readingMinutes: row['reading_minutes'] as int?,
-      relatedLessonIds: (row['related_lesson_ids'] as List? ?? [])
-          .cast<String>(),
-      maintenanceItemIds: (row['maintenance_item_ids'] as List? ?? [])
-          .cast<String>(),
-    );
+    return Lesson.fromJson(row);
   }
 
   Future<List<OwnerManual>> manuals(String scope) async {

@@ -7,7 +7,8 @@ from pydantic import Field
 from backend import auth, db, settings
 from backend.locks import content_lock
 from shared.models import InputModel
-from backend.services import maintenance_assistance as service
+from backend.services import maintenance_assistance as service, rag_client, schedule_drafting
+from shared.schedule_drafting import Action, DraftRule
 
 router = APIRouter(prefix='/admin/maintenance-assistance', tags=['Maintenance assistance'],
                    dependencies=[Depends(auth.require_admin)])
@@ -34,6 +35,19 @@ class SuggestionEdit(Edit):
     status: Literal['suggested', 'accepted', 'rejected']
     edited_name: str = Field(min_length=1, max_length=500)
     mapped_item_id: UUID | None = None
+
+
+class GenerateScheduleDraft(Edit):
+    vehicle_id: UUID
+    table_id: str = Field(pattern=r'^table-\d{5,}$', max_length=80)
+    replace_existing: bool = Field(default=False, strict=True)
+
+
+class ScheduleDraftEdit(SuggestionEdit):
+    action: Action | None = None
+    rule: DraftRule | None = None
+    source_page: int | None = Field(default=None, ge=1)
+    confirm_review: bool = Field(default=False, strict=True)
 
 
 class Bookmark(Edit):
@@ -135,6 +149,29 @@ def suggestions(document_id: UUID, source_revision: UUID,
                 'version': state['version'], 'total': len(rows), 'suggestions': rows[offset:offset + limit]}
 
 
+@router.post('/documents/{document_id}/schedule-draft')
+async def generate_schedule_draft(document_id: UUID, request: GenerateScheduleDraft, identity=Depends(auth.require_admin)):
+    with content_lock(document_id):
+        document, state = context(document_id, request.source_revision, request.version)
+        payload = schedule_drafting.prepare(document, state, request.vehicle_id, request.table_id, request.replace_existing)
+    # Generation can take time. Keep the document usable, then reject stale results.
+    result = await rag_client.draft_schedule(payload)
+    with content_lock(document_id):
+        document, state = context(document_id, request.source_revision, request.version)
+        schedule_drafting.prepare(document, state, request.vehicle_id, request.table_id, request.replace_existing)
+        updated = schedule_drafting.save_generated(state, payload, result, identity['user']['id'])
+        return service.view(document, updated)
+
+
+@router.patch('/documents/{document_id}/schedule-draft/{suggestion_id}')
+def review_schedule_draft(document_id: UUID, suggestion_id: str, request: ScheduleDraftEdit,
+                          identity=Depends(auth.require_admin)):
+    with content_lock('schedule-sources'), content_lock(document_id):
+        document, state = context(document_id, request.source_revision, request.version)
+        updated = schedule_drafting.review_row(document, state, suggestion_id, request, identity['user']['id'])
+        return service.view(document, updated)
+
+
 @router.patch('/documents/{document_id}/suggestions/{suggestion_id}')
 def review(document_id: UUID, suggestion_id: str, request: SuggestionEdit, identity=Depends(auth.require_admin)):
     with content_lock(document_id):
@@ -142,6 +179,8 @@ def review(document_id: UUID, suggestion_id: str, request: SuggestionEdit, ident
         item = next((s for s in state['suggestions'] if s['suggestion_id'] == suggestion_id), None)
         if item is None:
             raise HTTPException(404, 'Suggestion not found in this document revision.')
+        if item.get('ai_draft'):
+            raise HTTPException(422, 'Review the AI schedule row with its action, interval and source before accepting it.')
         service.validate_mapping(request.mapped_item_id)
         item.update(status=request.status, edited_name=request.edited_name,
                     mapped_item_id=str(request.mapped_item_id) if request.mapped_item_id else None)

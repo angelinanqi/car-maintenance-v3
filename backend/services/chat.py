@@ -1,6 +1,7 @@
 """Account-owned, immutable conversation scopes and server-loaded history."""
 import hashlib
 import secrets
+from copy import deepcopy
 from uuid import UUID
 from fastapi import HTTPException
 from starlette.concurrency import run_in_threadpool
@@ -122,6 +123,7 @@ def recent_messages(session_id):
 
 async def send(request, user):
     identity = request.session_id
+    activity = getattr(request, 'activity', None)
     if identity:
         try:
             identity = str(UUID(identity))
@@ -135,8 +137,28 @@ async def send(request, user):
         row, token, scope, history, profile, maintenance = await run_in_threadpool(load, request, user)
         identity = row["id"]
         _active.add(identity)
+        activity_context = None
+        activity_notice = None
+        if activity:
+            from backend.services.learning_companion import resolve
+            try:
+                activity_context = await run_in_threadpool(resolve, activity, user, scope)
+            except HTTPException as error:
+                if error.status_code not in {404, 409}:
+                    raise
+                # A withdrawn/stale activity must not prevent an ordinary or urgent question.
+                activity_notice = error.detail
+                activity = None
+        rag_maintenance = maintenance
+        if activity_context and activity_context['kind'] == 'plan' and maintenance:
+            rag_maintenance = {**maintenance, 'service_plan': activity_context['plan']}
+            activity_context = {key: value for key, value in activity_context.items() if key != 'plan'}
         answer = await rag_client.query(request.message, history, scope, vehicle_profile=profile,
-                                       maintenance_context=maintenance)
+                                       maintenance_context=rag_maintenance, activity_context=activity_context,
+                                       assistance=getattr(request, 'assistance', None))
+        if activity_notice:
+            answer['activity_notice'] = activity_notice
+        attachment_refs = deepcopy(answer.get('attachments', []))
         # Re-resolve before exposing an answer if an admin changed eligibility
         # during retrieval/generation. Do not persist the stale response.
         current = await run_in_threadpool(scopes.resolve, scope["scope_type"], scope["scope_id"])
@@ -161,20 +183,91 @@ async def send(request, user):
         current_maintenance = await run_in_threadpool(personal_maintenance.load, user, current_profile)
         if current_maintenance != maintenance:
             raise HTTPException(409, 'Your maintenance records or schedule changed. Please retry your question.')
+        if activity:
+            fresh = await run_in_threadpool(resolve, activity, user, current)
+            if fresh['kind'] == 'plan':
+                fresh = {key: value for key, value in fresh.items() if key != 'plan'}
+            if fresh != activity_context:
+                raise HTTPException(409, 'The activity changed. Reopen it before retrying.')
+            await run_in_threadpool(db.update, 'chat_sessions', identity,
+                                    {'activity': activity.model_dump(mode='json')})
         if answer.get('response_type') not in {'generation_error', 'retrieval_error'}:
-            await run_in_threadpool(save_turn, identity, request.message, answer["answer"])
+            answer['message_id'] = await run_in_threadpool(save_turn, identity, request.message, answer, attachment_refs)
         return {**answer, "session_id": identity, "session_token": token,
                 "scope_type": scope["scope_type"], "scope_id": scope["scope_id"]}
     finally:
         _active.discard(identity)
 
 
-def save_turn(session_id, question, answer):
+def save_turn(session_id, question, answer, attachment_refs=None):
     # One database insert makes the pair visible atomically in order.
     from datetime import datetime, timezone, timedelta
     now = datetime.now(timezone.utc)
+    from uuid import uuid4
+    message_id = str(uuid4())
+    # Signed media URLs are regenerated under current source permissions on restore.
+    reply = deepcopy(answer)
+    reply.pop('attachments', None)
+    reply.pop('manual_links', None)
+    reply['attachment_refs'] = attachment_refs or []
     db.client().table("chat_messages").insert([
-        {"session_id": session_id, "role": "user", "content": question, "created_at": now.isoformat()},
-        {"session_id": session_id, "role": "assistant", "content": answer,
+        {"id": str(uuid4()), "session_id": session_id, "role": "user", "content": question,
+         "reply": None, "created_at": now.isoformat()},
+        {"id": message_id, "session_id": session_id, "role": "assistant", "content": answer['answer'], 'reply': reply,
          "created_at": (now + timedelta(microseconds=1)).isoformat()},
     ]).execute()
+    return message_id
+
+
+def resume(session_id, user, message_id=None):
+    from backend.services.personal_records import owned
+    row = owned('chat_sessions', user['id'], session_id)
+    scope = automatic_scope(row, user) if row.get('automatic') else scopes.resolve(
+        'vehicle' if row.get('vehicle_id') else 'category', row.get('vehicle_id') or row.get('category_id'))
+    if not row.get('automatic'):
+        enforce_vehicle(user, scope['scope_type'], scope['scope_id'], row.get('user_vehicle_id'))
+    if session_id in _active:
+        raise HTTPException(409, 'A reply is pending. Retry restoring this conversation shortly.')
+    messages = db.client().table('chat_messages').select('*').eq('session_id', session_id).order(
+        'created_at', desc=True).order('id', desc=True).limit(settings.CHAT_HISTORY_LIMIT).execute().data
+    if message_id and not any(message['id'] == message_id for message in messages):
+        anchor = db.get('chat_messages', message_id)
+        if anchor['session_id'] != session_id or anchor['role'] != 'assistant':
+            raise HTTPException(404, 'This saved explanation does not belong to the conversation.')
+        # Include the explicitly saved older answer even outside the recent window.
+        messages.append(anchor)
+    content = {(source['source_type'], source['source_id']): source for source in scope.get('content_sources', [])}
+    result = []
+    for message in reversed(messages):
+        reply = deepcopy(message.get('reply') or {})
+        # Historical answers can be read, but old citations never regain permissions.
+        valid = []
+        for source in reply.get('sources', []):
+            kind = source.get('source_type', 'manual')
+            if kind in {'personal_maintenance', 'personal_vehicle_profile'}:
+                valid.append(source)
+            elif kind != 'manual':
+                current = content.get((kind, source.get('source_id')))
+                if current and current['revision'] == source.get('revision'):
+                    valid.append(source)
+        from backend.services.source_assets import resolve_manual_sources
+        manuals = [source for source in reply.get('sources', []) if source.get('source_type', 'manual') == 'manual']
+        try:
+            resolved, links = resolve_manual_sources(manuals, scope, session_id, user)
+        except (HTTPException, ValueError):
+            resolved, links = [], []
+        restored_attachments = []
+        from backend.services.source_assets import attachments
+        for descriptor in reply.pop('attachment_refs', []):
+            try:
+                restored_attachments.extend(attachments([descriptor], scope, session_id))
+            except (HTTPException, ValueError):
+                continue
+        reply.update(answer=message['content'], sources=valid + resolved, manual_links=links,
+                     attachments=restored_attachments, videos=[], message_id=message['id'])
+        result.append({'id': message['id'], 'role': message['role'], 'content': message['content'],
+                       'reply': reply if message['role'] == 'assistant' else None})
+    token = secrets.token_urlsafe(32)
+    db.update('chat_sessions', session_id, {'token_hash': hashlib.sha256(token.encode()).hexdigest()})
+    return {'session_id': session_id, 'session_token': token, 'activity': row.get('activity'), 'messages': result,
+            'selected_message_id': message_id}

@@ -494,6 +494,21 @@ begin
 end;
 $$;
 
+-- Review decisions are private working notes, never source approval.
+create table public.document_review_progress (
+    id uuid primary key,
+    document_id uuid not null references public.documents(id) on delete cascade,
+    source_revision uuid not null,
+    reviewer_id uuid not null references public.app_users(id) on delete cascade,
+    decisions jsonb not null default '{}' check (jsonb_typeof(decisions) = 'object'),
+    current_element_id text check (length(current_element_id) <= 100),
+    source_page integer check (source_page between 1 and 100000),
+    version integer not null default 1 check (version > 0),
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now(),
+    unique(document_id, source_revision, reviewer_id)
+);
+
 -- Direct API roles get no table access. FastAPI checks accounts, ownership,
 -- admin privileges and public-content visibility before using service_role.
 -- The explicit application list avoids touching Supabase-managed objects.
@@ -505,7 +520,7 @@ begin
         'app_users', 'app_sessions', 'vehicle_manufacturers', 'vehicle_models',
         'knowledge_vehicles', 'maintenance_items', 'documents', 'guide_categories',
         'guides', 'guide_images', 'document_vehicles', 'document_categories',
-        'manufacturer_schedules', 'maintenance_assistance', 'admin_review_questions', 'knowledge_videos', 'youtube_channels', 'emergency_playbooks',
+        'manufacturer_schedules', 'maintenance_assistance', 'admin_review_questions', 'document_review_progress', 'knowledge_videos', 'youtube_channels', 'emergency_playbooks',
         'emergency_contacts', 'user_vehicles', 'user_tasks', 'service_records',
         'learning_progress', 'incident_records', 'chat_sessions', 'chat_messages', 'chat_settings'
     ] loop
@@ -531,4 +546,117 @@ grant execute on function public.content_updated_at(), public.chat_scope_immutab
 insert into storage.buckets(id, name, public) values
     ('documents', 'documents', false), ('content-images', 'content-images', true)
 on conflict (id) do nothing;
+
+-- Learning companion additions.
+-- Apply after automatic_chat_context.sql. Existing articles and chats remain readable.
+alter table public.guides
+    add column if not exists beginner_friendly boolean not null default false,
+    add column if not exists featured_in_companion boolean not null default false,
+    add column if not exists learning_outcomes text[] not null default '{}',
+    add column if not exists exploration jsonb;
+alter table public.learning_progress
+    add column if not exists current_step_id text,
+    add column if not exists guide_revision text;
+alter table public.chat_sessions add column if not exists activity jsonb;
+alter table public.chat_messages add column if not exists reply jsonb;
+alter table public.chat_settings
+    add column if not exists mechanic_template jsonb,
+    add column if not exists mechanic_details text[] not null default '{}';
+
+create table if not exists public.service_plans (
+    id uuid primary key default gen_random_uuid(),
+    user_id uuid not null references public.app_users(id) on delete cascade,
+    vehicle_id text not null,
+    fingerprint text not null check (fingerprint ~ '^[a-f0-9]{64}$'),
+    snapshot jsonb not null check (jsonb_typeof(snapshot) = 'object'),
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now(),
+    foreign key(user_id, vehicle_id) references public.user_vehicles(user_id, id) on delete cascade,
+    unique(user_id, vehicle_id, fingerprint)
+);
+create index if not exists service_plans_owner on public.service_plans(user_id, vehicle_id, created_at);
+create table if not exists public.saved_items (
+    id uuid primary key default gen_random_uuid(),
+    user_id uuid not null references public.app_users(id) on delete cascade,
+    kind text not null check (kind in ('guide', 'explanation', 'plan', 'notes')),
+    title text not null check (length(trim(title)) between 1 and 300),
+    vehicle_id text,
+    guide_id uuid references public.guides(id) on delete set null,
+    message_id uuid references public.chat_messages(id) on delete set null,
+    plan_id uuid references public.service_plans(id) on delete set null,
+    payload jsonb not null default '{}' check (jsonb_typeof(payload) = 'object'),
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now(),
+    foreign key(user_id, vehicle_id) references public.user_vehicles(user_id, id) on delete cascade
+);
+create index if not exists saved_items_owner on public.saved_items(user_id, created_at);
+alter table public.service_plans enable row level security;
+alter table public.saved_items enable row level security;
+-- Personal APIs use the server service role after account/ownership validation.
+revoke all on public.service_plans, public.saved_items from anon, authenticated;
+grant all on public.service_plans, public.saved_items to service_role;
+drop trigger if exists service_plans_updated on public.service_plans;
+create trigger service_plans_updated before update on public.service_plans
+    for each row execute function public.content_updated_at();
+drop trigger if exists saved_items_updated on public.saved_items;
+create trigger saved_items_updated before update on public.saved_items
+    for each row execute function public.content_updated_at();
+
+commit;
+-- Private saved document questions and revision-bound review results.
+begin;
+create table if not exists public.document_test_questions (
+    id uuid primary key default gen_random_uuid(),
+    document_id uuid not null references public.documents(id) on delete cascade,
+    question text not null check (length(btrim(question)) between 1 and 4000),
+    expected text not null default '' check (length(expected) <= 2000),
+    scope_type text not null check (scope_type in ('vehicle', 'category')),
+    scope_id uuid not null,
+    active boolean not null default true,
+    version integer not null default 1 check (version > 0),
+    created_by uuid not null references public.app_users(id),
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now()
+);
+create index if not exists document_test_questions_document on public.document_test_questions(document_id);
+
+create table if not exists public.document_test_runs (
+    id uuid primary key,
+    document_id uuid not null references public.documents(id) on delete cascade,
+    question_id uuid not null references public.document_test_questions(id) on delete cascade,
+    source_revision uuid not null,
+    question_version integer not null check (question_version > 0),
+    question_snapshot jsonb not null check (jsonb_typeof(question_snapshot) = 'object'),
+    context_label text not null,
+    context_fingerprint text not null check (length(context_fingerprint) = 64),
+    source_verified boolean not null,
+    status text not null default 'running' check (status in ('running', 'completed', 'failed', 'stale')),
+    result jsonb check (result is null or jsonb_typeof(result) = 'object'),
+    error text,
+    decision text not null default 'not_reviewed' check (decision in ('not_reviewed', 'passed', 'needs_fixing')),
+    review_note text not null default '' check (length(review_note) <= 2000),
+    review_version integer not null default 1 check (review_version > 0),
+    reviewed_by uuid references public.app_users(id),
+    reviewed_at timestamptz,
+    started_by uuid not null references public.app_users(id),
+    started_at timestamptz not null default now(),
+    finished_at timestamptz,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now()
+);
+create index if not exists document_test_runs_recent on public.document_test_runs(document_id, started_at desc);
+create index if not exists document_test_runs_question_recent on public.document_test_runs(question_id, started_at desc, id desc);
+
+do $$
+declare name text;
+begin
+    foreach name in array array['document_test_questions', 'document_test_runs'] loop
+        execute format('alter table public.%I enable row level security', name);
+        execute format('revoke all on public.%I from public, anon, authenticated, service_role', name);
+        execute format('grant select, insert, update, delete on public.%I to service_role', name);
+        execute format('drop trigger if exists content_updated_at on public.%I', name);
+        execute format('create trigger content_updated_at before update on public.%I for each row execute function public.content_updated_at()', name);
+    end loop;
+end;
+$$;
 commit;

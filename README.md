@@ -3,6 +3,12 @@
 FastAPI backend, Flutter Android app, Next.js admin dashboard, Supabase database
 and storage, and a private RAG service with a document-indexing worker.
 
+The learning companion connects
+admin-published learning activities, grounded questions, calculated service plans,
+saved resources and mechanic preparation. Existing databases require the additive
+[`learning_companion.sql`](supabase/migrations/learning_companion.sql) migration
+before deploying this version.
+
 ## Project layout
 
 - `backend/`: FastAPI application. HTTP endpoints live in `routes/`, application
@@ -19,7 +25,7 @@ and storage, and a private RAG service with a document-indexing worker.
   links redirect to `/admin/...` and retain query parameters.
 - `car_app/`: Flutter Android app, with repositories in `lib/data/`, models in
   `lib/models/`, screens in `lib/screens/`, and reusable widgets in `lib/widgets/`.
-- `supabase/`: Initial database schema and additive migrations.
+- `supabase/`: Consolidated fresh-install schema, original schema and additive migrations.
 - `scripts/`: Production service launcher and PDF page renderer.
 - `output/`: Ignored persistent processing data and local indexes.
 
@@ -62,7 +68,9 @@ ports are backend `8000`, private RAG `8001`, dashboard `3000`; override with
 `RAG_SERVICE_URL` for backend-to-RAG calls and `RAG_BACKEND_URL` for the worker's
 backend connection. Keep the RAG service private and its token consistent.
 
-Follow [Supabase setup](supabase/README.md) before starting services. Register an
+For a fresh database, run [`supabase/fresh_schema.sql`](supabase/fresh_schema.sql)
+once; it includes all current migrations. Follow [Supabase setup](supabase/README.md)
+before starting services. Register an
 account, then promote its normalized email in the Supabase SQL Editor:
 
 ```sql
@@ -120,12 +128,65 @@ build or liveness check alone does not verify Supabase, OCR or model access.
 
 ## Documents and persistent data
 
+Document review saves each admin's checklist and last source position by document
+revision. Apply [`supabase/migrations/document_review_progress.sql`](supabase/migrations/document_review_progress.sql)
+to existing databases before deploying the updated backend and dashboard. Fresh
+installations include it in the initial schema. Review entries link to known PDF
+pages; text without reliable page metadata uses manual navigation. Saved checklist
+decisions do not approve or publish a document. Clarification questions and the
+final source check remain explicit admin actions.
+
+In the document review, admins can correct extracted section text, edit table
+cells, or repair table structure in HTML while comparing the original. Each
+correction requires a reason and source confirmation, retains the original
+extraction and an audit history inside the bundle, and queues a fresh index
+revision without rerunning OCR. The document must be offline; corrected content
+needs indexing and a new review before publication. Existing schedule references
+are not rewritten automatically. Later preparation requests rebuild from the
+corrected bundle, and illustration reviews preserve its corrected text and tables.
+This uses the existing extraction storage and requires no additional migration.
+
+The document workspace also provides **Test this document**. Admins can save
+questions for an associated vehicle/topic, run one or a batch of up to 10, inspect
+answers and retrieved evidence, and record Passed/Needs fixing/Not reviewed with
+private notes. Only the selected current indexed document enters the preview;
+unpublished sources remain unavailable to driver chats. The existing source
+verification and answer restrictions apply. Expected-answer notes are retained
+for reviewers and are not sent to the model. Questions survive source changes;
+older results are marked out of date when the revision, question, verification or
+context changes. The latest 50 runs are shown, and archived questions retain
+their historical results. Tests do not approve or publish documents.
+Existing databases need [`supabase/migrations/document_testing.sql`](supabase/migrations/document_testing.sql).
+Restart the backend, private RAG service and dashboard together after deployment.
+
+The home dashboard and reference library summarize the latest run for each active
+test question, including published documents that need follow-up. Answer corrections,
+outdated results and failed runs have separate counts and library filters. Follow-up
+links open the relevant question and result, including results older than the latest
+50 runs. Archived questions are excluded; missing test status remains a loading error.
+Apply [`supabase/migrations/document_test_follow_up.sql`](supabase/migrations/document_test_follow_up.sql)
+after the document testing migration to index the latest-run lookup. Restart the
+backend and dashboard for this follow-up integration; it does not change publication rules.
+
 Maintenance assistance uses existing Supabase extraction bundles to list tables,
 confirm item columns and prepare suggestions in the admin editor. Review and
 publication remain explicit admin actions. Existing installations need
 [`supabase/migrations/maintenance_assistance.sql`](supabase/migrations/maintenance_assistance.sql);
 fresh installations include it in the initial schema. The worker maintains local
 inventory artifacts automatically; admin review decisions live in Supabase.
+
+In Service schedules, **Draft a schedule from this manual** can send a confirmed
+table, all its cells and extracted notes to the configured private RAG provider.
+AI proposals retain cited evidence and stay separate from the schedule until an
+admin checks and accepts each row, selects rows to add, and saves the schedule
+draft. First/subsequent timing, conflicting rules and unsupported units require
+manual entry. Saved proposals are bound to the vehicle, document revision and
+table selection; concurrent changes reject late generation results. This uses
+the existing `maintenance_assistance` JSON data and needs no additional migration.
+Restart the backend, private RAG service and dashboard together after deployment.
+Schedule drafting has its own generation budget: `SCHEDULE_DRAFT_MAX_OUTPUT_TOKENS`
+defaults to 32768 and `SCHEDULE_DRAFT_TIMEOUT` to 90 seconds per provider attempt.
+Keep the backend's `RAG_SERVICE_TIMEOUT` long enough for a configured fallback.
 
 The admin now saves clarification questions separately from driver guidance,
 blocks new approval while relevant questions remain open, and remembers a
@@ -187,9 +248,10 @@ preview explains that personal records are available in signed-in mobile chat.
 The summary includes up to 50 tasks and the latest standalone service per saved
 title (up to 50), with total counts retained. Generation selects whole relevant
 entries within a 3000-character budget, also limited to half the remaining source
-budget. It is not a full-history or spending-analysis feature. No new database
-tables, dependencies, model tools or SQL generation are required. Restart both
-the backend and private RAG service after updating them together.
+budget. It is not a full-history or spending-analysis feature. Car guide can also
+supply a bounded service-plan snapshot as personal evidence; the complete plan
+is calculated separately and stored using the companion migration. Restart the
+backend and private RAG service together after updating their contracts.
 
 Emergency guides come from the admin's reviewed publications. The app syncs
 published guides and shared contacts at startup and on resume, downloads guide
@@ -237,6 +299,16 @@ publication remain explicit admin actions.
 
 ## Android build
 
+Start the first available Android emulator from the repository root:
+
+```powershell
+.\start-emulator.cmd
+```
+
+To choose a specific virtual device, pass its name, for example
+`.\start-emulator.cmd Medium_Phone`. The launcher uses `ANDROID_HOME`,
+`ANDROID_SDK_ROOT`, or the default Windows Android SDK location.
+
 ```powershell
 Set-Location car_app
 flutter pub get
@@ -252,9 +324,11 @@ and device storage configuration, which supports downloaded offline guest conten
 
 ## Local archive
 
-Nonproduction tests, evaluation tools, historical documentation, debug output
+Nonproduction tests, evaluation tools, documentation, debug output
 and previous Android builds have been moved into `dumpster/` with their original
 relative paths. The folder is ignored by Git and is outside the application build
 roots. Its `CLEANUP.md` and `manifest.json` describe the archive and restoration.
-The original README is preserved there. Archived files are local only and are
-not included in commits or fresh clones.
+The original README is preserved there. Later cleanup passes use separate dated
+folders, including `dumpster/cleanup-2026-10-29/`, with their own manifests and
+configuration backups. Archived files are local only and are not included in
+commits or fresh clones.

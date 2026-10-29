@@ -16,6 +16,7 @@ class MyCar extends StatefulWidget {
   final int itemRequestNumber;
   final void Function(Map<String, dynamic>)? onAsk;
   final void Function(String)? onLearn;
+  final VoidCallback? onPlan;
   const MyCar({
     super.key,
     required this.state,
@@ -25,6 +26,7 @@ class MyCar extends StatefulWidget {
     this.itemRequestNumber = 0,
     this.onAsk,
     this.onLearn,
+    this.onPlan,
   });
   @override
   State<MyCar> createState() => _MyCarState();
@@ -298,6 +300,12 @@ class _MyCarState extends State<MyCar> {
           ),
         if (vehicle != null) ...[
           VehicleSelector(state: state),
+          if (widget.onPlan != null)
+            TextButton.icon(
+              onPressed: state.loading ? null : widget.onPlan,
+              icon: const Icon(Icons.event_note_outlined),
+              label: const Text('Plan my next service'),
+            ),
           const SizedBox(height: 8),
           Wrap(
             spacing: 12,

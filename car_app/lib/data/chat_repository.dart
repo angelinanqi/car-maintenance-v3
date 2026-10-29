@@ -23,6 +23,7 @@ class FastApiChatRepository implements ChatRepository {
     String? vehicleId,
     String? sessionId,
     String? sessionToken,
+    String? planId,
   }) async {
     final data = await api.post(
       '/chat/mechanic-questions',
@@ -31,6 +32,7 @@ class FastApiChatRepository implements ChatRepository {
         'vehicle_id': vehicleId,
         if (sessionId != null) 'session_id': sessionId,
         if (sessionToken != null) 'session_token': sessionToken,
+        if (planId != null) 'plan_id': planId,
       },
       token: account?.token,
       requestTimeout: const Duration(seconds: 55),

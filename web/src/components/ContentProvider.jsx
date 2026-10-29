@@ -27,6 +27,7 @@ const empty = {
   knowledge: null,
   scheduleDrafts: [],
   reviewQuestions: [],
+  documentTests: null,
 };
 const date = (value) => new Date(value).toLocaleDateString("en-GB");
 
@@ -34,6 +35,7 @@ export function ContentProvider({ children }) {
   const [data, setData] = useState(empty);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [documentTestError, setDocumentTestError] = useState("");
   const generation = useRef(0);
   const resourceVersions = useRef({});
   const resourceErrors = useRef({});
@@ -42,6 +44,7 @@ export function ContentProvider({ children }) {
       const version = ++generation.current;
       const fetchers = {
         documents: documentsApi.listDocuments,
+        documentTests: () => request("/admin/document-test-summaries"),
         dashboard: () => request("/dashboard"),
         configuration: () => request("/config"),
         knowledge: () => request("/knowledge/manage"),
@@ -56,6 +59,7 @@ export function ContentProvider({ children }) {
       const wanted = documentsOnly
         ? [
             "documents",
+            "documentTests",
             "dashboard",
             "configuration",
             "knowledge",
@@ -105,9 +109,10 @@ export function ContentProvider({ children }) {
         return next;
       });
       const message = Object.entries(resourceErrors.current)
-        .map(([name, detail]) => `${name}: ${detail}`)
+        .map(([name, detail]) => `${name === "documentTests" ? "Document test status" : name}: ${detail}`)
         .join("; ");
       setError(message);
+      setDocumentTestError(resourceErrors.current.documentTests || "");
       setLoading(false);
       return message;
     },
@@ -127,12 +132,13 @@ export function ContentProvider({ children }) {
   const processing = data.documents.some((item) =>
     ["processing", "awaiting_index"].includes(item.status),
   );
+  const testing = Object.values(data.documentTests || {}).some((summary) => summary.running > 0);
   useEffect(() => {
-    if (!processing) return;
+    if (!processing && !testing) return;
     let stopped = false;
     let timer;
     async function poll() {
-      await refresh({ documentsOnly: true });
+      await refresh(processing ? { documentsOnly: true } : { resources: ["documentTests"] });
       if (!stopped) timer = setTimeout(poll, CONTENT_POLL_MS);
     }
     timer = setTimeout(poll, CONTENT_POLL_MS);
@@ -140,12 +146,12 @@ export function ContentProvider({ children }) {
       stopped = true;
       clearTimeout(timer);
     };
-  }, [processing, refresh]);
+  }, [processing, testing, refresh]);
 
   async function mutate(action, resources) {
     const result = await action();
     const warning = await refresh({
-      resources: [...resources, "dashboard", "configuration", "knowledge"],
+      resources: [...resources, "dashboard", "configuration", "knowledge", "documentTests"],
     });
     if (warning)
       setError(
@@ -205,6 +211,7 @@ export function ContentProvider({ children }) {
         ...data,
         loading,
         error,
+        documentTestError,
         refresh,
         saveDocument,
         processDocuments,

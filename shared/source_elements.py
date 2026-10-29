@@ -273,6 +273,11 @@ def add_provenance(manifest, metadata):
                         record['visual_asset_path'] = image_path(item['img_path'])
                     except ValueError:
                         pass
+    combine_continuations(manifest)
+
+
+def combine_continuations(manifest):
+    """Join only explicitly linked table parts, retaining their individual evidence."""
     groups = {}
     for record in manifest['elements']:
         if record.get('logical_table_id'):

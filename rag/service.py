@@ -19,6 +19,8 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from rag.config import settings
 from shared.models import PersonalVehicleProfile, PersonalMaintenanceContext, SourceAttachmentReference, MechanicQuestionDraft
+from shared.schedule_drafting import ScheduleDraftRequest, ScheduleDraftResponse
+from shared.document_testing import DocumentTestRequest, DocumentTestReply
 
 @asynccontextmanager
 async def lifespan(app):
@@ -59,6 +61,8 @@ class Request(BaseModel):
     scope: dict
     vehicle_profile: PersonalVehicleProfile | None = None
     maintenance_context: PersonalMaintenanceContext | None = None
+    activity_context: dict | None = None
+    assistance: Literal['explain', 'simplify'] | None = None
 
 
 class Answer(BaseModel):
@@ -70,6 +74,7 @@ class Answer(BaseModel):
     external_warning: bool = False
     manual_relevant: bool = False
     response_type: str = 'manual_only'
+    suggested_activity: Literal['service_plan'] | None = None
 
 
 class MechanicQuestionsRequest(BaseModel):
@@ -170,7 +175,8 @@ async def chat(request: Request, authorization: str = Header(default='')):
         return Answer.model_validate(await handle_query(request.message,
             history=[message.model_dump() for message in request.history], scope=request.scope,
             vehicle_profile=request.vehicle_profile.model_dump(mode='json') if request.vehicle_profile else None,
-            maintenance_context=request.maintenance_context.model_dump(mode='json') if request.maintenance_context else None))
+            maintenance_context=request.maintenance_context.model_dump(mode='json') if request.maintenance_context else None,
+            activity_context=request.activity_context, assistance=request.assistance))
     except Exception:
         logger.exception('Existing RAG pipeline request failed')
         raise HTTPException(503, 'The AI service is temporarily unavailable.') from None
@@ -187,6 +193,40 @@ async def mechanic_questions(request: MechanicQuestionsRequest, authorization: s
     except Exception:
         logger.exception('Mechanic question preparation failed')
         raise HTTPException(503, 'The AI service is temporarily unavailable.') from None
+
+
+@app.post('/v1/document-test', response_model=DocumentTestReply)
+async def document_test(request: DocumentTestRequest, authorization: str = Header(default='')):
+    verify_service_credentials(authorization)
+    scope = request.scope
+    names = scope.get('document_ids', [])
+    if (scope.get('scope_type') not in {'vehicle', 'category'} or not scope.get('scope_id')
+            or len(names) != 1 or set(scope.get('document_metadata', {})) != set(names)
+            or scope.get('content_sources') or scope.get('video_ids')):
+        raise HTTPException(422, 'Document previews require exactly one resolved document and context.')
+    try:
+        await asyncio.to_thread(verify_revisions, scope)
+        from rag.app.query import handle_query
+        trace = {}
+        answer = await handle_query(request.message, scope=scope, admin_trace=trace)
+        return DocumentTestReply.model_validate({key: answer[key] for key in
+            ('answer', 'response_type', 'route', 'sources', 'attachments')} | trace)
+    except Exception:
+        logger.exception('Document preview failed')
+        raise HTTPException(503, 'The document test could not complete. Check indexing and service availability, then retry.') from None
+
+
+@app.post('/v1/schedule-draft', response_model=ScheduleDraftResponse)
+async def schedule_draft(request: ScheduleDraftRequest, authorization: str = Header(default='')):
+    verify_service_credentials(authorization)
+    if len(request.model_dump_json()) > 100000:
+        raise HTTPException(413, 'This table is too large to draft in one request. Use manual schedule entry.')
+    try:
+        from rag.app.generation.schedule_drafting import draft_schedule
+        return await asyncio.to_thread(draft_schedule, request)
+    except Exception:
+        logger.exception('Schedule drafting failed')
+        raise HTTPException(503, 'The AI service could not draft this table. Retry or use manual entry.') from None
 
 
 if __name__ == '__main__':

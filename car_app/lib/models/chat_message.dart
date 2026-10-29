@@ -16,6 +16,8 @@ class ChatRequest {
   final String? scopeId;
   final String? sessionId;
   final String? sessionToken;
+  final Map<String, dynamic>? activity;
+  final String? assistance;
   const ChatRequest({
     required this.message,
     this.vehicle,
@@ -24,6 +26,8 @@ class ChatRequest {
     this.scopeId,
     this.sessionId,
     this.sessionToken,
+    this.activity,
+    this.assistance,
   });
 
   Map<String, dynamic> toJson() => {
@@ -36,6 +40,8 @@ class ChatRequest {
     if (scopeId != null) 'scope_id': scopeId,
     if (sessionId != null) 'session_id': sessionId,
     if (sessionToken != null) 'session_token': sessionToken,
+    if (activity != null) 'activity': activity,
+    if (assistance != null) 'assistance': assistance,
     // History is loaded by the backend from this session. Sending old answers
     // can exceed the request's per-message limit after a long source excerpt.
   };
@@ -57,6 +63,9 @@ class ChatReply {
   final String? responseType;
   final String? sessionId;
   final String? sessionToken;
+  final String? messageId;
+  final bool suggestServicePlan;
+  final String? activityNotice;
   const ChatReply(
     this.text, {
     this.videos = const [],
@@ -69,6 +78,9 @@ class ChatReply {
     this.responseType,
     this.sessionId,
     this.sessionToken,
+    this.messageId,
+    this.suggestServicePlan = false,
+    this.activityNotice,
   });
   factory ChatReply.fromJson(Map<String, dynamic> json) {
     final reply = json['answer'];
@@ -95,6 +107,9 @@ class ChatReply {
       responseType: json['response_type'] as String?,
       sessionId: json['session_id'] as String?,
       sessionToken: json['session_token'] as String?,
+      messageId: json['message_id'] as String?,
+      suggestServicePlan: json['suggested_activity'] == 'service_plan',
+      activityNotice: json['activity_notice'] as String?,
     );
   }
 }

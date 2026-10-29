@@ -1,20 +1,34 @@
 # Supabase database
 
-[`initial_schema.sql`](initial_schema.sql) is the complete application database
-definition. Run it once against a fresh Supabase project or after an explicitly
-approved removal of the existing application structures. Additive migrations for existing installations are in `migrations/`.
+[`fresh_schema.sql`](fresh_schema.sql) is the complete fresh-install database
+definition, incorporating the initial schema and all eight current migrations.
+Run the entire file once in a fresh Supabase project's SQL Editor. It creates all
+32 application tables, constraints, indexes, functions, triggers, permissions,
+Storage bucket definitions and initial presets in one transaction.
+
+The original [`initial_schema.sql`](initial_schema.sql) and every file in
+[`migrations/`](migrations/) remain unchanged in their existing locations. A fresh
+installation using `fresh_schema.sql` does not need to run them separately.
+Existing installations should continue applying only the migrations they need.
+Include new migration changes in `fresh_schema.sql` when extending the schema.
+
+For an existing Car guide installation, apply [`migrations/learning_companion.sql`](migrations/learning_companion.sql)
+after `automatic_chat_context.sql`, then deploy the backend/private RAG service,
+admin dashboard and mobile client. It adds optional companion content, activity
+progress, structured chat replies, saved items and service plans. Existing guide
+content and completion remain intact.
 
 ## Initialise the database
 
 1. Create a Supabase project, or confirm that its existing application tables and
    functions have already been removed through an approved reset. Preserve
    Supabase-managed schemas, roles, extensions and Storage infrastructure.
-2. If using custom bucket names, edit the two bucket IDs at the end of
-   `initial_schema.sql` to match the backend configuration below.
+2. If using custom bucket names, edit the two bucket IDs in the Storage section
+   of `fresh_schema.sql` to match the backend configuration below.
 3. Paste the entire file into the project's SQL Editor and execute it, including
    `begin;` and `commit;`. Tables, relationships, constraints, indexes, triggers,
    permissions, publication functions and initial presets are created together.
-4. Confirm that the 27 application tables exist and that Storage contains these
+4. Confirm that the application tables exist and that Storage contains these
    buckets:
 
    | Bucket | Visibility | Contents |
@@ -53,24 +67,42 @@ approved removal of the existing application structures. Additive migrations for
 
 ## Schema overview
 
+For saved document questions and private RAG previews, apply
+[`migrations/document_testing.sql`](migrations/document_testing.sql) before
+deploying the updated backend, private RAG service and dashboard. It adds
+admin-only question/run records with revision-bound results and explicit reviews.
+Fresh installations include these tables in `fresh_schema.sql`. This migration
+does not publish documents or change driver access.
+
+For document test follow-up on the home dashboard and reference library, apply
+[`migrations/document_test_follow_up.sql`](migrations/document_test_follow_up.sql)
+after `document_testing.sql`. It adds an index for each question's latest run;
+fresh installations include it in `fresh_schema.sql`. No test history or
+publication state is changed. Deploy the updated backend and dashboard together.
+
+For saved admin document review, apply
+[`migrations/document_review_progress.sql`](migrations/document_review_progress.sql)
+before deploying the updated backend and dashboard. It adds revision-bound,
+per-admin checklists and source positions without changing existing publications.
+
 For automatic mobile conversations, apply
 [`migrations/automatic_chat_context.sql`](migrations/automatic_chat_context.sql)
 before deploying the updated backend and mobile app. This adds automatic
 conversation identity, allows general chats without a registered vehicle, and
 preserves existing vehicle/category sessions. Only the original untouched starter
 question presets are upgraded; administrator customisations are preserved.
-Fresh installations include these changes in `initial_schema.sql`.
+Fresh installations include these changes in `fresh_schema.sql`.
 
 For admin-managed YouTube channels, apply
 [`migrations/youtube_channels.sql`](migrations/youtube_channels.sql) once to an
 existing database. It stores channel URLs, queued ingestion requests and sync
-results. New installations include this table in `initial_schema.sql`.
+results. New installations include this table in `fresh_schema.sql`.
 
 For an existing installation, apply
 [`migrations/admin_review_workflow.sql`](migrations/admin_review_workflow.sql)
 once before running the updated admin. It adds private clarification questions,
 draft return notes and the saved reference page. It preserves existing data.
-Fresh installations already include these changes in `initial_schema.sql`.
+Fresh installations already include these changes in `fresh_schema.sql`.
 
 | Area | Tables |
 | --- | --- |
@@ -78,11 +110,13 @@ Fresh installations already include these changes in `initial_schema.sql`.
 | Shared vehicle catalogue | `vehicle_manufacturers`, `vehicle_models`, `knowledge_vehicles` |
 | Maintenance catalogue and rules | `maintenance_items`, `manufacturer_schedules`, `maintenance_assistance` |
 | Private admin clarification | `admin_review_questions` |
-| Documents and applicability | `documents`, `document_vehicles`, `document_categories` |
+| Documents and applicability | `documents`, `document_vehicles`, `document_categories`, `document_review_progress` |
+| Private document previews | `document_test_questions`, `document_test_runs` |
 | Learning content | `guide_categories`, `guides`, `guide_images` |
 | Supplementary videos and channel ingestion | `knowledge_videos`, `youtube_channels` |
 | Emergency content | `emergency_playbooks`, `emergency_contacts` |
 | Personal vehicles and maintenance | `user_vehicles`, `user_tasks`, `service_records` |
+| Personal saved resources and plans | `saved_items`, `service_plans` |
 | Personal progress and incidents | `learning_progress`, `incident_records` |
 | Chat and configurable examples | `chat_sessions`, `chat_messages`, `chat_settings` |
 
@@ -127,8 +161,8 @@ Storage policies. Review any pre-existing bucket policies when reusing a project
 
 ## Existing projects and resets
 
-`initial_schema.sql` does not drop existing objects, migrate data or support
-repeated execution over an installed schema. Stop application writes and indexing
+`fresh_schema.sql` is for a fresh installation; it does not migrate existing data
+or support repeated execution over an installed schema. Stop application writes and indexing
 before an approved rebuild, retain any desired backups, and review application
 dependencies before manually removing objects. Do not drop entire managed schemas
 or use a project-wide reset merely to replace application tables.
@@ -146,4 +180,4 @@ it does not verify those integrations.
 
 ## Maintenance assistance upgrade
 
-For an existing installation, apply [`migrations/maintenance_assistance.sql`](migrations/maintenance_assistance.sql) once in the Supabase SQL Editor before using the admin assistance endpoints. Fresh installations already include this table in `initial_schema.sql`; do not also run the migration. The migration adds only the private review/cache table, its permissions and timestamp trigger. It does not modify schedules, documents or Chroma.
+For an existing installation, apply [`migrations/maintenance_assistance.sql`](migrations/maintenance_assistance.sql) once in the Supabase SQL Editor before using the admin assistance endpoints. Fresh installations already include this table in `fresh_schema.sql`; do not also run the migration. The migration adds only the private review/cache table, its permissions and timestamp trigger. It does not modify schedules, documents or Chroma.

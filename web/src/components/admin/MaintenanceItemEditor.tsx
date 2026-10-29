@@ -13,12 +13,14 @@ import { saveItem, type MaintenanceItem } from "@/api/admin";
 export default function MaintenanceItemEditor({
   row,
   initialTitle = "",
+  initialAction = "inspect",
   categories,
   onClose,
   onSaved,
 }: {
   row?: MaintenanceItem;
   initialTitle?: string;
+  initialAction?: MaintenanceItem["action"];
   categories: string[];
   onClose: () => void;
   onSaved: (row: MaintenanceItem) => void;
@@ -27,7 +29,7 @@ export default function MaintenanceItemEditor({
     title: row?.title || initialTitle,
     category: row?.category || "",
     description: row?.description || "",
-    action: row?.action || "inspect",
+    action: row?.action || initialAction,
     active: row?.active ?? true,
   };
   const [draft, setDraft] = useState(original);

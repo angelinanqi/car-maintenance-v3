@@ -30,14 +30,15 @@ SYSTEM_PROMPT = (
 
 
 class OllamaClient:
-    def __init__(self):
+    def __init__(self, *, max_output_tokens=None, timeout=None):
         model = OLLAMA_MODEL
 
         if not model:
             raise ValueError("OLLAMA_MODEL is not set in the .env file.")
 
         self.model: str = model
-        self.client = Client(host=OLLAMA_HOST, timeout=OLLAMA_TIMEOUT)
+        self.client = Client(host=OLLAMA_HOST, timeout=timeout or OLLAMA_TIMEOUT)
+        self.max_output_tokens = max_output_tokens or OLLAMA_NUM_PREDICT
 
     def generate(self, prompt: str, *, schema: dict | None = None) -> str:
         if not prompt.strip():
@@ -50,7 +51,7 @@ class OllamaClient:
                 "content": prompt,
             }
         ]
-        options = {"temperature": 0, "num_ctx": OLLAMA_NUM_CTX, "num_predict": OLLAMA_NUM_PREDICT}
+        options = {"temperature": 0, "num_ctx": OLLAMA_NUM_CTX, "num_predict": self.max_output_tokens}
 
         if schema is None:
             response = self.client.chat(model=self.model, messages=messages, options=options)

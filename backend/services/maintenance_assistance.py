@@ -1,4 +1,4 @@
-"""Admin review state over existing extraction bundles, independent of RAG services."""
+"""Admin review state over existing extraction bundles and optional AI proposals."""
 from copy import deepcopy
 from datetime import datetime, timezone
 import json
@@ -102,7 +102,7 @@ def generate(state, user_id):
             db.all_rows('maintenance_items', active=True))
     except ValueError as error:
         raise HTTPException(422, str(error)) from None
-    existing = {s['suggestion_id']: s for s in state['suggestions']}
+    existing = {s['suggestion_id']: s for s in state['suggestions'] if not s.get('ai_draft')}
     suggestions = []
     for suggestion in result['suggestions']:
         previous = existing.get(suggestion['suggestion_id'])
@@ -111,7 +111,7 @@ def generate(state, user_id):
                 if field in previous:
                     suggestion[field] = previous[field]
         suggestions.append(suggestion)
-    suggestions.extend(s for s in state['suggestions'] if s.get('manual'))
+    suggestions.extend(s for s in state['suggestions'] if s.get('manual') or s.get('ai_draft'))
     return save(state, {'suggestions': suggestions}, user_id)
 
 

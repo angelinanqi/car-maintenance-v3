@@ -10,20 +10,25 @@ FALLBACK_NOTICE = "Generation used the local Ollama fallback because Gemini was 
 
 
 class GenerationClient:
-    def __init__(self):
+    def __init__(self, *, max_output_tokens=None, timeout=None):
         self.provider = None
         self.model = None
         self.fallback_reason = None
+        self.options = {}
+        if max_output_tokens is not None:
+            self.options["max_output_tokens"] = max_output_tokens
+        if timeout is not None:
+            self.options["timeout"] = timeout
 
     def generate(self, prompt: str, *, schema: dict | None = None, images=None) -> str:
         self.provider = self.model = self.fallback_reason = None
         if settings.LLM_PROVIDER == "ollama":
             if images:
                 raise ValueError('Original-image answering requires the configured Gemini provider')
-            client = OllamaClient()
+            client = OllamaClient(**self.options)
         else:
             try:
-                client = GeminiClient()
+                client = GeminiClient(**self.options)
                 answer = client.generate(prompt, schema=schema, images=images) if images else client.generate(prompt, schema=schema)
             except GeminiError as error:
                 if images or not settings.LLM_FALLBACK_ENABLED or not error.retryable:
@@ -31,7 +36,7 @@ class GenerationClient:
                     raise
                 self.fallback_reason = str(error)
                 logger.warning("llm_fallback primary=gemini fallback=ollama reason=%s", error)
-                client = OllamaClient()
+                client = OllamaClient(**self.options)
             else:
                 self.provider, self.model = "gemini", client.model
                 return answer

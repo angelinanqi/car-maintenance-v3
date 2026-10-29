@@ -1,3 +1,5 @@
+import 'companion.dart';
+
 class Lesson {
   final String id;
   final String title;
@@ -6,6 +8,10 @@ class Lesson {
   final String introduction;
   final int? readingMinutes;
   final List<String> relatedLessonIds, maintenanceItemIds;
+  final String revision;
+  final bool beginnerFriendly, featured;
+  final List<String> outcomes;
+  final List<ExplorationSection> sections;
   const Lesson(
     this.id,
     this.title,
@@ -15,7 +21,37 @@ class Lesson {
     this.readingMinutes,
     this.relatedLessonIds = const [],
     this.maintenanceItemIds = const [],
+    this.revision = '',
+    this.beginnerFriendly = false,
+    this.featured = false,
+    this.outcomes = const [],
+    this.sections = const [],
   });
+
+  factory Lesson.fromJson(Map<String, dynamic> data) => Lesson(
+    data['id'] as String,
+    data['title'] as String,
+    data['content'] as String,
+    categoryId: data['category_id'] as String?,
+    introduction: data['description'] as String? ?? '',
+    readingMinutes: data['reading_minutes'] as int?,
+    relatedLessonIds: (data['related_lesson_ids'] as List? ?? [])
+        .cast<String>(),
+    maintenanceItemIds: (data['maintenance_item_ids'] as List? ?? [])
+        .cast<String>(),
+    revision: data['updated_at'] as String? ?? '',
+    beginnerFriendly: data['beginner_friendly'] == true,
+    featured: data['featured_in_companion'] == true,
+    outcomes: (data['learning_outcomes'] as List? ?? []).cast<String>(),
+    sections: ExplorationSection.fromGuide(data),
+  );
+
+  Map<String, dynamic> activityAt(int index) => {
+    'kind': 'guide',
+    'guide_id': id,
+    if (sections.isNotEmpty) 'step_id': sections[index].id,
+    'revision': revision,
+  };
 }
 
 class LearningTrack {

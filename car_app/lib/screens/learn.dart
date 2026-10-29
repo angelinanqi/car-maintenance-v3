@@ -608,13 +608,18 @@ class _LessonReaderState extends State<_LessonReader> {
               const SizedBox(height: 12),
               OutlinedButton.icon(
                 icon: const Icon(Icons.chat_bubble_outline),
-                label: const Text('Ask AI about this topic'),
+                label: Text(
+                  lesson.sections.isNotEmpty
+                      ? 'Explore with Car guide'
+                      : 'Ask about this guide',
+                ),
                 onPressed: () {
                   final details = html.parse(lesson.content).body?.text ?? '';
                   Navigator.pop(context);
                   if (widget.onAskContext != null) {
                     widget.onAskContext!({
-                      'kind': 'Learning card',
+                      'kind': 'explore_guide',
+                      'guide_id': lesson.id,
                       'id': lesson.id,
                       'categoryId': lesson.categoryId,
                       'title': lesson.title,

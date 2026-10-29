@@ -6,6 +6,9 @@ export type LearningGuideSummary = {
   title: string;
   status: "draft" | "published";
   maintenance_item_ids: string[];
+  beginner_friendly?: boolean;
+  featured_in_companion?: boolean;
+  learning_outcomes?: string[];
 };
 
 export function ContentProvider(props: { children: ReactNode }): ReactNode;
@@ -13,6 +16,7 @@ export function useContent(): {
   cards: LearningGuideSummary[];
   reviewQuestions: ReviewQuestion[];
   error: string;
+  documentTestError: string;
   loading: boolean;
   refresh: (options?: {
     documentsOnly?: boolean;

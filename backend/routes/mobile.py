@@ -78,7 +78,9 @@ class RecordInput(InputModel):
 
 
 class ProgressInput(InputModel):
-    completed: bool
+    completed: bool | None = None
+    current_step_id: str | None = Field(default=None, max_length=80)
+    guide_revision: str | None = Field(default=None, max_length=100)
 
 
 class IncidentInput(InputModel):
@@ -157,6 +159,9 @@ def save_vehicle(record_id: str, request: VehicleInput, user=Depends(auth.requir
         old = owned('user_vehicles', user['id'], record_id, optional=True)
         if old and old['catalogue_id'] != str(request.catalogueId):
             raise HTTPException(409, 'Register a new vehicle to change its catalogue identity. History must stay with its vehicle.')
+        records = db.all_rows('service_records', user_id=user['id'], vehicle_id=record_id)
+        if any(record['mileage'] > request.mileage for record in records):
+            raise HTTPException(422, 'The current odometer cannot be below recorded service mileage. Check the odometer or correct the service record first.')
         if not old:
             identity = db.get('knowledge_vehicles', request.catalogueId)
             model = db.get('vehicle_models', identity['model_id']) if identity.get('model_id') else None
@@ -220,13 +225,23 @@ def save_record(record_id: str, request: RecordInput, user=Depends(auth.require_
     if request.id != record_id or as_date(request.date.isoformat()) > datetime.now().date():
         raise HTTPException(422, 'Use matching identifiers and a service date that is not in the future.')
     with content_lock('mobile:' + user['id']):
-        owned('user_vehicles', user['id'], request.vehicleId)
+        vehicle = owned('user_vehicles', user['id'], request.vehicleId)
         old = owned('service_records', user['id'], record_id, optional=True)
         if old and (old['vehicle_id'] != request.vehicleId or old.get('task_id') != request.taskId):
             raise HTTPException(409, 'A service record cannot be moved to another vehicle or item.')
         task = owned('user_tasks', user['id'], request.taskId) if request.taskId else None
         if (task and task['vehicle_id'] != request.vehicleId) or (not task and not old):
             raise HTTPException(422, 'Select an item belonging to this vehicle.')
+        if request.mileage > vehicle['mileage']:
+            raise HTTPException(422, 'Service mileage cannot exceed the current odometer. Update the vehicle odometer in My Car first, or correct the service mileage.')
+        service_date = request.date.date()
+        for record in db.all_rows('service_records', user_id=user['id'], vehicle_id=request.vehicleId):
+            if record['id'] == record_id:
+                continue
+            recorded_date = as_date(record['performed_at'])
+            if ((recorded_date < service_date and record['mileage'] > request.mileage)
+                    or (recorded_date > service_date and record['mileage'] < request.mileage)):
+                raise HTTPException(422, 'Service mileage conflicts with another dated service record. Check the service date and odometer readings.')
         if old:
             title = old['title']
         elif task.get('item_id'):
@@ -244,8 +259,17 @@ def save_progress(guide_id: UUID, request: ProgressInput, user=Depends(auth.requ
     guide = db.get('guides', guide_id)
     if guide['status'] != 'published' or (guide['category_id'] and not db.get('guide_categories', guide['category_id'])['published']):
         raise HTTPException(404, 'Published lesson not found.')
-    put('learning_progress', user['id'], str(guide_id), {'completed': request.completed})
-    return {'completed': request.completed}
+    values = request.model_dump(exclude_none=True)
+    if request.completed is None:
+        previous = owned('learning_progress', user['id'], str(guide_id), optional=True)
+        values['completed'] = previous.get('completed', False) if previous else False
+    if request.current_step_id:
+        from backend.services.learning_companion import guide_step, same_revision
+        if not same_revision(request.guide_revision, guide['updated_at']):
+            raise HTTPException(409, 'This guide changed. Reopen it to continue.')
+        guide_step(guide, request.current_step_id)
+    row = put('learning_progress', user['id'], str(guide_id), values)
+    return {'completed': row['completed'], 'current_step_id': row.get('current_step_id')}
 
 
 @router.get('/incidents')

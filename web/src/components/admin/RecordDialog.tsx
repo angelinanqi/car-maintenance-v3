@@ -57,7 +57,7 @@ export default function RecordDialog({
       }}
       initialFocusEl={() =>
         form.current?.querySelector<HTMLElement>(
-          "input:not(:disabled), select:not(:disabled)",
+          "input:not(:disabled), textarea:not(:disabled), select:not(:disabled)",
         ) ?? null
       }
     >

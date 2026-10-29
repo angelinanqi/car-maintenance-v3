@@ -9,11 +9,13 @@ export default function TableEvidence({
   selection,
   disabled,
   onExclude,
+  highlightedCells = [],
 }: {
   table: DetectedTable;
   selection: Selection;
   disabled: boolean;
-  onExclude: (row: number) => void;
+  onExclude?: (row: number) => void;
+  highlightedCells?: { row: number; column: number }[];
 }) {
   const rows = [...new Set(table.source.cells.map((cell) => cell.row))].sort(
     (a, b) => a - b,
@@ -32,7 +34,7 @@ export default function TableEvidence({
                 opacity: selection.excluded_rows.includes(row) ? 0.5 : 1,
               }}
             >
-              <td style={{ padding: 8, border: "1px solid #aab4bf" }}>
+              {onExclude && <td style={{ padding: 8, border: "1px solid #aab4bf" }}>
                 <Checkbox
                   disabled={disabled}
                   checked={selection.excluded_rows.includes(row)}
@@ -40,7 +42,7 @@ export default function TableEvidence({
                 >
                   Skip row {row + 1}
                 </Checkbox>
-              </td>
+              </td>}
               {table.source.cells
                 .filter((cell) => cell.row === row)
                 .sort((a, b) => a.column - b.column)
@@ -49,13 +51,13 @@ export default function TableEvidence({
                     key={cell.column}
                     rowSpan={cell.rowspan || 1}
                     colSpan={cell.colspan || 1}
+                    title={highlightedCells.some((ref) => ref.row === cell.row && ref.column === cell.column) ? "Cited evidence for this proposal" : undefined}
                     style={{
                       padding: 8,
                       border: "1px solid #aab4bf",
                       whiteSpace: "pre-wrap",
-                      background: selection.columns.includes(cell.column)
-                        ? "#fff9e8"
-                        : undefined,
+                      background: highlightedCells.some((ref) => ref.row === cell.row && ref.column === cell.column)
+                        ? "#fce8a1" : selection.columns.includes(cell.column) ? "#fff9e8" : undefined,
                       fontWeight: cell.header ? 600 : 400,
                     }}
                   >

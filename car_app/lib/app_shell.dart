@@ -140,7 +140,7 @@ class _AppShellState extends State<AppShell> {
             ),
             const SizedBox(height: 12),
             const Text(
-              'Ask questions with supporting sources, keep track of maintenance and find roadside help.',
+              'Learn with Car guide, make sense of maintenance and prepare for your next service.',
             ),
             const SizedBox(height: 24),
             FilledButton(
@@ -232,6 +232,10 @@ class _AppShellState extends State<AppShell> {
                           requestedItemId: _maintenanceItemId,
                           itemRequestNumber: _maintenanceRequest,
                           onAsk: _askContext,
+                          onPlan: () => _askContext({
+                            'kind': 'service_plan',
+                            'title': 'My next service',
+                          }),
                           onLearn: (id) => setState(() {
                             _lessonId = id;
                             _lessonRequest++;
@@ -269,6 +273,7 @@ class _AppShellState extends State<AppShell> {
                             _selectedIndex = 1;
                             _scheduleRequest++;
                           }),
+                          onLearn: () => setState(() => _selectedIndex = 2),
                         ),
                       ),
                       TickerMode(
@@ -309,7 +314,7 @@ class _AppShellState extends State<AppShell> {
                         NavigationDestination(
                           icon: Icon(Icons.chat_bubble_outline_rounded),
                           selectedIcon: Icon(Icons.chat_bubble_rounded),
-                          label: 'Assistant',
+                          label: 'Car guide',
                         ),
                         NavigationDestination(
                           icon: Icon(Icons.menu_book_outlined),

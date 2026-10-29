@@ -27,6 +27,13 @@ def load(scope_type, scope_id):
         if scope_type == 'category' and category_id not in {None, str(scope_id)}:
             continue
         body = guide_text(guide['content'])
+        for step in (guide.get('exploration') or {}).get('steps', []):
+            if step.get('example_html'):
+                body += '\n\n' + guide_text(step['example_html'])
+            if step.get('activity'):
+                activity = step['activity']
+                body += '\n\n' + activity['prompt']
+                body += '\n' + '\n'.join(option['text'] + ': ' + option['feedback'] for option in activity['options'])
         if not body:
             continue  # Images alone cannot establish textual instructions.
         sources.append({

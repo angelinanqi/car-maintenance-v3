@@ -21,7 +21,7 @@ export function replaceDocument(id, file) {
 export const deleteDocument = (id) => request(`/documents/${id}`, { method: "DELETE" });
 export const processDocuments = (ids, force = false) => request("/documents/process-batch", { method: "POST", body: { ids, force } });
 export const downloadDocumentUrl = (id) => `${API_URL}/documents/${id}/download`;
-export const originalDocumentUrl = (id) => `${API_URL}/documents/${id}/original`;
+export const originalDocumentUrl = (id, revision = null) => `${API_URL}/documents/${id}/original${revision ? `?revision=${encodeURIComponent(revision)}` : ""}`;
 export const publishDocument = (id) => request(`/documents/${id}/publish`, { method: "POST", body: { confirm_review: true } });
 export const unpublishDocument = (id) => request(`/documents/${id}`, { method: "PATCH", body: { published: false } });
 export function stageReplacement(id, file) {

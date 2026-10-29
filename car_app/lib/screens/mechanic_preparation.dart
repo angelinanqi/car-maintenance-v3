@@ -5,6 +5,7 @@ import '../data/nearby_repository.dart';
 import '../models/mechanic_preparation.dart';
 import '../widgets/workshop_notes.dart';
 import 'nearby_assistance.dart';
+import '../data/companion_repository.dart';
 
 class MechanicPreparationPage extends StatefulWidget {
   final AppState state;
@@ -12,6 +13,8 @@ class MechanicPreparationPage extends StatefulWidget {
   final String initialQuestion;
   final String? sessionId;
   final String? sessionToken;
+  final String? planId;
+  final String initialNotes;
   const MechanicPreparationPage({
     super.key,
     required this.state,
@@ -19,6 +22,8 @@ class MechanicPreparationPage extends StatefulWidget {
     this.initialQuestion = '',
     this.sessionId,
     this.sessionToken,
+    this.planId,
+    this.initialNotes = '',
   });
 
   @override
@@ -32,6 +37,7 @@ class _MechanicPreparationPageState extends State<MechanicPreparationPage> {
   String? _accountId;
   String? _vehicleId;
   String? _error;
+  String? _savedNoteId;
   MechanicPreparation? _preparation;
   bool _busy = false;
   bool _contextChanged = false;
@@ -40,6 +46,7 @@ class _MechanicPreparationPageState extends State<MechanicPreparationPage> {
   void initState() {
     super.initState();
     _question = TextEditingController(text: widget.initialQuestion);
+    _notes.text = widget.initialNotes;
     _accountId = widget.state.accountId;
     _vehicleId = widget.state.selectedVehicle?.id;
     widget.state.addListener(_selectionChanged);
@@ -77,7 +84,6 @@ class _MechanicPreparationPageState extends State<MechanicPreparationPage> {
       _busy = true;
       _error = null;
       _preparation = null;
-      _notes.clear();
     });
     try {
       final result = await widget.repository.prepareQuestions(
@@ -85,11 +91,15 @@ class _MechanicPreparationPageState extends State<MechanicPreparationPage> {
         vehicleId: _vehicleId,
         sessionId: widget.sessionId,
         sessionToken: widget.sessionToken,
+        planId: widget.planId,
       );
       if (!mounted || _contextChanged) return;
       setState(() {
         _preparation = result;
-        _notes.text = result.asText();
+        _notes.text = [
+          if (widget.initialNotes.isNotEmpty) widget.initialNotes,
+          result.asText(),
+        ].join('\n\n');
       });
     } catch (error) {
       if (mounted && !_contextChanged)
@@ -101,7 +111,7 @@ class _MechanicPreparationPageState extends State<MechanicPreparationPage> {
 
   void _findWorkshops() {
     if (_contextChanged) return;
-    final notes = _preparation == null ? null : _notes.text.trim();
+    final notes = _notes.text.trim().isEmpty ? null : _notes.text.trim();
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -146,7 +156,6 @@ class _MechanicPreparationPageState extends State<MechanicPreparationPage> {
                 ),
                 onChanged: (_) => setState(() {
                   _preparation = null;
-                  _notes.clear();
                 }),
               ),
               FilledButton.icon(
@@ -172,10 +181,12 @@ class _MechanicPreparationPageState extends State<MechanicPreparationPage> {
                     ),
                   ),
                 ),
-              if (_preparation != null) ...[
+              ...[
                 const SizedBox(height: 20),
                 Text(
-                  _preparation!.tailored
+                  _preparation == null
+                      ? 'Your discussion notes'
+                      : _preparation!.tailored
                       ? 'Review your discussion notes'
                       : 'General checklist — adapt these questions to your concern',
                   style: Theme.of(context).textTheme.titleMedium,
@@ -194,6 +205,51 @@ class _MechanicPreparationPageState extends State<MechanicPreparationPage> {
                   onPressed: () => copyWorkshopNotes(context, _notes.text),
                   icon: const Icon(Icons.copy),
                   label: const Text('Copy discussion notes'),
+                ),
+                TextButton.icon(
+                  icon: const Icon(Icons.bookmark_add_outlined),
+                  label: const Text('Save notes'),
+                  onPressed: _busy
+                      ? null
+                      : () async {
+                          setState(() {
+                            _busy = true;
+                            _error = null;
+                          });
+                          try {
+                            final repository = CompanionRepository(
+                              widget.repository,
+                            );
+                            final saved = _savedNoteId != null
+                                ? await repository.api.patch(
+                                    '/mobile/me/saved-items/$_savedNoteId',
+                                    {
+                                      'title': 'Questions for my mechanic',
+                                      'text': _notes.text,
+                                    },
+                                    token: repository.token,
+                                  )
+                                : await repository.save({
+                                    'kind': 'notes',
+                                    'title': 'Questions for my mechanic',
+                                    'vehicle_id': _vehicleId,
+                                    if (widget.planId != null)
+                                      'plan_id': widget.planId,
+                                    'text': _notes.text,
+                                  });
+                            if (mounted && !_contextChanged)
+                              _savedNoteId = saved['id'] as String;
+                            if (mounted && !_contextChanged)
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Notes saved')),
+                              );
+                          } catch (error) {
+                            if (mounted)
+                              setState(() => _error = error.toString());
+                          } finally {
+                            if (mounted) setState(() => _busy = false);
+                          }
+                        },
                 ),
               ],
               const SizedBox(height: 16),

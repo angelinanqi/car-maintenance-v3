@@ -80,6 +80,8 @@ YOUTUBE_OVERLAP_TOKENS = int(os.getenv("YOUTUBE_OVERLAP_TOKENS") or "60")
 VIDEO_RELEVANCE_THRESHOLD = float(os.getenv("VIDEO_RELEVANCE_THRESHOLD") or "0.75")
 
 # Retrieval, request limits, and ingestion tuning.
+SCHEDULE_DRAFT_MAX_OUTPUT_TOKENS = int(os.getenv("SCHEDULE_DRAFT_MAX_OUTPUT_TOKENS") or "32768")
+SCHEDULE_DRAFT_TIMEOUT = float(os.getenv("SCHEDULE_DRAFT_TIMEOUT") or "90")
 RAG_TOP_K = int(os.getenv("RAG_TOP_K") or "5")
 CHAT_MAX_MESSAGE_LENGTH = int(os.getenv("CHAT_MAX_MESSAGE_LENGTH") or "4000")
 CHAT_HISTORY_LIMIT = int(os.getenv("CHAT_HISTORY_LIMIT") or "6")
@@ -104,6 +106,7 @@ for name in (
     "RAG_TOP_K", "CHAT_MAX_MESSAGE_LENGTH", "CHAT_HISTORY_LIMIT",
     "EMBEDDING_BATCH_SIZE", "EMBEDDING_MAX_TOKENS",
     "YOUTUBE_API_TIMEOUT", "YOUTUBE_CHUNK_TOKENS",
+    "SCHEDULE_DRAFT_MAX_OUTPUT_TOKENS", "SCHEDULE_DRAFT_TIMEOUT",
 ):
     value = globals()[name]
     if not 0 < value < float("inf"):

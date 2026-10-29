@@ -460,6 +460,7 @@ class _AccidentFormState extends State<AccidentForm>
                 TextField(
                   controller: _location,
                   enabled: _loaded && !_busy,
+                  maxLength: 2000,
                   decoration: const InputDecoration(
                     labelText: 'Accident location',
                     helperText:
@@ -487,6 +488,7 @@ class _AccidentFormState extends State<AccidentForm>
                     TextField(
                       controller: _name,
                       enabled: _loaded && !_busy,
+                      maxLength: 200,
                       decoration: const InputDecoration(
                         labelText: 'Other driver name',
                       ),
@@ -495,6 +497,7 @@ class _AccidentFormState extends State<AccidentForm>
                     TextField(
                       controller: _plate,
                       enabled: _loaded && !_busy,
+                      maxLength: 40,
                       textCapitalization: TextCapitalization.characters,
                       decoration: const InputDecoration(
                         labelText: 'Other vehicle plate',
@@ -504,6 +507,7 @@ class _AccidentFormState extends State<AccidentForm>
                     TextField(
                       controller: _phone,
                       enabled: _loaded && !_busy,
+                      maxLength: 100,
                       keyboardType: TextInputType.phone,
                       decoration: const InputDecoration(
                         labelText: 'Contact phone',
@@ -513,6 +517,7 @@ class _AccidentFormState extends State<AccidentForm>
                     TextField(
                       controller: _insurer,
                       enabled: _loaded && !_busy,
+                      maxLength: 200,
                       decoration: const InputDecoration(
                         labelText: 'Insurer (if known)',
                       ),
@@ -530,6 +535,7 @@ class _AccidentFormState extends State<AccidentForm>
                   controller: _details,
                   enabled: _loaded && !_busy,
                   maxLines: 4,
+                  maxLength: 20000,
                   decoration: const InputDecoration(
                     labelText: 'What you noticed (optional)',
                   ),

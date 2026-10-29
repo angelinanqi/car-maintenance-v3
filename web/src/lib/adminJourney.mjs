@@ -74,7 +74,7 @@ export function documentJourney(document, knowledge) {
     return {
       stage: "review",
       label: "Ready to check",
-      next: "Check document",
+      next: "Continue document review",
       color: "orange",
     };
   return {
@@ -197,7 +197,7 @@ export function suggestedNameColumns(table) {
   const headers = table.source.cells.filter(
     (cell) =>
       cell.header &&
-      /\b(item|description|operation|component|maintenance task|service task)\b/i.test(
+      /\b(item|description|operation|component|task)\b/i.test(
         cell.text,
       ),
   );

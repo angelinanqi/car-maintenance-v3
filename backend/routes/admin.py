@@ -8,6 +8,7 @@ from pydantic import Field, field_validator
 from backend import auth, db, settings
 from backend.locks import content_lock
 from backend.models import ReviewConfirmation, Rule
+from shared.models import MechanicQuestionDraft
 from shared.models import InputModel
 from backend.services import catalogue as catalogue_service
 from backend.services import review_questions
@@ -40,6 +41,29 @@ def chat_starters():
 def save_chat_starters(request: ChatStartersInput):
     row = db.update("chat_settings", "default", {"starter_questions": request.questions})
     return {"questions": row["starter_questions"]}
+
+
+class CompanionSettingsInput(InputModel):
+    mechanic_template: MechanicQuestionDraft | None = None
+    mechanic_details: list[str] = Field(default_factory=list, max_length=12)
+
+    @field_validator('mechanic_details')
+    @classmethod
+    def valid_details(cls, values):
+        if any(not value.strip() or len(value) > 500 for value in values):
+            raise ValueError('Preparation notes must contain 1 to 500 characters.')
+        return values
+
+
+@router.get('/companion-settings')
+def companion_settings():
+    row = db.get('chat_settings', 'default')
+    return {'mechanic_template': row.get('mechanic_template'), 'mechanic_details': row.get('mechanic_details', [])}
+
+
+@router.put('/companion-settings')
+def save_companion_settings(request: CompanionSettingsInput):
+    return db.update('chat_settings', 'default', request.model_dump(mode='json'))
 
 
 class ManufacturerInput(InputModel):
@@ -120,6 +144,10 @@ def validate_schedule(values, publishing=False):
                     if (not suggestion or suggestion['table_id'] != rule['sourceTableId']
                             or suggestion['status'] != 'accepted' or suggestion.get('mapped_item_id') != item_id):
                         raise HTTPException(422, 'The source suggestion must be accepted and mapped to the selected maintenance item.')
+                    draft = suggestion.get('ai_draft')
+                    if draft and (draft['vehicle_id'] != vehicle_id or draft.get('manual_entry_required')
+                                  or not draft.get('reviewed_at')):
+                        raise HTTPException(422, 'AI schedule rows must be reviewed for this vehicle before they can be used.')
             if markdown_source and (rule.get('sourcePage') or not (rule.get('sourceRevision') and rule.get('sourceTableId'))):
                 raise HTTPException(422, 'Markdown rules require a reviewed table/bookmark and revision, without a PDF page.')
         if not publishing:

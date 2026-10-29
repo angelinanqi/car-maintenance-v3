@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from backend.settings import CHAT_MAX_MESSAGE_LENGTH, CHAT_HISTORY_LIMIT
 from shared.models import InputModel, MechanicQuestionDraft
+from backend.companion_models import Exploration, ActivityReference
 
 Vehicle = str
 DocumentType = Literal["owners_manual", "maintenance_booklet", "service_manual", "other_reference"]
@@ -17,6 +18,7 @@ class MechanicPreparationRequest(InputModel):
     vehicle_id: str | None = Field(default=None, max_length=200)
     session_id: UUID | None = None
     session_token: str | None = Field(default=None, max_length=128)
+    plan_id: UUID | None = None
 
 
 class MechanicPreparation(MechanicQuestionDraft):
@@ -99,6 +101,17 @@ class GuideInput(InputModel):
     reading_minutes: int | None = Field(default=None, gt=0, le=2147483647)
     related_lesson_ids: list[UUID] = Field(default_factory=list)
     maintenance_item_ids: list[UUID] = Field(default_factory=list)
+    beginner_friendly: bool = False
+    featured_in_companion: bool = False
+    learning_outcomes: list[str] = Field(default_factory=list, max_length=8)
+    exploration: Exploration | None = None
+
+    @field_validator('learning_outcomes')
+    @classmethod
+    def valid_outcomes(cls, values):
+        if any(not text.strip() or len(text) > 300 for text in values):
+            raise ValueError('Learning outcomes must contain 1 to 300 characters.')
+        return values
 
     @field_validator('related_lesson_ids', 'maintenance_item_ids')
     @classmethod
@@ -199,6 +212,7 @@ class DocumentPatch(InputModel):
     variant: str | None = None
     vehicle_independent: bool | None = None
     source_fidelity_verified: bool | None = None
+    reviewed_revision: UUID | None = None
     document_type: DocumentType | None = None
     published: Literal[False] | None = None
 
@@ -220,6 +234,10 @@ class GuidePatch(InputModel):
     reading_minutes: int | None = Field(default=None, gt=0, le=2147483647)
     related_lesson_ids: list[UUID] | None = None
     maintenance_item_ids: list[UUID] | None = None
+    beginner_friendly: bool | None = None
+    featured_in_companion: bool | None = None
+    learning_outcomes: list[str] | None = Field(default=None, max_length=8)
+    exploration: Exploration | None = None
 
     @field_validator("title", "display_order", "content", "status", "description", "related_lesson_ids", "maintenance_item_ids")
     @classmethod
@@ -282,6 +300,8 @@ class ChatRequest(InputModel):
     scope_id: str | None = None
     session_id: str | None = Field(default=None, max_length=36)
     session_token: str | None = Field(default=None, max_length=128)
+    activity: ActivityReference | None = None
+    assistance: Literal['explain', 'simplify'] | None = None
 
     @model_validator(mode='after')
     def paired_scope(self):

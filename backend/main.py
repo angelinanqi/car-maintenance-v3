@@ -18,8 +18,10 @@ from backend.routes import (
     chat,
     chat_sources,
     configuration,
+    companion,
     dashboard,
     documents,
+    document_tests,
     emergency,
     guides,
     indexing,
@@ -72,6 +74,7 @@ app.include_router(chat_sources.router)
 app.include_router(maintenance_assistance.router)
 app.include_router(review_questions.router)
 app.include_router(chat.router)
+app.include_router(document_tests.router)
 app.include_router(configuration.router)
 
 
@@ -97,6 +100,7 @@ for router in (
     admin.router,
     admin.mobile_router,
     mobile.router,
+    companion.router,
     nearby.router,
 ):
     app.include_router(router)

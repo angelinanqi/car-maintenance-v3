@@ -149,6 +149,13 @@ class ApiClient {
     await _request(path, method: 'DELETE', token: token);
   }
 
+  Future<Map<String, dynamic>> patch(
+    String path,
+    Map<String, dynamic> body, {
+    String? token,
+  }) async =>
+      _object(await _request(path, method: 'PATCH', body: body, token: token));
+
   Future<void> postEmpty(String path, {String? token}) async {
     await _request(path, method: 'POST', token: token);
   }

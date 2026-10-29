@@ -287,6 +287,7 @@ class _VehicleProfilePageState extends State<VehicleProfilePage> {
                   TextFormField(
                     controller: _name,
                     enabled: !_busy,
+                    maxLength: 200,
                     decoration: const InputDecoration(
                       labelText: 'Nickname (optional)',
                     ),
@@ -295,6 +296,7 @@ class _VehicleProfilePageState extends State<VehicleProfilePage> {
                   TextFormField(
                     controller: _plate,
                     enabled: !_busy,
+                    maxLength: 40,
                     decoration: const InputDecoration(
                       labelText: 'Number plate (optional)',
                     ),
@@ -307,9 +309,21 @@ class _VehicleProfilePageState extends State<VehicleProfilePage> {
                     decoration: const InputDecoration(
                       labelText: 'Current odometer (km)',
                     ),
-                    validator: (v) => (int.tryParse(v?.trim() ?? '') ?? -1) < 0
-                        ? 'Enter zero or more kilometres'
-                        : null,
+                    validator: (value) {
+                      final mileage = int.tryParse(value?.trim() ?? '');
+                      if (mileage == null ||
+                          mileage < 0 ||
+                          mileage > 2147483647) {
+                        return 'Enter kilometres from 0 to 2,147,483,647';
+                      }
+                      final records = widget.state.recordsFor(
+                        widget.vehicle?.id ?? '',
+                      );
+                      if (records.any((record) => record.mileage > mileage)) {
+                        return 'Cannot be below recorded service mileage.';
+                      }
+                      return null;
+                    },
                   ),
                   const SizedBox(height: 20),
                   FilledButton(

@@ -226,11 +226,15 @@ export default function ScheduleEditor() {
       return;
     const seen = new Set(entries.map((entry) => entry.itemId));
     const additions: ScheduleEntry[] = [];
+    let drafted = 0;
     for (const suggestion of suggestions) {
+      if (suggestion.status !== "accepted") continue;
+      const aiDraft = suggestion.ai_draft;
+      if (aiDraft && (aiDraft.vehicle_id !== vehicleId || aiDraft.manual_entry_required || !aiDraft.reviewed_at || !aiDraft.rule)) continue;
       const item = items.find(
         (item) => item.id === suggestion.mapped_item_id && item.active,
       );
-      if (!item || seen.has(item.id)) continue;
+      if (!item || seen.has(item.id) || (aiDraft && aiDraft.action !== item.action)) continue;
       seen.add(item.id);
       const table = review.catalogue.tables.find(
         (table) => table.table_id === suggestion.table_id,
@@ -244,14 +248,16 @@ export default function ScheduleEditor() {
         action: item.action,
         rule: {
           ...newEntry().rule,
+          ...(aiDraft?.rule || {}),
           sourceDocumentId: review.document_id,
           sourceRevision: review.source_revision,
           sourceTableId: suggestion.table_id,
           sourceSuggestionId: suggestion.suggestion_id,
           sourcePage:
-            suggestion.pages?.[0] || table?.pages[0] || bookmark?.page || null,
+            aiDraft?.source_page || suggestion.pages?.[0] || table?.pages[0] || bookmark?.page || null,
         },
       });
+      if (aiDraft) drafted += 1;
     }
     setEntries([...entries, ...additions]);
     if (additions.length) {
@@ -259,7 +265,7 @@ export default function ScheduleEditor() {
       setReviewed(false);
     }
     setNotice(
-      `${additions.length} tasks added. Check and enter each interval from the manual. Tasks already present were skipped.`,
+      `${additions.length} tasks added.${drafted ? ` ${drafted} include reviewed timing and conditions.` : " Enter each interval from the manual."} Save the schedule draft below to keep these additions. Tasks already present were skipped.`,
     );
   }
   async function saveDraft() {
@@ -708,12 +714,11 @@ export default function ScheduleEditor() {
                     {selectedSource && !selectedSource.superseded_by_id && (
                       <Box as="details" bg="white" p={4} borderRadius="10px">
                         <Box as="summary">
-                          Help me find service tasks in this manual
+                          Draft a schedule from this manual
                         </Box>
                         <Text mt={2} mb={4} color="muted">
-                          Optional: select a maintenance table to suggest task
-                          names. You will still enter and check the service
-                          intervals.
+                          Select a maintenance table to draft tasks and timing with AI,
+                          then review the source evidence before adding rows to your schedule.
                         </Text>
                         <MaintenanceAssistance
                           key={`${vehicleId}:${selectedSource.id}:${selectedSource.source_revision}`}

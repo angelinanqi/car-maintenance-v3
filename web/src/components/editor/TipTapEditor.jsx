@@ -7,11 +7,13 @@ import Youtube from "@tiptap/extension-youtube";
 import { Box } from "@chakra-ui/react";
 
 import EditorToolbar from "./EditorToolbar";
+import { SectionIds } from "./SectionIds";
 
 export default function TiptapEditor({ content, onChange, readOnly = false, uploadImage }) {
   const editor = useEditor({
     editable: !readOnly,
     extensions: [
+      SectionIds,
       StarterKit.configure({
         heading: {
           levels: [1, 2, 3],

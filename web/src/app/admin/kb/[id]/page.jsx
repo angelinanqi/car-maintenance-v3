@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import NextLink from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
@@ -18,6 +18,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import FileModal from "@/components/modals/FileModal";
 import DocumentCoverage from "@/components/admin/DocumentCoverage";
 import DocumentReview from "@/components/admin/DocumentReview";
+import DocumentTests from "@/components/admin/DocumentTests";
 import DocumentAvailability from "@/components/admin/DocumentAvailability";
 import DocumentImpact from "@/components/admin/DocumentImpact";
 import ReviewQuestions, {
@@ -66,12 +67,19 @@ function DocumentWorkspace() {
   const [coverageDirty, setCoverageDirty] = useState(false);
   const [editingCoverage, setEditingCoverage] = useState(false);
   const [reviewLoaded, setReviewLoaded] = useState(false);
+  const [reviewExpanded, setReviewExpanded] = useState(false);
   const [checked, setChecked] = useState(false);
   const [modal, setModal] = useState("");
   const [askingQuestion, setAskingQuestion] = useState(false);
+  const [testDirty, setTestDirty] = useState(false);
+  const handleCoverageDirty = useCallback((dirty) => {
+    setCoverageDirty(dirty);
+    // Keep the form and its retry message visible after a partial save.
+    if (dirty) setEditingCoverage(true);
+  }, []);
   const sourceIds = documentSourceIds(document, documents);
   const openQuestions = reviewQuestions.filter(
-    (question) => sourceIds.has(question.document_id) && !question.vehicle_id,
+    (question) => sourceIds.has(question.document_id) && !question.vehicle_id && question.status === "open",
   );
   useEffect(() => {
     setChecked(false);
@@ -100,6 +108,7 @@ function DocumentWorkspace() {
     document.status === "processed" &&
     document.indexed_revision === document.source_revision &&
     document.chunk_count > 0;
+  const reviewAvailable = ready || (document.status === "awaiting_index" && document.extraction_storage_path);
   const previous = documents.find(
     (row) => row.id === document.replacement_for_id,
   );
@@ -116,9 +125,20 @@ function DocumentWorkspace() {
       : !document.source_fidelity_verified
         ? 2
         : 3;
+  const nextTask = !hasCoverage || coverageDirty
+    ? { title: "Confirm which vehicles or topics this document covers", label: "Review coverage", target: "document-coverage" }
+    : !ready
+      ? { title: isPreparing ? "Document preparation is running" : "Prepare this document for review", label: isPreparing ? "View progress" : "Continue preparation", target: "document-preparation" }
+      : !document.source_fidelity_verified
+        ? { title: "Compare the prepared content with the original", label: "Continue document review", target: "document-review" }
+        : { title: "Review where this document will be available", label: "Review publication", target: "document-publication" };
 
   async function act(action, success) {
     if (busy) return;
+    if (testDirty) {
+      setError("Save or discard the document test edits before changing this document.");
+      return;
+    }
     setBusy(true);
     setError("");
     setNotice("");
@@ -211,6 +231,18 @@ function DocumentWorkspace() {
               </Box>
             )}
             {!document.published && (
+              <Box position="sticky" top={0} zIndex={2} bg="white" borderWidth="1px" borderColor="brand.200" p={4} borderRadius="10px" boxShadow="sm">
+                <Flex gap={3} justify="space-between" align="center" wrap="wrap">
+                  <Box>
+                    <Text fontSize="sm" color="muted">Your next step</Text>
+                    <Text fontWeight="600">{nextTask.title}</Text>
+                    {openQuestions.length > 0 && <Text fontSize="sm" color="orange.800">{openQuestions.length} open question{openQuestions.length === 1 ? "" : "s"} must be resolved before approval. <a href="#questions" style={{ textDecoration: "underline" }}>Review questions</a></Text>}
+                  </Box>
+                  <Button asChild size="sm" variant="outline"><a href={`#${nextTask.target}`}>{nextTask.label}</a></Button>
+                </Flex>
+              </Box>
+            )}
+            {!document.published && (
               <Flex
                 as="ol"
                 aria-label="Document progress"
@@ -248,7 +280,7 @@ function DocumentWorkspace() {
                 ))}
               </Flex>
             )}
-            <Box bg="white" p={{ base: 5, md: 7 }} borderRadius="12px">
+            <Box id="document-coverage" scrollMarginTop="130px" bg="white" p={{ base: 5, md: 7 }} borderRadius="12px">
               <Flex
                 justify="space-between"
                 gap={3}
@@ -291,14 +323,18 @@ function DocumentWorkspace() {
                   key={document.id}
                   document={document}
                   preferredVehicle={search.get("vehicle") || ""}
-                  onDirty={setCoverageDirty}
+                  onDirty={handleCoverageDirty}
                   disabled={busy || isPreparing}
+                  prepare={!document.published && !ready && !isPreparing}
+                  onSaved={() => setEditingCoverage(false)}
                 />
               )}
             </Box>
             {!document.published && (
               <>
-                <Box bg="white" p={{ base: 5, md: 7 }} borderRadius="12px">
+                <Box id="document-preparation" scrollMarginTop="130px" as="details" open={!ready} bg="white" p={{ base: 5, md: 7 }} borderRadius="12px">
+                  <Box as="summary" cursor="pointer" fontWeight="600">{ready ? "Preparation complete" : "Prepare the document"}</Box>
+                  <Box mt={4}>
                   <Heading size="lg" mb={3}>
                     Prepare the document
                   </Heading>
@@ -374,18 +410,28 @@ function DocumentWorkspace() {
                       </Button>
                     </>
                   )}
+                  </Box>
                 </Box>
-                {ready && (
-                  <Box bg="white" p={{ base: 5, md: 7 }} borderRadius="12px">
+                {reviewAvailable && (
+                  <Box id="document-review" scrollMarginTop="130px" bg="white" p={{ base: 5, md: 7 }} borderRadius="12px">
+                    <Flex justify="space-between" align="center" gap={3} wrap="wrap" mb={3}>
                     <Heading size="lg" mb={3}>
-                      Check that the document was read correctly
+                      {document.source_fidelity_verified ? "Document check saved" : "Check that the document was read correctly"}
                     </Heading>
+                    {document.source_fidelity_verified && <Button variant="outline" size="sm" disabled={reviewExpanded && !reviewLoaded} onClick={() => setReviewExpanded((value) => !value)}>{reviewExpanded ? "Hide review" : "Reopen review"}</Button>}
+                    </Flex>
+                    {!ready && <Text role="status" fontSize="sm" mb={4}>Indexing is pending. You can continue checking and correcting the extraction. Final approval will be available when the latest revision finishes indexing.</Text>}
+                    {(!document.source_fidelity_verified || reviewExpanded) && <>
                     <DocumentReview
                       key={document.source_revision}
                       document={document}
                       onLoaded={setReviewLoaded}
-                      onUpdated={() => refresh({ documentsOnly: true })}
+                      onUpdated={(message) => {
+                        if (message) setNotice(message);
+                        return refresh({ documentsOnly: true });
+                      }}
                     />
+                    </>}
                     {document.source_fidelity_verified ? (
                       <Text role="status" mt={4}>
                         The document has been marked as checked.
@@ -395,7 +441,7 @@ function DocumentWorkspace() {
                         <Checkbox
                           checked={checked}
                           disabled={
-                            !reviewLoaded || busy || openQuestions.length > 0
+                            !ready || !reviewLoaded || busy || openQuestions.length > 0
                           }
                           onCheckedChange={(event) =>
                             setChecked(event.checked === true)
@@ -408,6 +454,7 @@ function DocumentWorkspace() {
                           alignSelf="start"
                           loading={busy}
                           disabled={
+                            !ready ||
                             !checked ||
                             !reviewLoaded ||
                             coverageDirty ||
@@ -419,7 +466,7 @@ function DocumentWorkspace() {
                               () =>
                                 request(`/documents/${document.id}`, {
                                   method: "PATCH",
-                                  body: { source_fidelity_verified: true },
+                                  body: { source_fidelity_verified: true, reviewed_revision: document.source_revision },
                                 }),
                               "Your check is saved. The document is ready for the final step.",
                             )
@@ -436,7 +483,10 @@ function DocumentWorkspace() {
                     )}
                   </Box>
                 )}
-                <Box bg="white" p={{ base: 5, md: 7 }} borderRadius="12px">
+                <DocumentTests key={document.id} document={document} onDirty={setTestDirty} />
+                <Box id="document-publication" scrollMarginTop="130px" as="details" open={ready && document.source_fidelity_verified} bg="white" p={{ base: 5, md: 7 }} borderRadius="12px">
+                  <Box as="summary" cursor="pointer" fontWeight="600">{document.source_fidelity_verified ? "Ready to publish" : "Publication · finish the document check first"}</Box>
+                  <Box mt={4}>
                   <Heading size="lg" mb={3}>
                     Make this document available
                   </Heading>
@@ -451,6 +501,12 @@ function DocumentWorkspace() {
                     vehicles and topics. Chatbot access is shown here after
                     publication.
                   </Text>
+                  <Stack gap={1} mt={3} bg="canvas" p={4} borderRadius="8px">
+                    <Text fontWeight="600">Publication destinations</Text>
+                    {coverageNames(document.id, knowledge).map((name) => <Text key={name} fontSize="sm">{name}</Text>)}
+                    <Text fontSize="sm" color="muted">Chatbot access also requires each vehicle or topic to be enabled. You can check and enable destinations after publication.</Text>
+                    {document.document_type === "owners_manual" && <Text fontSize="sm">This owner's manual will also appear in the mobile manual library for its covered vehicles.</Text>}
+                  </Stack>
                   {document.replacement_for_id && (
                     <Text mt={3}>
                       This will replace the previous document. Its service
@@ -474,6 +530,7 @@ function DocumentWorkspace() {
                       !document.source_fidelity_verified ||
                       !hasCoverage ||
                       coverageDirty ||
+                      testDirty ||
                       openQuestions.length > 0 ||
                       busy
                     }
@@ -496,6 +553,7 @@ function DocumentWorkspace() {
                       ? "Use this replacement"
                       : "Make document available"}
                   </Button>
+                  </Box>
                 </Box>
               </>
             )}
@@ -507,6 +565,7 @@ function DocumentWorkspace() {
                 <DocumentAvailability document={document} />
               </Box>
             )}
+            {document.published && <DocumentTests key={document.id} document={document} onDirty={setTestDirty} />}
             <DocumentImpact document={document} />
           </>
         )}

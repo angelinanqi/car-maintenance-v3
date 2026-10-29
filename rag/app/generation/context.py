@@ -42,15 +42,28 @@ def maintenance_source(context, budget):
     """Retain whole server-ordered entries, totals and an explicit coverage note."""
     result = {key: context[key] for key in ("vehicle_id", "as_of", "total_tasks", "total_standalone_services")}
     result.update(tasks=[], standalone_services=[], entries_omitted=False)
+    plan = context.get('service_plan')
+    if plan:
+        # Plan evidence shares P2's budget and preserves complete item entries.
+        result['service_plan'] = {key: plan[key] for key in ('vehicle_id', 'mileage', 'as_of', 'total_tasks')}
+        result['service_plan']['groups'] = {key: [] for key in plan['groups']}
     if encoded_size(json.dumps(result, ensure_ascii=False)) > budget:
         return None
+    if plan:
+        for group, entries in plan['groups'].items():
+            for entry in entries:
+                result['service_plan']['groups'][group].append(entry)
+                if encoded_size(json.dumps(result, ensure_ascii=False)) > budget:
+                    result['service_plan']['groups'][group].pop()
+                    result['entries_omitted'] = True
+                    break
     for key in ("tasks", "standalone_services"):
         for entry in context[key]:
             result[key].append(entry)
             if encoded_size(json.dumps(result, ensure_ascii=False)) > budget:
                 result[key].pop()
                 break
-    result["entries_omitted"] = any(len(result[key]) < len(context[key])
+    result["entries_omitted"] = result['entries_omitted'] or any(len(result[key]) < len(context[key])
                                     for key in ("tasks", "standalone_services"))
     return json.dumps(result, ensure_ascii=False)
 

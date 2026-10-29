@@ -111,7 +111,12 @@ def editable(document_id):
 def edit(document_id, metadata):
     with document_lock('schedule-sources'), document_lock(document_id):
         row = editable(document_id)
+        reviewed_revision = metadata.pop("reviewed_revision", None)
         if metadata.get("source_fidelity_verified"):
+            if not reviewed_revision or str(reviewed_revision) != row["source_revision"]:
+                raise HTTPException(409, "The document revision changed or was not supplied. Reload and check the current document before approving it.")
+            if row["status"] != "processed" or row.get("indexed_revision") != row["source_revision"] or not row.get("chunk_count"):
+                raise HTTPException(409, "Wait for the current document to finish preparation and indexing before approving it.")
             from backend.services.review_questions import check_document
             check_document(document_id)
         if metadata.get("mobile_visible") and not row.get("published"):
@@ -126,7 +131,8 @@ def edit(document_id, metadata):
 
 def source_paths(document_id):
     return [f"documents/{document_id}/{name}.{extension}"
-            for name in ("source", "replacement") for extension in ("pdf", "md")]
+            for name in ("source", "replacement") for extension in ("pdf", "md")] + [
+                f"documents/{document_id}/corrected-a.zip", f"documents/{document_id}/corrected-b.zip"]
 
 
 def reset_processing():
@@ -209,6 +215,18 @@ def queue(document_id, force=False):
             return row, False
         if row.get("published"):
             raise HTTPException(409, "Unpublish before reprocessing, or stage a replacement to keep the current source available.")
+        if row.get("extraction_storage_path"):
+            from backend.services import extraction_corrections
+            try:
+                files = extraction_corrections.read_bundle(row)
+            except (HTTPException, ValueError, KeyError, BadZipFile):
+                if row["extraction_storage_path"].endswith(("corrected-a.zip", "corrected-b.zip")):
+                    raise HTTPException(409, "The saved corrections could not be opened. Restore their extraction bundle before rebuilding.") from None
+                files = {}  # Keep the existing repair path for ordinary OCR output.
+            if extraction_corrections.HISTORY in files:
+                # Rebuild from the reviewed correction, including after restart;
+                # running OCR again would silently replace it with the old error.
+                return extraction_corrections.commit(row, files), False
         # Keep reviewed identities across a backend restart/reprocessing. The
         # source hash is checked again before they can enter a new extraction.
         if row.get('extraction_storage_path'):

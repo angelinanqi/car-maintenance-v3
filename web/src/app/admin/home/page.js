@@ -11,12 +11,14 @@ import {
   Text,
 } from "@chakra-ui/react";
 import AdminLayout from "@/components/layouts/AdminLayout";
+import DocumentTestSummary from "@/components/admin/DocumentTestSummary";
 import { useContent } from "@/components/ContentProvider";
 import {
   documentJourney,
   coverageNames,
   questionHref,
 } from "@/lib/adminJourney.mjs";
+import { testNeedsAttention } from "@/lib/documentTestFollowUp.mjs";
 
 export default function Home() {
   const {
@@ -27,6 +29,9 @@ export default function Home() {
     reviewQuestions,
     loading,
     error,
+    refresh,
+    documentTests,
+    documentTestError,
   } = useContent();
   const tasks = documents
     .map((document) => ({
@@ -34,8 +39,9 @@ export default function Home() {
       journey: documentJourney(document, knowledge),
     }))
     .filter(
-      ({ journey }) =>
-        !["available", "replaced", "preparing"].includes(journey.stage),
+      ({ document, journey }) =>
+        !["available", "replaced", "preparing"].includes(journey.stage) ||
+        (journey.stage !== "replaced" && !documentTestError && testNeedsAttention(documentTests?.[document.id])),
     );
   const preparing = documents.filter((document) =>
     ["processing", "awaiting_index"].includes(document.status),
@@ -56,9 +62,10 @@ export default function Home() {
       >
         <Stack gap={6}>
           <Box bg="white" p={{ base: 5, md: 7 }} borderRadius="12px">
-            <Heading as="h2" size="xl" mb={2}>
-              Needs your attention
-            </Heading>
+            <Flex justify="space-between" align="start" gap={3} wrap="wrap" mb={2}>
+              <Heading as="h2" size="xl">Needs your attention</Heading>
+              <Button size="sm" variant="outline" onClick={() => refresh()}>Refresh tasks</Button>
+            </Flex>
             <Text color="muted" mb={5}>
               Documents, service schedules and learning drafts you can continue
               now.
@@ -195,9 +202,11 @@ export default function Home() {
                           Unfinished document replacement
                         </Text>
                       )}
+                      <DocumentTestSummary documentId={document.id} documentName={document.name} summary={documentTests?.[document.id]}
+                        error={documentTestError} loading={loading} />
                     </Box>
                     <Button asChild size="sm">
-                      <NextLink href={`/admin/kb/${document.id}`}>
+                      <NextLink href={`/admin/kb/${document.id}${journey.stage === "review" ? "#document-review" : ""}`}>
                         {journey.next}
                         <Box as="span" srOnly>
                           {" "}

@@ -21,6 +21,7 @@ class Intent(BaseModel):
     requested_engine: str | None
     requested_variant: str | None
     requested_vehicle: str | None = None
+    suggest_service_plan: bool = False
 
 
 def interpret(question, history, scope, client):
@@ -48,6 +49,8 @@ def interpret(question, history, scope, client):
         "immediate danger described by the user, not the potential danger of a proposed repair. "
         "Keep route and risk consistent: emergency/emergency, restricted/high_risk. "
         "Set other risks according to the requested action. "
+        "Set suggest_service_plan when the user wants a personal next-service proposal, grouping "
+        "or a review of what to service next. A general question about servicing alone does not need it. "
         "Set specification only when the request needs an exact manufacturer value, interval or "
         "configuration, not for general explanations or saved personal service status. "
         "Set instructional when supplementary videos are appropriate for a requested procedure, "

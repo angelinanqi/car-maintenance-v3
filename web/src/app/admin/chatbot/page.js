@@ -22,6 +22,7 @@ import { sendChatMessage } from "@/api/chat.mjs";
 import { useContent } from "@/components/ContentProvider";
 import NextLink from "next/link";
 import ChatStarterEditor from "@/components/ChatStarterEditor";
+import MechanicTemplateEditor from "@/components/MechanicTemplateEditor";
 
 export default function ChatbotPage() {
   const { documents, configuration, loading, refresh } = useContent();
@@ -204,6 +205,7 @@ export default function ChatbotPage() {
       description="Check answers from manuals, learning guides, reviewed emergency guidance and related videos."
     >
       <ChatStarterEditor />
+      <MechanicTemplateEditor />
       <Box
         as="aside"
         aria-label="Personal maintenance in mobile chat"

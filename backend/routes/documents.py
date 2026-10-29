@@ -5,7 +5,6 @@ from uuid import UUID
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
 from pydantic import ValidationError, Field
 from urllib.parse import quote
-from zipfile import BadZipFile
 
 from backend import auth, db
 from backend.models import Document, DocumentEdit, DocumentPatch, ProcessBatch, ProcessResult, ReviewConfirmation
@@ -14,8 +13,7 @@ from backend import settings
 from backend.services.source_assets import extraction, element, image_bytes
 from shared.models import InputModel
 from shared.visual_identity import VisualIdentity
-from shared.source_elements import ELEMENT_PATTERN, sanitize_table
-from backend.services import review_questions
+from backend.services import document_review, review_questions, extraction_corrections
 
 router = APIRouter(prefix="/documents", tags=["Documents"])
 
@@ -110,11 +108,13 @@ def publish_document(document_id: UUID, request: ReviewConfirmation):
 
 
 @router.get("/{document_id}/original", dependencies=[Depends(auth.require_admin)])
-def original_document(document_id: UUID):
+def original_document(document_id: UUID, revision: UUID | None = None):
     row = db.get("documents", document_id)
+    if revision is not None and row["source_revision"] != str(revision):
+        raise HTTPException(409, "The original document changed. Reload the current review.")
     data = db.bucket(settings.SUPABASE_DOCUMENT_BUCKET).download(row["storage_path"])
     return Response(data, media_type="application/pdf" if row["source_type"] == "pdf" else "text/plain", headers={
-        "X-Content-Type-Options": "nosniff", "Content-Disposition": "inline",
+        "X-Content-Type-Options": "nosniff", "Content-Disposition": "inline", "Cache-Control": "no-store",
     })
 
 
@@ -163,39 +163,33 @@ def download_extraction(document_id: UUID):
     })
 
 
-@router.get("/{document_id}/review", dependencies=[Depends(auth.require_admin)])
-def review_document(document_id: UUID, revision: UUID):
-    """Show the prepared text and tables without making admins unpack an archive."""
+@router.get("/{document_id}/review")
+def review_document(document_id: UUID, revision: UUID, identity=Depends(auth.require_admin)):
+    # The extraction cache validates its exact revision. Parallel read requests
+    # need not contend with one another for the mutation lock.
+    row = document_review.current_document(document_id, revision)
+    changes = document_review.corrections_for(row)
+    blocks = document_review.blocks_for(row)
+    progress = document_review.progress(row, identity["user"]["id"])
+    document_review.current_document(document_id, revision)
+    return {"document_id": str(document_id), "source_revision": row["source_revision"],
+            "blocks": blocks,
+            "corrections": [document_review.correction_preview(change) for change in changes[-20:]],
+            "correction_count": len(changes), "progress": progress}
+
+
+@router.put("/{document_id}/review/progress")
+def save_review_progress(document_id: UUID, request: document_review.ReviewProgressInput,
+                         identity=Depends(auth.require_admin)):
     with documents.document_lock(document_id):
-        row = db.get("documents", document_id)
-        if row["source_revision"] != str(revision):
-            raise HTTPException(409, "This document changed. Reload before checking it.")
-        if not row.get("extraction_storage_path") or row["status"] not in {"awaiting_index", "processed"}:
-            raise HTTPException(409, "The document is not ready to check yet.")
-        try:
-            with extraction(row) as archive:
-                text = archive.read("document.md").decode("utf-8-sig")
-                elements = json.loads(archive.read("elements.json"))["elements"]
-                if not text.strip():
-                    raise ValueError("No readable text")
-        except (ValueError, KeyError, UnicodeError, BadZipFile):
-            raise HTTPException(422, "The prepared document could not be opened. Try preparing it again.") from None
-    tables = iter(record for record in elements if record["kind"] == "table")
-    blocks = []
-    position = 0
-    for match in ELEMENT_PATTERN.finditer(text):
-        if match.start() > position:
-            blocks.append({"kind": "text", "text": text[position:match.start()]})
-        original = match.group(0)
-        if not original.lstrip().lower().startswith(("![", "<img")):
-            table = next(tables, None)
-            blocks.append({"kind": "table", "html": sanitize_table(table.get("html", "")) if table else "", "text": original})
-        else:
-            blocks.append({"kind": "image", "text": "Check this illustration in the original document."})
-        position = match.end()
-    if position < len(text):
-        blocks.append({"kind": "text", "text": text[position:]})
-    return {"document_id": str(document_id), "source_revision": row["source_revision"], "blocks": blocks}
+        row = document_review.current_document(document_id, request.source_revision)
+        return document_review.save_progress(row, identity["user"]["id"], request)
+
+
+@router.post("/{document_id}/corrections", response_model=Document, status_code=202)
+def correct_extraction(document_id: UUID, request: extraction_corrections.CorrectionInput,
+                       identity=Depends(auth.require_admin)):
+    return extraction_corrections.save(str(document_id), request, identity)
 
 
 class ImageReview(VisualIdentity):
@@ -240,5 +234,6 @@ def save_visual_reviews(document_id: UUID, request: ImageReviews, background: Ba
                         reviewer=Depends(auth.require_admin)):
     from backend.services import visual_reviews
     result = visual_reviews.save(str(document_id), request, reviewer)
-    background.add_task(documents.process, str(document_id))
+    if result["status"] == "processing":
+        background.add_task(documents.process, str(document_id))
     return result

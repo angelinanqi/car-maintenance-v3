@@ -29,8 +29,10 @@ class GeminiError(RuntimeError):
 
 
 class GeminiClient:
-    def __init__(self):
+    def __init__(self, *, max_output_tokens=None, timeout=None):
         self.last_usage = None
+        self.max_output_tokens = max_output_tokens or settings.GEMINI_MAX_OUTPUT_TOKENS
+        self.timeout = timeout or settings.GEMINI_TIMEOUT
         if settings.GEMINI_USE_CLOUD and not settings.GOOGLE_CLOUD_PROJECT:
             raise GeminiError("Configure GOOGLE_CLOUD_PROJECT for Gemini Cloud authentication")
         if not settings.GEMINI_USE_CLOUD and not settings.GEMINI_API_KEY:
@@ -47,7 +49,7 @@ class GeminiClient:
         # transports inside this event loop rather than sharing them across calls.
         async def run():
             task = self._generate(prompt, schema, images) if images else self._generate(prompt, schema)
-            return await asyncio.wait_for(task, settings.GEMINI_TIMEOUT)
+            return await asyncio.wait_for(task, self.timeout)
 
         try:
             return asyncio.run(run())
@@ -63,7 +65,7 @@ class GeminiClient:
             "system_instruction": SYSTEM_PROMPT,
             "generation_config": {
                 "temperature": settings.GEMINI_TEMPERATURE,
-                "max_output_tokens": settings.GEMINI_MAX_OUTPUT_TOKENS,
+                "max_output_tokens": self.max_output_tokens,
             },
             # RAG already supplies the applicable evidence and conversation history.
             "store": False,
@@ -94,7 +96,7 @@ class GeminiClient:
             **authentication,
             http_options=types.HttpOptions(
                 api_version="v1beta1" if settings.GEMINI_USE_CLOUD else "v1beta",
-                timeout=max(1, int(settings.GEMINI_TIMEOUT * 1000)),
+                timeout=max(1, int(self.timeout * 1000)),
                 # This adapter owns retries so the SDK cannot multiply attempts.
                 retry_options=types.HttpRetryOptions(attempts=0),
             ),
