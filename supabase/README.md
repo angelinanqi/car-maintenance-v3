@@ -122,6 +122,18 @@ for atomic publication changes.
 
 ## Authentication and access
 
+For an existing Auth-enabled installation, run
+[`migrations/20261103_link_auth_profiles.sql`](migrations/20261103_link_auth_profiles.sql)
+in Supabase SQL Editor to backfill application profiles for confirmed Auth users.
+It preserves `app_users.id` and all dependent foreign keys, assigns only `user`
+to newly created profiles, and can be rerun without changing linked profiles.
+It relies on the existing unique `auth_user_id` foreign key from `init.sql` or
+the historical Auth upgrade. Email collisions stop the transaction for explicit
+operator linking; existing admins can use `scripts/link_supabase_admin.py`.
+Future profiles continue to be created by FastAPI on first verified sign-in;
+this migration adds no Auth signup trigger. It does not promote administrators
+or migrate legacy passwords.
+
 Supabase Auth owns credentials and sessions. FastAPI verifies Supabase access
 tokens and loads server-managed roles from `app_users` through `auth_user_id`.
 Email confirmation is required; admins require TOTP verification. Multiple admin

@@ -50,7 +50,9 @@ The launcher starts the main services and opens the dashboard. AI search can tak
 
 The Tailscale dashboard link needs the Mac forwarding configured during first-time setup below.
 
-**To stop:** finish any document processing, then press **Ctrl+C** in the Mac terminal and wait for shutdown. Do the same in the Windows OCR terminal. Keep both terminals open while using Roadie.
+**To stop or restart the backend:** press **Ctrl+C** in the Mac terminal and wait for shutdown. Document processing requests are saved in Supabase and picked up automatically on the next backend start, one at a time. Keep the Windows OCR service running to let submitted OCR tasks continue; the backend reconnects using saved task IDs. Keep `output/` because it contains those checkpoints and completed extraction caches. A local OCR command or an in-flight network request may delay graceful shutdown.
+
+Run only one backend process (no multiple Uvicorn workers or overlapping instances). The document worker resumes records with status `processing`, including jobs waiting for OCR; completed extraction handoffs retry separately. Documents with actual processing errors remain `failed` for manual retry. If an OCR submission was interrupted before its task ID was acknowledged, inspect OCR tasks/logs before retrying: the app will not blindly submit a duplicate. Stop the Windows OCR terminal separately when you no longer need it.
 
 After a reboot, start the launchers again. Tailscale remembers its forwarding settings; it does not start Roadie or OCR for you.
 
@@ -178,7 +180,7 @@ For credential names and forwarding details, see [Configuration reference](docs/
 
 Use the admin dashboard to add manuals, website articles, and supported reference content. Review extracted text, tables, and images before approving and publishing them.
 
-For a website article, open **Reference Library → Add website article**, paste its URL, and follow the review steps. Articles are read directly on the Mac; they do not use Windows OCR. Pages requiring login, JavaScript, or payment may not work. Compare the extracted content with the original before publishing.
+For a website article, open **Reference Library → Add website article**, paste its URL, and follow the review steps. Public articles, guides and reference pages with readable HTML are read directly on the Mac; they do not use Windows OCR. Blog pages do not need special article tags. Headings, lists and tables are preserved within identified content containers; unavailable images and embedded media are flagged for review. Pages requiring login, JavaScript rendering, or payment, and sites that block automated access, need a PDF upload. Compare the extracted content with the original before publishing.
 
 For database setup, administrator accounts, and recovery tasks, see the [operations guide](docs/operations.md).
 

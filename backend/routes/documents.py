@@ -2,7 +2,7 @@ import json
 import logging
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
 from pydantic import ValidationError, Field
 from urllib.parse import quote
 
@@ -43,15 +43,13 @@ def upload_document(file: UploadFile = File(...), name: str = Form(...), tags: s
 
 
 @router.post("/process-batch", response_model=list[ProcessResult], response_model_exclude_none=True, dependencies=[Depends(auth.require_admin)])
-def process_batch(request: ProcessBatch, background: BackgroundTasks):
+def process_batch(request: ProcessBatch):
     if len(request.ids) > settings.DOCUMENT_BATCH_LIMIT:
         raise HTTPException(422, "Too many documents in one processing batch.")
     results = []
     for document_id in dict.fromkeys(request.ids):
         try:
             row, queued = documents.queue(document_id, request.force)
-            if queued:
-                background.add_task(documents.process, str(document_id))
             results.append({"id": str(document_id), "status": row["status"], "queued": queued})
         except HTTPException as error:
             results.append({"id": str(document_id), "error": error.detail})
@@ -138,10 +136,8 @@ def document_usage(document_id: UUID):
 
 
 @router.post("/{document_id}/process", response_model=Document, status_code=202, dependencies=[Depends(auth.require_admin)])
-def process_document(document_id: UUID, background: BackgroundTasks, force: bool = False):
+def process_document(document_id: UUID, force: bool = False):
     row, queued = documents.queue(document_id, force)
-    if queued:
-        background.add_task(documents.process, str(document_id))
     return row
 
 
@@ -250,10 +246,8 @@ def review_visual_image(document_id: UUID, element_id: str, revision: UUID):
 
 
 @router.post('/{document_id}/visuals', response_model=Document)
-def save_visual_reviews(document_id: UUID, request: ImageReviews, background: BackgroundTasks,
+def save_visual_reviews(document_id: UUID, request: ImageReviews,
                         reviewer=Depends(auth.require_admin)):
     from backend.services import visual_reviews
     result = visual_reviews.save(str(document_id), request, reviewer)
-    if result["status"] == "processing":
-        background.add_task(documents.process, str(document_id))
     return result

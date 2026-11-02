@@ -1,5 +1,6 @@
 import logging
 import asyncio
+from threading import Event
 from uuid import uuid4
 from contextlib import asynccontextmanager
 
@@ -34,7 +35,7 @@ from backend.routes import (
     scopes,
     youtube,
 )
-from backend.services.documents import recover_interrupted, retry_pending_extractions
+from backend.services.documents import run_queue_pass, retry_pending_extractions
 from backend.services.youtube import recover_interrupted as recover_youtube_syncs
 from backend.settings import CORS_ORIGINS
 from shared.http_errors import http_error, validation_error
@@ -43,17 +44,29 @@ from shared.http_errors import http_error, validation_error
 @asynccontextmanager
 async def lifespan(app):
     try:
-        await run_in_threadpool(recover_interrupted)
         await run_in_threadpool(recover_youtube_syncs)
     except Exception:
         logging.getLogger(__name__).exception("Could not recover interrupted jobs; check Supabase configuration.")
     stop_retries = asyncio.Event()
     retry_task = asyncio.create_task(resume_extractions(stop_retries))
+    stop_queue = Event()
+    queue_task = asyncio.create_task(resume_document_queue(stop_queue))
     try:
         yield
     finally:
+        stop_queue.set()
         stop_retries.set()
-        await retry_task
+        await asyncio.gather(queue_task, retry_task)
+
+
+async def resume_document_queue(stop):
+    while not stop.is_set():
+        try:
+            await run_in_threadpool(run_queue_pass, stop)
+        except Exception:
+            logging.getLogger(__name__).exception("Document queue unavailable; will retry")
+        if not stop.is_set():
+            await asyncio.sleep(3)
 
 
 async def resume_extractions(stop):

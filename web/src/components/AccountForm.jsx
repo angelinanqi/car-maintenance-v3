@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import NextLink from "next/link";
-import { Box, Button, Field, Flex, Heading, Input, Stack, Text } from "@chakra-ui/react";
+import { Box, Button, Field, Flex, Heading, Input, Link, Stack, Text } from "@chakra-ui/react";
 import { browserAuth, authRedirect, authResult, authError, passwordError } from "@/lib/supabase.mjs";
 import { useSession } from "./SessionProvider";
 import Brand from "./Brand";
@@ -89,9 +89,14 @@ export default function AccountForm({ mode }) {
                 <Field.Label htmlFor="account-password">Password <Field.RequiredIndicator /></Field.Label>
                 <PasswordInput id="account-password" visible={showPassword} onVisibleChange={setShowPassword} value={password} onChange={(e) => setPassword(e.target.value)} autoComplete={registering ? "new-password" : "current-password"} required minLength={registering ? 8 : 1} maxLength={20} disabled={loading} aria-describedby={registering ? "password-requirements" : undefined} />
                 {registering && <PasswordStrengthMeter password={password} />}
-                {registering && <Field.HelperText id="password-requirements">Use 8–20 characters. Follow any additional project password requirements.</Field.HelperText>}
-                <Field.ErrorText>Use a password between 8 and 20 characters.</Field.ErrorText>
+                {registering && <Field.HelperText id="password-requirements">Your password must be 8–20 characters long and include at least one uppercase letter, one lowercase letter, one number, and one special character.</Field.HelperText>}
+                <Field.ErrorText>Your password must be 8–20 characters long and include at least one uppercase letter, one lowercase letter, one number, and one special character.</Field.ErrorText>
               </Field.Root>
+              {!registering && <Flex justify="flex-end" mt={-3}>
+                <Link asChild fontSize="sm" fontWeight="500" color="brand.700" textDecoration="underline" textUnderlineOffset="3px" py={1}>
+                  <NextLink href="/forgot-password">Forgot password?</NextLink>
+                </Link>
+              </Flex>}
               {registering && <Field.Root required invalid={Boolean(confirmPassword || submitted) && mismatch}>
                 <Field.Label htmlFor="account-confirm">Confirm password <Field.RequiredIndicator /></Field.Label>
                 <PasswordInput id="account-confirm" visible={showPassword} onVisibleChange={setShowPassword} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} autoComplete="new-password" required maxLength={20} disabled={loading} />
@@ -103,12 +108,16 @@ export default function AccountForm({ mode }) {
               <Button type="submit" colorPalette="brand" w="full" loading={loading} loadingText={registering ? "Creating account" : "Signing in"}>{registering ? "Create account" : "Sign in"}</Button>
             </Stack>
           </Box>
-          {!registering && <Stack gap={3}>
-            <NextLink href="/forgot-password">Forgot password?</NextLink>
-          </Stack>}
-          <NextLink href="/resend-confirmation">Resend confirmation email</NextLink>
-          <Text fontSize="md" color="ink">{registering ? "Already registered?" : "Need an account?"} <NextLink style={{ color: "#795000", fontWeight: 600, textDecoration: "underline" }} href={registering ? "/login" : "/register"}>{registering ? "Sign in" : "Create an account"}</NextLink></Text>
-          <Box bg="white" p={4} borderRadius="8px"><Text fontSize="md" color="ink">{registering ? "Registration creates a standard account. Dashboard access is assigned by your administrator." : "This workspace requires administrator access. Drivers can use the Roadie mobile app with the same account."}</Text></Box>
+          <Stack gap={3} align="center" textAlign="center" mt={-3}>
+            <Text fontSize="sm" color="muted">
+              Haven’t received your email?{" "}
+              <Link asChild fontSize="sm" fontWeight="500" color="brand.700" textDecoration="underline" textUnderlineOffset="3px">
+                <NextLink href="/resend-confirmation">Resend confirmation email</NextLink>
+              </Link>
+            </Text>
+            <Text fontSize="sm" color="muted">{registering ? "Already registered?" : "Need an account?"}{" "}<Link asChild color="brand.700" fontWeight="600" textDecoration="underline" textUnderlineOffset="3px"><NextLink href={registering ? "/login" : "/register"}>{registering ? "Sign in" : "Create an account"}</NextLink></Link></Text>
+          </Stack>
+          <Box borderTopWidth="1px" borderColor="brand.200" pt={5}><Text fontSize="sm" lineHeight="tall" color="muted">{registering ? "Registration creates a standard account. Dashboard access is assigned by your administrator." : "This workspace requires administrator access. Drivers can use the Roadie mobile app with the same account."}</Text></Box>
         </Stack>
       </Flex>
     </Flex>

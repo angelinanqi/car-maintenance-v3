@@ -2,7 +2,7 @@
 
 import { forwardRef, useRef } from "react";
 import {
-  Button,
+  IconButton,
   HStack,
   Input,
   InputGroup,
@@ -13,8 +13,7 @@ import {
   useControllableState,
 } from "@chakra-ui/react";
 
-// Chakra's documented PasswordInput snippet composition. Text keeps the
-// visibility action explicit without adding an icon dependency.
+// Shared visibility toggle for all password fields.
 export const PasswordInput = forwardRef(function PasswordInput(
   {
     visible: controlledVisible,
@@ -34,10 +33,19 @@ export const PasswordInput = forwardRef(function PasswordInput(
     <InputGroup
       width="full"
       endElement={
-        <Button
+        <IconButton
           type="button"
           size="xs"
-          variant="outline"
+          variant="plain"
+          bg="transparent"
+          border="none"
+          boxShadow="none"
+          color={visible ? "brand.700" : "muted"}
+          w="40px"
+          h="40px"
+          p={0}
+          _hover={{ bg: "transparent", color: "ink" }}
+          _active={{ bg: "transparent", color: "brand.700" }}
           disabled={props.disabled}
           aria-label={visible ? "Hide password" : "Show password"}
           aria-pressed={visible}
@@ -47,13 +55,20 @@ export const PasswordInput = forwardRef(function PasswordInput(
             input.current?.focus();
           }}
         >
-          {visible ? "Hide" : "Show"}
-        </Button>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+            {visible ? <>
+              <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" />
+              <circle cx="12" cy="12" r="3" />
+            </> : <>
+              <path d="m3 3 18 18M10.6 5.1 12 5c6.5 0 10 7 10 7a18 18 0 0 1-3.1 4.1M6.3 6.3A21 21 0 0 0 2 12s3.5 7 10 7a12 12 0 0 0 5.7-1.7M9.9 9.9a3 3 0 0 0 4.2 4.2" />
+            </>}
+          </svg>
+        </IconButton>
       }
     >
       <Input
         {...props}
-        pe="20"
+        pe="12"
         ref={mergeRefs(ref, input)}
         type={visible ? "text" : "password"}
       />
@@ -88,7 +103,7 @@ export function PasswordStrengthMeter({ password }) {
         size="xs"
         colorPalette={value < 2 ? "red" : value < 4 ? "orange" : "green"}
       >
-        <Progress.Label>Password strength guidance</Progress.Label>
+        <Progress.Label>Password strength</Progress.Label>
         <Progress.Track>
           <Progress.Range />
         </Progress.Track>

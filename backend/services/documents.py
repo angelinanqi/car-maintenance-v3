@@ -17,6 +17,7 @@ from backend import db
 from backend.locks import content_lock as document_lock
 from backend import settings
 from backend.services.ocr import run_ocr
+from backend.services.ocr_client import ProcessingStopped
 from shared.source_elements import build_elements, add_provenance, inspect_assets, FORMAT_VERSION, ELEMENT_PATTERN
 from shared.document_structure import read_pdf_outline, reconcile_headings, escape_literal_headings
 from shared.visual_identity import apply_reviews, VisualIdentity
@@ -389,11 +390,13 @@ def package_extraction(row, markdown, directory, *, describe_visuals=False, incl
     return archive
 
 
-def process(document_id):
+def process(document_id, *, stop=None):
     # MinerU uses substantial GPU memory; execute one OCR job at a time.
     try:
         with ocr_lock, document_lock(document_id):
             row = db.get("documents", document_id)
+            if row["status"] != "processing" or (stop and stop.is_set()):
+                return
             directory = work_directory(document_id)
             source = directory / f"{document_id}.{row['source_type']}"
             bucket = db.bucket(settings.SUPABASE_DOCUMENT_BUCKET)
@@ -403,11 +406,16 @@ def process(document_id):
             # Preserve the existing MinerU cache only when its source bytes still match.
             if not source.is_file() or source.read_bytes() != data:
                 remove_artifacts(document_id)
+                directory.mkdir(parents=True, exist_ok=True)
+                staged_source = source.with_suffix(source.suffix + '.tmp')
+                staged_source.write_bytes(data)
+                staged_source.replace(source)
             directory.mkdir(parents=True, exist_ok=True)
             if reviews and reviews.get('source_sha256') == sha256(data).hexdigest():
                 review_path.write_text(json.dumps(reviews), encoding='utf-8')
-            source.write_bytes(data)
-            markdown = run_ocr(source, directory / "ocr") if row["source_type"] == "pdf" else source
+            markdown = run_ocr(source, directory / "ocr", stop=stop) if row["source_type"] == "pdf" else source
+            if stop and stop.is_set():
+                return
             if not markdown.read_text(encoding="utf-8-sig").strip():
                 raise ValueError("Extraction produced no text.")
             archive = package_extraction(row, markdown, directory, describe_visuals=True,
@@ -422,6 +430,20 @@ def process(document_id):
                 finish_extraction(document_id)
             except httpx.TransportError:
                 logger.warning("Extraction saved locally for %s; upload/status save will retry automatically", document_id)
+    except ProcessingStopped:
+        pass  # Keep the durable queue entry and task checkpoint for restart.
+    except httpx.TransportError:
+        logger.warning("Document %s remains queued after a connection failure", document_id)
+    except httpx.HTTPStatusError as error:
+        if error.response.status_code == 429 or error.response.status_code >= 500:
+            logger.warning("Document %s remains queued after HTTP %s", document_id, error.response.status_code)
+        else:
+            record_failure(document_id, error)
+    except HTTPException as error:
+        if error.status_code != 409:
+            record_failure(document_id, error)
+        # A queue/review request may still own this document's mutation lock.
+        # Leave its saved processing request for the next worker pass.
     except Exception as error:
         record_failure(document_id, error)
 
@@ -485,20 +507,20 @@ def retry_pending_extractions():
             logger.exception("Could not resume extraction for %s", document_id)
 
 
-def recover_interrupted():
-    # This app deliberately runs one backend process, without a distributed worker.
-    if settings.SUPABASE_URL and settings.SUPABASE_SERVICE_ROLE_KEY:
-        for row in db.all_rows("documents", status="processing"):
-            try:
-                pending = work_directory(row["id"]) / "pending-extraction.json"
-                if pending.is_file():
-                    checkpoint = json.loads(pending.read_text(encoding="utf-8"))
-                    if checkpoint.get("source_revision") == row["source_revision"]:
-                        continue  # The background loop will resume the saved extraction.
-                db.update("documents", row["id"], dict(
-                    status="failed", error="Processing was interrupted by a backend restart. Retry processing.",
-                    processed_at=None, chunk_count=0, published=False, mobile_visible=False, indexed_revision=None, indexed_at=None,
-                ))
-            except Exception:
-                logger.exception("Could not recover document %s", row["id"])
-                raise
+def run_queue_pass(stop):
+    """The persisted processing rows are the queue; one backend worker owns OCR.
+
+    Retain the same source revision and local OCR task checkpoint on restart.
+    Failed documents need an explicit retry, rather than an endless retry loop.
+    """
+    if not settings.SUPABASE_URL or not settings.SUPABASE_SERVICE_ROLE_KEY:
+        return
+    rows = db.all_rows("documents", status="processing",
+                       order_by=("processing_started_at", "id"))
+    for row in rows:
+        if stop.is_set():
+            break
+        document_id = str(row["id"])
+        if (work_directory(document_id) / "pending-extraction.json").is_file():
+            continue  # The handoff recovery loop owns this completed extraction.
+        process(document_id, stop=stop)

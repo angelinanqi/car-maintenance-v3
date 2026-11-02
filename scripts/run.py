@@ -24,6 +24,14 @@ ROOT = Path(__file__).resolve().parents[1]
 FRONTEND = ROOT / "web"
 
 
+def console(message, *, file=None, flush=True):
+    """Console mirroring is optional; keep services and file logs alive without it."""
+    try:
+        print(message, file=file, flush=flush)
+    except BrokenPipeError:
+        pass
+
+
 @contextmanager
 def launcher_lock(name):
     """OS releases this lock even if the launcher crashes."""
@@ -87,7 +95,7 @@ class Services:
 
     def start(self, name, command, cwd=None):
         log_path = self.log_dir / f"{name}.log"
-        print(f"Starting {name}... Logs: {log_path}", flush=True)
+        console(f"Starting {name}... Logs: {log_path}")
         self.record(self.launcher_name, f"Starting {name}; logs: {log_path}")
         self.record(name, "--- Process starting ---")
         options = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt" else {"start_new_session": True}
@@ -102,7 +110,7 @@ class Services:
             with process.stdout:
                 for line in process.stdout:
                     self.record(name, line.rstrip("\r\n"))
-                    print(f"[{name}] {line.rstrip()}", flush=True)
+                    console(f"[{name}] {line.rstrip()}")
 
         thread = threading.Thread(target=show_logs, daemon=True)
         self.log_threads.append(thread)
@@ -123,20 +131,20 @@ class Services:
             self.check()
             try:
                 with urlopen(url, timeout=1):
-                    print(f"{name} is listening at {url}", flush=True)
+                    console(f"{name} is listening at {url}")
                     return
             except (OSError, URLError):
                 now = time.monotonic()
                 if now >= next_notice:
                     message = f"{name} is still starting ({int(now - started)}s elapsed; timeout {timeout}s)."
-                    print(message, flush=True)
+                    console(message)
                     self.record(self.launcher_name, message)
                     next_notice = now + 15
                 time.sleep(0.25)
         raise RuntimeError(f"{name} did not respond within {timeout} seconds. See {self.log_dir} for service logs.")
 
     def stop(self):
-        print("\nStopping services started by this launcher...", flush=True)
+        console("\nStopping services started by this launcher...")
         self.record(self.launcher_name, "Stopping services started by this launcher")
         for _, process in reversed(self.processes):
             if process.poll() is not None:
@@ -202,6 +210,10 @@ def configured_port(name, default):
 def port_available(name, host, port):
     with socket.socket(socket.AF_INET6 if ":" in host else socket.AF_INET) as listener:
         try:
+            # Match Uvicorn's POSIX socket behavior so recently closed
+            # connections in TIME_WAIT do not prevent a clean restart.
+            if os.name != "nt":
+                listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             listener.bind((host, port))
         except OSError:
             raise RuntimeError(
@@ -253,9 +265,9 @@ def run_app(services, without_rag, no_browser):
             services.start("index-worker", [sys.executable, "-m", "rag.index_worker"])
     services.start("web", [node, "scripts/next.mjs", "start", '--hostname', frontend_host], cwd=FRONTEND)
     services.wait_http("Web dashboard", frontend_url + "/login")
-    print(f"\nApp started: {frontend_url}/login\nAPI docs: {backend_url}/docs", flush=True)
-    print("Listening checks do not verify Supabase, model access, or indexing success.", flush=True)
-    print("Keep this terminal open. Press Ctrl+C to stop the app.\n", flush=True)
+    console(f"\nApp started: {frontend_url}/login\nAPI docs: {backend_url}/docs")
+    console("Listening checks do not verify Supabase, model access, or indexing success.")
+    console("Keep this terminal open. Press Ctrl+C to stop the app.\n")
     if not no_browser:
         webbrowser.open(frontend_url + "/login")
     while True:
@@ -277,7 +289,7 @@ def configure_ocr_tailscale(services, host, port):
         raise RuntimeError('Install Tailscale and add it to PATH, or set MINERU_TAILSCALE_SERVE to false.')
     command = [tailscale, 'serve', '--bg', '--yes', f'--https={https_port}',
                local_url('127.0.0.1', port)]
-    print(f'Configuring Tailscale HTTPS port {https_port} for OCR port {port}...', flush=True)
+    console(f'Configuring Tailscale HTTPS port {https_port} for OCR port {port}...')
     try:
         result = subprocess.run(command, check=True, capture_output=True, text=True, timeout=30)
     except subprocess.CalledProcessError as error:
@@ -287,7 +299,7 @@ def configure_ocr_tailscale(services, host, port):
         raise RuntimeError('Tailscale Serve timed out. Check Tailscale connectivity and HTTPS setup.') from None
     output = result.stdout.strip()
     if output:
-        print(output, flush=True)
+        console(output)
         services.record(services.launcher_name, output)
 
 
@@ -310,7 +322,7 @@ def run_ocr_service(services):
     services.start('ocr', [str(executable), '--host', host, '--port', str(port)])
     services.wait_http('MinerU OCR', local_url(host, port) + '/health', timeout=180)
     configure_ocr_tailscale(services, host, port)
-    print('OCR ready. Models may still need a first document warmup. Ctrl+C stops this service.', flush=True)
+    console('OCR ready. Models may still need a first document warmup. Ctrl+C stops this service.')
     while True:
         services.check()
         time.sleep(0.5)
@@ -331,7 +343,7 @@ def main():
     load_configuration()
     os.chdir(ROOT)
     services = Services(launcher_name=f"{args.task}-launcher")
-    print(f"Logs are saved in {services.log_dir}", flush=True)
+    console(f"Logs are saved in {services.log_dir}")
     try:
         if args.task not in {"mobile", "ocr"}:
             require_packages(rag=args.task == "youtube" or not args.without_rag)
@@ -367,8 +379,8 @@ def main():
         return 0
     except Exception as error:
         services.record(services.launcher_name, traceback.format_exc(), logging.ERROR)
-        print(f"\nLauncher error: {error}", file=sys.stderr, flush=True)
-        print(f"Details: {services.log_dir / (services.launcher_name + '.log')}", file=sys.stderr, flush=True)
+        console(f"\nLauncher error: {error}", file=sys.stderr)
+        console(f"Details: {services.log_dir / (services.launcher_name + '.log')}", file=sys.stderr)
         return 1
     finally:
         services.close_logs()

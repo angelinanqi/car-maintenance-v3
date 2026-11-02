@@ -23,7 +23,7 @@ export function authError(error) {
   switch (error.code) {
     case "invalid_credentials": return "The email or password is incorrect.";
     case "email_not_confirmed": return "Confirm your email before signing in. You can request another confirmation email.";
-    case "weak_password": return "Choose a stronger password with 8 to 20 characters that meets the project password requirements.";
+    case "weak_password": return "Your password must be 8–20 characters long and include at least one uppercase letter, one lowercase letter, one number, and one special character.";
     case "over_email_send_rate_limit":
     case "over_request_rate_limit": return "Too many attempts. Wait at least a minute before retrying.";
     case "otp_expired": return "This email link expired or was already used. Request a new link.";

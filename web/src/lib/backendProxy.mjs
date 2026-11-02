@@ -1,10 +1,15 @@
 const safeMethods = new Set(["GET", "HEAD", "OPTIONS"]);
 
 export function checkProxyOrigin(request) {
-  if (!safeMethods.has(request.method) && request.headers.get("origin") !== new URL(request.url).origin) {
-    return false;
-  }
-  return true;
+  if (safeMethods.has(request.method)) return true;
+  const origin = request.headers.get("origin");
+  const allowedOrigins = new Set([
+    new URL(request.url).origin,
+    ...(process.env.CORS_ORIGINS || "").split(",").map(value => value.trim()).filter(Boolean),
+  ]);
+  // Use explicit configured origins behind HTTPS proxies; forwarded headers
+  // alone must never grant permission to make a state-changing request.
+  return origin !== null && origin !== "null" && allowedOrigins.has(origin);
 }
 
 export function proxyPath(segments, search) {

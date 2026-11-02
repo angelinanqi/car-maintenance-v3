@@ -1,4 +1,5 @@
 from backend.settings import MINERU_BACKEND, MINERU_TIMEOUT, MINERU_API_URL, EXTRACTION_MAX_BYTES
+import logging
 import os
 from pathlib import Path
 import re
@@ -9,6 +10,7 @@ import tempfile
 from backend.settings import MINERU_EXECUTABLE, OUTPUT_DIR
 
 # Run MinerU once per document name; retain Markdown, images and provenance JSON.
+logger = logging.getLogger(__name__)
 
 
 def _complete(markdown: Path) -> bool:
@@ -29,6 +31,7 @@ def run_ocr(
     output_dir: str | Path = OUTPUT_DIR / "ocr",
     *,
     mineru_executable: str | Path | None = None,
+    stop=None,
 ) -> Path:
 
     source = Path(pdf_path).resolve()
@@ -48,7 +51,7 @@ def run_ocr(
     markdown = destination / f"{source.stem}.md"
 
     if _complete(markdown):
-        print(f"Reusing OCR: {source.stem}")
+        logger.info("Reusing OCR: %s", source.stem)
         return markdown
 
     executable = mineru_executable or MINERU_EXECUTABLE
@@ -66,14 +69,14 @@ def run_ocr(
     with tempfile.TemporaryDirectory(prefix=".mineru-", dir=root) as temporary:
         work = Path(temporary)
         raw = work / "raw"
-        print(f"Running MinerU: {source}")
+        logger.info("Running MinerU: %s", source)
 
         # Keep diagnostics outside the temporary directory so failures remain inspectable.
         if MINERU_API_URL and mineru_executable is None:
             from backend.services.ocr_client import extract_remote
             extract_remote(source, raw, root / f'{source.stem}.mineru-job.json',
                            url=MINERU_API_URL, backend=MINERU_BACKEND,
-                           timeout=MINERU_TIMEOUT, max_bytes=EXTRACTION_MAX_BYTES)
+                           timeout=MINERU_TIMEOUT, max_bytes=EXTRACTION_MAX_BYTES, stop=stop)
         else:
             _run_local(executable, source, raw, log_path)
 

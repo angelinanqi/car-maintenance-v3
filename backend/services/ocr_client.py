@@ -10,6 +10,10 @@ from zipfile import ZipFile
 import httpx
 
 
+class ProcessingStopped(Exception):
+    """Leave persisted work queued when the backend stops."""
+
+
 def unpack_result(archive_path, destination, max_bytes):
     with ZipFile(archive_path) as archive:
         entries = archive.infolist()
@@ -35,7 +39,7 @@ def unpack_result(archive_path, destination, max_bytes):
                     shutil.copyfileobj(source, output)
 
 
-def extract_remote(source, destination, checkpoint, *, url, backend, timeout, max_bytes):
+def extract_remote(source, destination, checkpoint, *, url, backend, timeout, max_bytes, stop=None):
     """Resume acknowledged tasks; never automatically retry an ambiguous POST.
 
     MinerU has no submission idempotency key. An interrupted POST is recorded
@@ -57,12 +61,16 @@ def extract_remote(source, destination, checkpoint, *, url, backend, timeout, ma
 
     deadline = time.monotonic() + timeout
     with httpx.Client(timeout=httpx.Timeout(60, connect=15), follow_redirects=False) as client:
+        if stop and stop.is_set():
+            raise ProcessingStopped()
         if not state:
             health = client.get(url + '/health')
             health.raise_for_status()
             info = health.json()
             if info.get('version') != '3.4.5' or info.get('protocol_version') != 2:
                 raise ValueError('Remote OCR requires MinerU 3.4.5 with task protocol 2')
+            if stop and stop.is_set():
+                raise ProcessingStopped()
             state = {**identity, 'submission': 'unconfirmed'}
             save(state)
             data = {key: 'true' for key in (
@@ -79,6 +87,7 @@ def extract_remote(source, destination, checkpoint, *, url, backend, timeout, ma
                 # Explicit rejection is safe to retry; unknown transport outcomes are not.
                 if 400 <= response.status_code < 500:
                     checkpoint.unlink(missing_ok=True)
+                    response.raise_for_status()
                 raise RuntimeError(f'MinerU submission returned HTTP {response.status_code}')
             task_id = response.json().get('task_id')
             if not isinstance(task_id, str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', task_id):
@@ -94,6 +103,8 @@ def extract_remote(source, destination, checkpoint, *, url, backend, timeout, ma
         # Construct URLs locally: API-generated URLs may contain the Windows loopback host.
         task_url = url + '/tasks/' + task_id
         while time.monotonic() < deadline:
+            if stop and stop.is_set():
+                raise ProcessingStopped()
             try:
                 response = client.get(task_url)
                 response.raise_for_status()
@@ -117,6 +128,8 @@ def extract_remote(source, destination, checkpoint, *, url, backend, timeout, ma
                 raise ValueError('MinerU did not return a completed ZIP result')
             with archive_path.open('wb') as handle:
                 for block in response.iter_bytes():
+                    if stop and stop.is_set():
+                        raise ProcessingStopped()
                     total += len(block)
                     if total > max_bytes:
                         raise ValueError('MinerU result download exceeds extraction limits')

@@ -66,7 +66,7 @@ export default function AdminMfa({ manage = false }) {
       {!enrollment && (!factors.length || manage) && <Button onClick={enroll} loading={busy}>{factors.length ? "Add backup authenticator" : "Set up authenticator"}</Button>}
       {enrollment && <>
         <Text>Scan this code in your authenticator app, or enter the private setup key. Then verify a code.</Text>
-        <Box as="img" src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(enrollment.totp.qr_code)}`} alt="Authenticator setup QR code" w="220px" h="220px" alignSelf="center" />
+        <Box as="img" src={enrollment.totp.qr_code} alt="Authenticator setup QR code" w="220px" h="220px" alignSelf="center" />
         <Text as="code" overflowWrap="anywhere" userSelect="all" aria-label="Authenticator setup key">{enrollment.totp.secret}</Text>
       </>}
       {(enrollment || factors.length > 0) && <Box as="form" onSubmit={verify}><Stack gap={4}>

@@ -40,8 +40,8 @@ export default function WebsiteArticleModal({ onClose, onAdded }) {
       <form onSubmit={submit}>
         <Dialog.Header><Dialog.Title>Add website article</Dialog.Title></Dialog.Header>
         <Dialog.Body><Stack gap={4}>
-          <Text>Save a public article as a stable snapshot. Next, choose its vehicles or topics, prepare it and review it before publication.</Text>
-          <Text fontSize="sm" color="muted">Only this page is imported. Updated content creates a separate snapshot. Images that cannot be saved are flagged for review. Login, paywall and JavaScript-only pages are unsupported.</Text>
+          <Text>Save a public article, guide or reference page as a stable snapshot. Next, choose its vehicles or topics, prepare it and review it before publication.</Text>
+          <Text fontSize="sm" color="muted">Only this page is imported. Updated content creates a separate snapshot. Missing images and embedded media are flagged for review. Pages requiring sign-in, payment or JavaScript rendering, and sites that block automated access, need a PDF upload.</Text>
           <Field.Root required><Field.Label>Article URL</Field.Label>
             <Input type="url" required maxLength={2048} value={url} disabled={saving || Boolean(savedDocument)} placeholder="https://example.com/article" onChange={(event) => setUrl(event.target.value)} />
           </Field.Root>

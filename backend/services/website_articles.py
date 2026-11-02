@@ -5,13 +5,16 @@ from hashlib import sha256
 from http.client import HTTPConnection, HTTPSConnection, HTTPException as HTTPClientError
 from io import BytesIO
 import ipaddress
+import logging
 import re
 import socket
+import ssl
 import time
 from urllib.parse import urlsplit, urlunsplit, urljoin
 from urllib.robotparser import RobotFileParser
 
-from bs4 import BeautifulSoup, NavigableString
+from bs4 import BeautifulSoup, Comment, NavigableString
+import certifi
 from fastapi import HTTPException, UploadFile
 from PIL import Image, UnidentifiedImageError
 import trafilatura
@@ -25,7 +28,9 @@ USER_AGENT = 'RoadieArticleImporter/1.0'
 MAX_HTML_BYTES = 3 * 1024 * 1024
 MAX_IMAGE_BYTES = 1024 * 1024
 MAX_ASSET_BYTES = 4 * 1024 * 1024
+MIN_ARTICLE_CHARS = 200
 DNS_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix='article-dns')
+logger = logging.getLogger(__name__)
 
 
 def public_url(value):
@@ -62,6 +67,24 @@ def public_addresses(host, port):
     return addresses
 
 
+def connect_public(addresses, deadline):
+    """Try the validated addresses without resolving the hostname again."""
+    last_error = None
+    for family, kind, protocol, _, address in addresses:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError()
+        connection = socket.socket(family, kind, protocol)
+        try:
+            connection.settimeout(min(8, remaining))
+            connection.connect(address)
+            return connection
+        except OSError as error:
+            last_error = error
+            connection.close()
+    raise last_error or OSError('No public address was reachable')
+
+
 def fetch(url, *, limit=MAX_HTML_BYTES, allowed=('text/html', 'application/xhtml+xml'), deadline=None,
           check_redirect=None):
     deadline = deadline or time.monotonic() + 30
@@ -75,14 +98,16 @@ def fetch(url, *, limit=MAX_HTML_BYTES, allowed=('text/html', 'application/xhtml
             if remaining <= 0:
                 raise TimeoutError()
             connection_class = HTTPSConnection if parts.scheme == 'https' else HTTPConnection
-            connection = connection_class(parts.hostname, port, timeout=min(8, remaining))
+            tls_options = ({'context': ssl.create_default_context(cafile=certifi.where())}
+                           if parts.scheme == 'https' else {})
+            connection = connection_class(parts.hostname, port, timeout=min(8, remaining), **tls_options)
             # Pin the actual TCP connection to the checked resolution. HTTPSConnection
             # still verifies the certificate and sends SNI for the original hostname.
-            address = addresses[0][4]
-            connection._create_connection = lambda *args, **kwargs: socket.create_connection(address[:2], timeout=min(8, remaining))
+            connection._create_connection = lambda *args, **kwargs: connect_public(addresses, deadline)
             try:
                 target = urlunsplit(('', '', parts.path, parts.query, ''))
-                connection.request('GET', target, headers={'User-Agent': USER_AGENT, 'Accept-Encoding': 'identity'})
+                connection.request('GET', target, headers={'User-Agent': USER_AGENT,
+                    'Accept': ', '.join(allowed), 'Accept-Encoding': 'identity'})
                 response = connection.getresponse()
                 if response.status in {301, 302, 303, 307, 308}:
                     location = response.getheader('Location')
@@ -117,7 +142,13 @@ def fetch(url, *, limit=MAX_HTML_BYTES, allowed=('text/html', 'application/xhtml
             finally:
                 connection.close()
         raise HTTPException(422, 'The website redirected too many times.')
+    except ssl.SSLCertVerificationError:
+        logger.warning('Website certificate verification failed for %s', parts.hostname, exc_info=True)
+        raise HTTPException(422, 'The website HTTPS certificate could not be verified. Check the server CA certificates or use another source.') from None
+    except TimeoutError:
+        raise HTTPException(422, 'The website took too long to respond. Try again or use another source.') from None
     except (OSError, HTTPClientError, UnicodeError, ValueError):
+        logger.warning('Website retrieval failed for %s', urlsplit(url).hostname, exc_info=True)
         raise HTTPException(422, 'Could not retrieve the website safely. Check the URL and try again.') from None
 
 
@@ -131,48 +162,71 @@ def respect_robots(url, deadline):
         raise HTTPException(422, 'This website disallows automated article retrieval. Use an authorised source instead.')
 
 
+def content_body(soup):
+    """Find a bounded content region, including blogs built from plain divs."""
+    body = soup.find('article') or soup.find('main') or soup.select_one(
+        '[itemprop="articleBody"], .article-body, .article-content, .entry-content, .post-content')
+    if body:
+        return body
+    heading = soup.find('h1')
+    if heading:
+        for parent in heading.parents:
+            if parent.name in {'body', 'html'}:
+                break
+            if (parent.name in {'div', 'section'} and parent.find(['h2', 'h3', 'h4', 'h5', 'h6'])
+                    and len(parent.find_all(['p', 'li'])) >= 2
+                    and len(parent.get_text(' ', strip=True)) >= MIN_ARTICLE_CHARS):
+                return parent
+    return None
+
+
 def extract_article(html, url, deadline):
     soup = BeautifulSoup(html, 'html.parser')
-    if not (soup.find('article') or soup.find('main') or soup.select_one('meta[property="og:type"][content="article"]')
-            or re.search(r'"@type"\s*:\s*"(?:NewsArticle|Article|BlogPosting)"', str(soup))):
-        raise HTTPException(422, 'This page has no identifiable article body. Use a public article page or upload an authorised PDF.')
     if soup.select_one('[data-paywall], .paywall, #paywall') or any(
             '"isAccessibleForFree":false' in script.get_text().replace(' ', '')
             for script in soup.find_all('script', type='application/ld+json')):
         raise HTTPException(422, 'Paywalled articles are unsupported. Use a freely accessible source.')
     title_node = soup.find('h1') or soup.find('title')
     title = title_node.get_text(' ', strip=True)[:300] if title_node else ''
-    body = soup.find('article') or soup.find('main')
-    if body and (body.find(['canvas', 'object']) or any(svg.find(['title', 'desc']) for svg in body.find_all('svg'))):
-        raise HTTPException(422, 'This article contains embedded diagrams or interactive content that cannot be captured reliably. Upload an authorised PDF instead.')
+    if not title:
+        title_meta = soup.select_one('meta[property="og:title"]')
+        title = (title_meta.get('content', '').strip()[:300] if title_meta else '')
+    body = content_body(soup)
     try:
-        extracted = trafilatura.extract(html, url=url, output_format='html', include_comments=False,
+        # A known content container preserves headings, lists, tables and images
+        # that the generic text extractor may silently discard. Use the extractor
+        # only when the source supplies no reliable content boundary.
+        extracted = str(body) if body else trafilatura.extract(html, url=url, output_format='html', include_comments=False,
                                        include_tables=True, include_images=True, include_formatting=True,
-                                       favor_precision=True)
+                                       favor_precision=False)
     except (ValueError, TypeError, RecursionError):
         raise HTTPException(422, 'The article structure could not be extracted reliably. Use another source.') from None
     if not extracted or not title:
-        raise HTTPException(422, 'No complete article was found. JavaScript, login and non-article pages are unsupported.')
+        raise HTTPException(422, 'No readable page text was found. Pages requiring JavaScript or sign-in need a PDF upload.')
     article = BeautifulSoup(extracted, 'html.parser')
     if body and len(body.find_all('table')) > len(article.find_all('table')):
         raise HTTPException(422, 'Article extraction omitted a table. Upload an authorised PDF to preserve its structure.')
-    if len(article.get_text(' ', strip=True)) < 400 or len(article.find_all('p')) < 2:
-        raise HTTPException(422, 'Too little article text was extracted. Use another source or upload an authorised PDF.')
+    if len(article.get_text(' ', strip=True)) < MIN_ARTICLE_CHARS:
+        raise HTTPException(422, 'Too little readable page text was extracted. Upload a PDF if the page needs JavaScript or sign-in.')
     assets, image_sources, warnings = {}, [], []
     if body and body.find('iframe'):
         warnings.append('Embedded media is not included in this snapshot. Check whether its information is essential before publication.')
+    if body and (body.find(['canvas', 'object']) or any(svg.find(['title', 'desc']) for svg in body.find_all('svg'))):
+        warnings.append('Embedded diagrams or interactive content are not included. Review the original page before publication; upload a PDF if they are essential.')
 
     def render(node):
+        if isinstance(node, Comment):
+            return ''
         if isinstance(node, NavigableString):
             # Escape HTML and Markdown syntax from literal webpage text.
             return re.sub(r'([\\`*_{}\[\]<>#!|])', r'\\\1', str(node)).replace('\r', '')
         name = node.name
-        if name in {'script', 'style', 'iframe', 'object', 'svg', 'form', 'nav', 'footer'}:
+        if name in {'script', 'style', 'iframe', 'object', 'svg', 'canvas', 'form', 'nav', 'footer', 'aside'}:
             return ''
         if name == 'table':
             return '\n\n' + sanitize_table(str(node)) + '\n\n'
         if name == 'img':
-            source = urljoin(url, node.get('src', ''))
+            source = urljoin(url, node.get('data-src') or node.get('src', ''))
             alt = node.get('alt', '')[:300]
             record = {'url': source, 'alt': alt, 'stored': False}
             image_sources.append(record)
@@ -215,7 +269,7 @@ def extract_article(html, url, deadline):
         markdown = re.sub(r'\n{3,}', '\n\n', render(article)).strip() + '\n'
     except RecursionError:
         raise HTTPException(422, 'The article structure is too deeply nested to extract reliably.') from None
-    if len(markdown) < 400:
+    if len(markdown.strip()) < MIN_ARTICLE_CHARS:
         raise HTTPException(422, 'Article extraction was incomplete. Choose another source.')
     metadata = {'source_kind': 'website', 'original_url': url, 'article_title': title,
                 'retrieved_at': datetime.now(timezone.utc).isoformat(),
