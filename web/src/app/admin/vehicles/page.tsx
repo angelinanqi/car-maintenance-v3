@@ -1,4 +1,5 @@
 "use client";
+import Pagination, { usePagination } from "@/components/admin/Pagination";
 
 import { useEffect, useState } from "react";
 import NextLink from "next/link";
@@ -142,6 +143,11 @@ export default function VehiclesPage() {
   const manufacturers = (data?.manufacturers || [])
     .filter((row) => matchesStatus(row.active) && matchesQuery(row.name))
     .sort((a, b) => a.name.localeCompare(b.name));
+  const paginationKey = JSON.stringify([section, query, manufacturerId, status]);
+  const vehiclePages = usePagination(vehicles, paginationKey);
+  const modelPages = usePagination(models, paginationKey);
+  const manufacturerPages = usePagination(manufacturers, paginationKey);
+  const activePagination = section === "vehicles" ? vehiclePages : section === "models" ? modelPages : manufacturerPages;
   const count =
     section === "vehicles"
       ? vehicles.length
@@ -205,7 +211,7 @@ export default function VehiclesPage() {
               <Box>
                 <Heading as="h2" size="xl">
                   {section === "vehicles"
-                    ? "Vehicle variants"
+                    ? "Vehicle Variants"
                     : section === "models"
                       ? "Models"
                       : "Manufacturers"}
@@ -344,7 +350,7 @@ export default function VehiclesPage() {
             )}
             <Stack as="ul" gap={3} listStyleType="none" m={0} p={0}>
               {section === "vehicles" &&
-                vehicles.map((row) => {
+                vehiclePages.items.map((row) => {
                   const model = data?.models.find((m) => m.id === row.model_id);
                   const availability = vehicleAvailability(
                     row,
@@ -444,7 +450,7 @@ export default function VehiclesPage() {
                   );
                 })}
               {section === "models" &&
-                models.map((row) => (
+                modelPages.items.map((row) => (
                   <Box
                     as="li"
                     key={row.id}
@@ -493,7 +499,7 @@ export default function VehiclesPage() {
                   </Box>
                 ))}
               {section === "manufacturers" &&
-                manufacturers.map((row) => (
+                manufacturerPages.items.map((row) => (
                   <Box
                     as="li"
                     key={row.id}
@@ -537,10 +543,11 @@ export default function VehiclesPage() {
                   </Box>
                 ))}
             </Stack>
+            <Pagination {...activePagination} label="Vehicle Catalogue" />
             {data && !count && (
               <Box bg="white" p={8} borderRadius="10px" mt={3}>
                 <Heading as="h3" size="md">
-                  {total ? "No matching entries" : `No ${section} yet`}
+                  {total ? "No Matching Entries" : `No ${section} yet`}
                 </Heading>
                 <Text mt={2} color="muted">
                   {total

@@ -1,4 +1,5 @@
 "use client";
+import Pagination, { usePagination } from "@/components/admin/Pagination";
 
 import { Checkbox } from "@/components/ui/checkbox";
 import { useState } from "react";
@@ -26,6 +27,7 @@ export default function CategoriesPage() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
+  const pagination = usePagination([...categories].sort((a, b) => a.display_order - b.display_order));
   async function save(event) {
     event.preventDefault();
     if (busy) return;
@@ -45,13 +47,13 @@ export default function CategoriesPage() {
   }
   return (
     <AdminLayout
-      title="Learning topics"
+      title="Learning Topics"
       description="Group related guides so drivers can find them. Making a topic available also lets drivers see its published guides."
     >
       <Stack gap={5}>
         {notice && <Text role="status">{notice}</Text>}
         <Heading size="md">
-          {editing ? "Edit learning topic" : "Add learning topic"}
+          {editing ? "Edit Learning Topic" : "Add Learning Topic"}
         </Heading>
         <form onSubmit={save}>
           <Fieldset.Root disabled={busy}>
@@ -119,9 +121,7 @@ export default function CategoriesPage() {
             {error}
           </Text>
         )}
-        {[...categories]
-          .sort((a, b) => a.display_order - b.display_order)
-          .map((category) => (
+        {pagination.items.map((category) => (
             <Flex key={category.id} gap={3} align="center" wrap="wrap">
               <Text flex={1}>
                 {category.display_order} · {category.name} ·{" "}
@@ -152,6 +152,7 @@ export default function CategoriesPage() {
               </Button>
             </Flex>
           ))}
+        <Pagination {...pagination} label="Learning Topics" />
         {!categories.length && <Text>No categories yet.</Text>}
       </Stack>
       <DeleteConfirmModal

@@ -87,8 +87,8 @@ export default function DocumentImpact({ document }) {
     >
       <Heading size="lg" mb={3}>
         {document.replacement_for_id
-          ? "What needs checking with this replacement?"
-          : "Where this document is referenced"}
+          ? "What Needs Checking with This Replacement?"
+          : "Where This Document Is Referenced"}
       </Heading>
       <Text color="muted" mb={4}>
         These are saved references, not a comparison of the manuals. Replacing a
@@ -122,7 +122,7 @@ export default function DocumentImpact({ document }) {
       {previous.length > 0 && (
         <Box as="details" mt={4}>
           <Box as="summary">
-            References in previous schedules ({previous.length})
+            References in Previous Schedules ({previous.length})
           </Box>
           <Stack gap={3} mt={3}>
             {previous.map(scheduleCard)}
@@ -132,7 +132,7 @@ export default function DocumentImpact({ document }) {
       {usage?.related_guides.length > 0 && (
         <Box mt={5}>
           <Heading size="md" mb={2}>
-            Learning guides sharing these service tasks
+            Learning Guides Sharing These Service Tasks
           </Heading>
           <Text fontSize="sm" color="muted" mb={3}>
             These guides link to the same service tasks. This does not confirm

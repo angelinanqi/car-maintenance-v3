@@ -49,3 +49,36 @@ gemini-api-key.json
 
 # archive of files excluded from the production repository
 /dumpster/
+
+# Generated frontend/mobile caches and local tooling
+node_modules/
+.next/
+.dart_tool/
+.gradle/
+.vscode/
+.idea/
+*.iml
+*.tsbuildinfo
+*.log.*
+Thumbs.db
+Desktop.ini
+*.tmp
+*.temp
+*.bak
+*.orig
+*.rej
+
+# Test-run output (tests are kept in the local archive)
+test-results/
+playwright-report/
+blob-report/
+coverage/
+
+# Local signing material and credentials
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+key.properties

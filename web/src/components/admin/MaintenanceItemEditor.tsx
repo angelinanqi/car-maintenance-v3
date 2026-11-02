@@ -33,6 +33,7 @@ export default function MaintenanceItemEditor({
     active: row?.active ?? true,
   };
   const [draft, setDraft] = useState(original);
+  const [createId] = useState(() => crypto.randomUUID());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [titleError, setTitleError] = useState("");
@@ -50,6 +51,7 @@ export default function MaintenanceItemEditor({
       onSaved(
         await saveItem(row?.id || "", {
           ...draft,
+          ...(!row ? { id: createId } : {}),
           title: draft.title.trim(),
           category: draft.category.trim(),
           description: draft.description.trim(),
@@ -112,6 +114,7 @@ export default function MaintenanceItemEditor({
         hint="Choose or enter a group such as Engine and fluids to help find this task later."
       >
         <CategoryInput
+          maxLength={200}
           options={categories}
           value={draft.category}
           onChange={(category) => setDraft({ ...draft, category })}

@@ -131,28 +131,36 @@ class Guide(GuideInput):
 
 class Step(InputModel):
     id: UUID = Field(default_factory=uuid4)
-    title: str = Field(min_length=1)
-    description: str = Field(min_length=1)
-    imageUrl: str = ""
+    title: str = Field(min_length=1, max_length=200)
+    description: str = Field(min_length=1, max_length=20000)
+    imageUrl: str = Field(default="", max_length=2048)
 
     @field_validator("imageUrl")
     @classmethod
     def image_url(cls, value):
-        if value and not value.startswith(("https://", "http://")):
-            raise ValueError("Image URL must use http or https")
+        from urllib.parse import urlsplit
+        if value:
+            try:
+                url = urlsplit(value)
+                valid = url.scheme in {"https", "http"} and bool(url.hostname) and not url.username and not url.password
+                url.port
+            except ValueError:
+                valid = False
+            if not valid or any(character.isspace() for character in value):
+                raise ValueError("Image URL must be a complete http(s) URL without credentials")
         return value
 
 
 class PlaybookInput(InputModel):
-    title: str = Field(min_length=1)
+    title: str = Field(min_length=1, max_length=200)
     display_order: int = Field(default=0, ge=0, le=2147483647)
-    steps: list[Step] = Field(default_factory=list)
-    scenario_key: str | None = Field(default=None, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-    source: str = ""
+    steps: list[Step] = Field(default_factory=list, max_length=100)
+    scenario_key: str | None = Field(default=None, max_length=100, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+    source: str = Field(default="", max_length=10000)
     status: Literal["draft"] | None = None
-    category: str = ""
-    description: str = ""
-    safety_warnings: str = ""
+    category: str = Field(default="", max_length=200)
+    description: str = Field(default="", max_length=20000)
+    safety_warnings: str = Field(default="", max_length=20000)
 
     @field_validator("steps")
     @classmethod
@@ -169,6 +177,8 @@ class Playbook(PlaybookInput):
     updated_at: datetime
     status: Literal["draft", "published"] = "draft"
     reviewed_at: datetime | None = None
+    # Public responses may prepend two compatibility introduction steps.
+    steps: list[Step] = Field(default_factory=list, max_length=102)
 
 
 class ReviewConfirmation(InputModel):
@@ -183,10 +193,10 @@ class ReviewConfirmation(InputModel):
 
 
 class ContactInput(InputModel):
-    name: str = Field(min_length=1)
-    description: str = ""
+    name: str = Field(min_length=1, max_length=200)
+    description: str = Field(default="", max_length=10000)
     display_order: int = Field(default=0, ge=0, le=2147483647)
-    phone: str = Field(min_length=3, pattern=r"^[+0-9\s().-]+$")
+    phone: str = Field(min_length=3, max_length=100, pattern=r"^[+0-9\s().-]+$")
 
     @field_validator("phone")
     @classmethod
@@ -293,6 +303,7 @@ class ChatMessage(InputModel):
 
 
 class ChatRequest(InputModel):
+    request_id: UUID | None = None
     message: str = Field(min_length=1, max_length=CHAT_MAX_MESSAGE_LENGTH)
     car_model: str | None = None
     conversation: list[ChatMessage] = Field(default_factory=list, max_length=CHAT_HISTORY_LIMIT)
@@ -305,6 +316,8 @@ class ChatRequest(InputModel):
 
     @model_validator(mode='after')
     def paired_scope(self):
+        if self.request_id and not self.session_id:
+            raise ValueError('Create a chat session before sending a retryable question.')
         if bool(self.scope_type) != bool(self.scope_id):
             raise ValueError('Supply both scope_type and scope_id, or omit both for automatic chat.')
         return self

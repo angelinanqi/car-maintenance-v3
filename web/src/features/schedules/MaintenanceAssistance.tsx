@@ -36,6 +36,7 @@ export default function MaintenanceAssistance({
   scheduleId,
   existingItemIds = [],
   currentPage = 1,
+  autoOpenTable = false,
   items,
   onItem,
   onNavigate,
@@ -48,9 +49,10 @@ export default function MaintenanceAssistance({
   scheduleId?: string;
   existingItemIds?: (string | null)[];
   currentPage?: number;
+  autoOpenTable?: boolean;
   items: MaintenanceItem[];
   onItem: (item: MaintenanceItem) => void;
-  onNavigate: (page: number) => void;
+  onNavigate: (page: number, tableTitle?: string, automatic?: boolean) => void;
   onImport: (review: Review, suggestions: Suggestion[]) => void;
   disabled: boolean;
   onDirty: (dirty: boolean) => void;
@@ -126,8 +128,11 @@ export default function MaintenanceAssistance({
         const table =
           next.catalogue.tables.find(
             (table) => table.table_id === (aiRows[0]?.table_id || next.selections[0]?.table_id),
-          ) || next.catalogue.tables[0];
+          ) || next.catalogue.tables.find((table) => table.ranking.classification !== "other") || next.catalogue.tables[0];
         setTableId(table?.table_id || "");
+        if (autoOpenTable && document.source_type === "pdf" && table?.ranking.classification !== "other" && table?.pages[0]) {
+          onNavigate(table.pages[0], table.title, true);
+        }
         const initial = table
           ? next.selections.find(
               (choice) => choice.table_id === table.table_id,
@@ -217,6 +222,7 @@ export default function MaintenanceAssistance({
     )
       return;
     setTableId(table.table_id);
+    if (document.source_type === "pdf" && table.pages[0]) onNavigate(table.pages[0], table.title);
     const initial = review?.selections.find(
       (choice) => choice.table_id === table.table_id,
     ) || {
@@ -286,7 +292,7 @@ export default function MaintenanceAssistance({
   return (
     <Box borderWidth="1px" borderRadius="10px" p={4}>
       <Stack gap={4}>
-        <Heading size="md">Draft service tasks from this manual</Heading>
+        <Heading size="md">Draft Service Tasks From This Manual</Heading>
         <Text fontSize="sm" color="muted">
           Choose a maintenance table to draft operations, timing and conditions with AI,
           or extract task names for manual interval entry. Check each proposal against the original.
@@ -343,7 +349,7 @@ export default function MaintenanceAssistance({
         />}
         {review && !aiMode && step === 0 && (
           <>
-            <Heading size="sm">Which table lists the service tasks?</Heading>
+            <Heading size="sm">Which Table Lists the Service Tasks?</Heading>
             <Text fontSize="sm">
               Check the table against the original. Tables most likely to
               contain a service schedule are shown first.
@@ -406,7 +412,7 @@ export default function MaintenanceAssistance({
                     </Button>
                   ))}
                 </Flex>
-                <Heading size="sm">Where are the task names?</Heading>
+                <Heading size="sm">Where Are the Task Names?</Heading>
                 <Text fontSize="sm">
                   Choose the column containing names such as engine oil or brake
                   fluid. The examples below come from this table.
@@ -465,7 +471,7 @@ export default function MaintenanceAssistance({
                 </Stack>
                 <Box as="details">
                   <Box as="summary">
-                    Check the full table or skip heading and note rows
+                    Check the Full Table or Skip Heading and Note Rows
                   </Box>
                   <TableEvidence
                     table={activeTable}
@@ -537,7 +543,7 @@ export default function MaintenanceAssistance({
             )}
             <Box as="details" borderTopWidth="1px" pt={3}>
               <Box as="summary">
-                Can’t find the table? Enter a task from the manual
+                Can’T Find the Table? Enter a Task From the Manual
               </Box>
               <Stack gap={3} mt={3}>
                 <Text fontSize="sm">
@@ -737,7 +743,7 @@ export default function MaintenanceAssistance({
         )}
         {review && !aiMode && step === 2 && (
           <>
-            <Heading size="sm">Ready to add to your draft</Heading>
+            <Heading size="sm">Ready to Add to Your Draft</Heading>
             <Text>
               These task names have been checked. You will still enter the
               interval and any driving conditions from the manual.

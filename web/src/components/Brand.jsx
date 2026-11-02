@@ -1,12 +1,18 @@
 import { Box, Flex, Text } from "@chakra-ui/react";
 
 export default function Brand({ inverse = false }) {
+  if (!inverse) return <Flex align="center" gap={3}>
+    <Box asChild w="140px" maxW="100%">
+      <img src="/branding/roadie_full_logo.png" alt="Roadie" />
+    </Box>
+    <Text color="muted" fontWeight="600">Admin</Text>
+  </Flex>;
   return (
     <Flex align="center" gap={3} color={inverse ? "white" : "ink"}>
-      <Box bg="brand.400" color="ink" w="36px" h="36px" borderRadius="8px" display="grid" placeItems="center" aria-hidden="true">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M6 20 9 4h6l3 16M12 6v3m0 3v3m0 3v2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
+      <Box asChild w="40px" h="40px" flexShrink={0}>
+        <img src="/branding/roadie_logo.png" alt="" width="40" height="40" />
       </Box>
-      <Text fontWeight="700" fontSize="xl" letterSpacing="-0.04em">Roadie <Box as="span" fontWeight="400" color={inverse ? "#c5cdd6" : "muted"}>Admin</Box></Text>
+      <Text fontWeight="700" fontSize="xl" letterSpacing="-0.04em">Roadie <Box as="span" fontWeight="400" color={inverse ? "brand.200" : "muted"}>Admin</Box></Text>
     </Flex>
   );
 }

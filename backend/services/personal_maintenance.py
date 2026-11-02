@@ -23,7 +23,8 @@ def task_view(row, schedules, items):
 def record_view(row):
     return {'id': row['id'], 'vehicleId': row['vehicle_id'], 'taskId': row.get('task_id'),
             'title': row['title'], 'category': row['category'], 'mileage': row['mileage'],
-            'date': row['performed_at'], 'notes': row['notes'], 'cost': row.get('cost')}
+            'date': row['performed_at'], 'notes': row['notes'], 'cost': row.get('cost'),
+            'workshopName': row.get('workshop_name', '')}
 
 
 def personal_schedules(vehicles):
@@ -53,7 +54,7 @@ def load_tasks(owner, vehicles, items, *, persist_missing=False):
 
 def load(user, profile):
     """Never trust client vehicle IDs, infer history, or write tasks during chat."""
-    if profile is None or user.get('role') == 'admin':
+    if profile is None:
         return None
     owner, vehicle_id = user['id'], profile['vehicle_id']
     # Query both ownership and vehicle; record IDs are only unique per account.

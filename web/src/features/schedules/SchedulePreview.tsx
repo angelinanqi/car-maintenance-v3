@@ -21,7 +21,7 @@ export default function SchedulePreview({
   return (
     <Box bg="white" p={6} borderRadius="12px">
       <Heading size="lg" mb={2}>
-        Review the instructions
+        Review the Instructions
       </Heading>
       <Text color="muted" mb={5}>
         A readable preview of this{" "}
@@ -36,7 +36,7 @@ export default function SchedulePreview({
           <Box key={index} borderBottomWidth="1px" pb={4}>
             <Heading size="md">
               {items.find((item) => item.id === entry.itemId)
-                ?.title || "Task not chosen"}
+                ?.title || "Task Not Chosen"}
             </Heading>
             <Text mt={2}>{serviceInstruction(entry)}</Text>
             {entry.rule.conditions && (

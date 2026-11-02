@@ -1,4 +1,4 @@
-from backend.settings import MINERU_BACKEND, MINERU_TIMEOUT
+from backend.settings import MINERU_BACKEND, MINERU_TIMEOUT, MINERU_API_URL, EXTRACTION_MAX_BYTES
 import os
 from pathlib import Path
 import re
@@ -8,7 +8,7 @@ import sys
 import tempfile
 from backend.settings import MINERU_EXECUTABLE, OUTPUT_DIR
 
-# run MinerU once per document name and retain only markdown and images
+# Run MinerU once per document name; retain Markdown, images and provenance JSON.
 
 
 def _complete(markdown: Path) -> bool:
@@ -69,30 +69,13 @@ def run_ocr(
         print(f"Running MinerU: {source}")
 
         # Keep diagnostics outside the temporary directory so failures remain inspectable.
-        with log_path.open("wb") as log:
-            try:
-                subprocess.run(
-                    [str(executable), "-p", str(source), "-o", str(raw), "-b", MINERU_BACKEND],
-                    check=True,
-                    timeout=MINERU_TIMEOUT,
-                    # MinerU's API client defaults to a separate one-hour wait.
-                    # The backend's configured deadline owns this whole job.
-                    env={**os.environ, "MINERU_TASK_RESULT_TIMEOUT_SECONDS": str(MINERU_TIMEOUT)},
-                    stdout=log,
-                    stderr=subprocess.STDOUT,
-                )
-            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
-                log.flush()
-                with log_path.open("rb") as saved_log:
-                    saved_log.seek(max(0, log_path.stat().st_size - 1600))
-                    details = saved_log.read().decode("utf-8", errors="replace").strip()
-                if isinstance(error, subprocess.TimeoutExpired):
-                    reason = f"timed out after {MINERU_TIMEOUT:g} seconds"
-                else:
-                    reason = f"failed with exit code {error.returncode}"
-                raise RuntimeError(
-                    f"MinerU {reason}. Log: {log_path}\n{details}"
-                ) from error
+        if MINERU_API_URL and mineru_executable is None:
+            from backend.services.ocr_client import extract_remote
+            extract_remote(source, raw, root / f'{source.stem}.mineru-job.json',
+                           url=MINERU_API_URL, backend=MINERU_BACKEND,
+                           timeout=MINERU_TIMEOUT, max_bytes=EXTRACTION_MAX_BYTES)
+        else:
+            _run_local(executable, source, raw, log_path)
 
         candidates = sorted(raw.rglob("*.md"))
         matching = [path for path in candidates if path.stem == source.stem]
@@ -132,8 +115,34 @@ def run_ocr(
             raise ValueError(f"MinerU output has missing image files for {source.name}")
 
         # only replace this document's incomplete cache after successful OCR
-
         if destination.exists():
             shutil.rmtree(destination)
         clean.rename(destination)
     return markdown
+
+
+def _run_local(executable, source, raw, log_path):
+    with log_path.open("wb") as log:
+        try:
+            subprocess.run(
+                [str(executable), "-p", str(source), "-o", str(raw), "-b", MINERU_BACKEND],
+                check=True,
+                timeout=MINERU_TIMEOUT,
+                # MinerU's API client defaults to a separate one-hour wait.
+                # The backend's configured deadline owns this whole job.
+                env={**os.environ, "MINERU_TASK_RESULT_TIMEOUT_SECONDS": str(MINERU_TIMEOUT)},
+                stdout=log,
+                stderr=subprocess.STDOUT,
+            )
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+            log.flush()
+            with log_path.open("rb") as saved_log:
+                saved_log.seek(max(0, log_path.stat().st_size - 1600))
+                details = saved_log.read().decode("utf-8", errors="replace").strip()
+            if isinstance(error, subprocess.TimeoutExpired):
+                reason = f"timed out after {MINERU_TIMEOUT:g} seconds"
+            else:
+                reason = f"failed with exit code {error.returncode}"
+            raise RuntimeError(
+                f"MinerU {reason}. Log: {log_path}\n{details}"
+            ) from error

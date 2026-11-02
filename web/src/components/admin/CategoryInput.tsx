@@ -9,7 +9,7 @@ import {
 
 type Props = Pick<
   InputProps,
-  "id" | "aria-describedby" | "aria-invalid" | "placeholder" | "disabled"
+  "id" | "aria-describedby" | "aria-invalid" | "placeholder" | "disabled" | "maxLength"
 > & {
   value: string;
   options: string[];

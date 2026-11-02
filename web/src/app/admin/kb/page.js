@@ -1,4 +1,5 @@
 "use client";
+import Pagination, { usePagination } from "@/components/admin/Pagination";
 import { Suspense, useState } from "react";
 import NextLink from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -14,6 +15,7 @@ import {
 } from "@chakra-ui/react";
 import AdminLayout from "@/components/layouts/AdminLayout";
 import FileModal from "@/components/modals/FileModal";
+import WebsiteArticleModal from "@/components/admin/WebsiteArticleModal";
 import DocumentTestSummary from "@/components/admin/DocumentTestSummary";
 import { AdminSelect } from "@/components/admin/NativeControls";
 import { useContent } from "@/components/ContentProvider";
@@ -33,6 +35,7 @@ function DocumentLibrary() {
   const router = useRouter();
   const [uploadOpen, setUploadOpen] = useState(search.get("add") === "1");
   const [query, setQuery] = useState("");
+  const [articleOpen, setArticleOpen] = useState(false);
   const [filter, setFilter] = useState("current");
   const preferredVehicle = search.get("vehicle") || "";
   const testFilter = filter.startsWith("tests:") ? filter.slice(6) : "";
@@ -64,15 +67,16 @@ function DocumentLibrary() {
         new Date(b.updated_at || b.created_at) -
         new Date(a.updated_at || a.created_at),
     );
+  const pagination = usePagination(rows, JSON.stringify([query, filter]));
   return (
     <AdminLayout
-      title="Reference library"
+      title="Reference Library"
       description="Keep manuals and safety references up to date. Open a document to see its coverage, progress and next step."
     >
       <Stack gap={5}>
         <Flex gap={3} align="center" justify="space-between" wrap="wrap">
           <Heading as="h2" size="lg">
-            Your documents
+            Your Documents
           </Heading>
           <Flex gap={3}>
             <Button
@@ -82,6 +86,7 @@ function DocumentLibrary() {
               Refresh
             </Button>
             <Button onClick={() => setUploadOpen(true)}>Add document</Button>
+            <Button variant="outline" onClick={() => setArticleOpen(true)}>Add website article</Button>
           </Flex>
         </Flex>
         <Flex gap={4} align="end" wrap="wrap">
@@ -114,7 +119,7 @@ function DocumentLibrary() {
         </Flex>
         {!loading && !documents.length && (
           <Box bg="white" p={8} borderRadius="12px">
-            <Heading size="lg">Add your first reference</Heading>
+            <Heading size="lg">Add Your First Reference</Heading>
             <Text mt={2} color="muted">
               Start with a trusted manual or safety document. After uploading,
               choose which vehicles or topics it covers and check it before
@@ -143,7 +148,7 @@ function DocumentLibrary() {
           </Box>
         )}
         <Stack as="ul" gap={3} listStyleType="none" m={0} p={0}>
-          {rows.map((document) => {
+          {pagination.items.map((document) => {
             const journey = documentJourney(document, knowledge);
             const names = coverageNames(document.id, knowledge);
             return (
@@ -181,6 +186,7 @@ function DocumentLibrary() {
                       {document.document_type?.replaceAll("_", " ")} · Added{" "}
                       {document.date}
                     </Text>
+                    {document.original_filename?.startsWith('website-') && <Text fontSize="sm" color="muted">Website article snapshot</Text>}
                     <DocumentTestSummary documentId={document.id} documentName={document.name} summary={documentTests?.[document.id]}
                       error={documentTestError} loading={loading} filter={testFilter} />
                   </Box>
@@ -207,6 +213,7 @@ function DocumentLibrary() {
             );
           })}
         </Stack>
+        <Pagination {...pagination} label="Reference Documents" />
       </Stack>
       {uploadOpen && (
         <FileModal
@@ -222,6 +229,11 @@ function DocumentLibrary() {
           }}
         />
       )}
+      {articleOpen && <WebsiteArticleModal onClose={() => setArticleOpen(false)} onAdded={async (document) => {
+        await refresh({ resources: ['documents'] });
+        setArticleOpen(false);
+        router.push(`/admin/kb/${document.id}${preferredVehicle ? `?vehicle=${encodeURIComponent(preferredVehicle)}` : ""}`);
+      }} />}
     </AdminLayout>
   );
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { IMAGE_MAX_BYTES, IMAGE_CONTENT_TYPES } from "@/lib/config.mjs";
+import { IMAGE_UPLOAD_LIMITS, validateImageFile } from "@/lib/imageFiles.mjs";
 import { useState } from "react";
 import {
   HStack,
@@ -61,7 +62,8 @@ export default function EditorToolbar({ editor, uploadImage }) {
     setUploading(true);
     setMediaError("");
     try {
-      if (selectedImageFile.size > IMAGE_MAX_BYTES) throw new Error("Image exceeds the upload size limit.");
+      const fileError = validateImageFile(selectedImageFile);
+      if (fileError) throw new Error(fileError);
       const src = await uploadImage(selectedImageFile);
       if (!editor.chain().focus().setImage({ src }).run()) throw new Error("Could not insert this image.");
       setSelectedImageFile(null);
@@ -338,11 +340,18 @@ export default function EditorToolbar({ editor, uploadImage }) {
                 {mediaError && <Text role="alert" color="red.600" mb={3}>{mediaError}</Text>}
                 <Stack gap={4}>
                   <FileUpload.Root
+                    disabled={uploading}
                     accept={IMAGE_CONTENT_TYPES}
+                    minFileSize={1}
                     maxFileSize={IMAGE_MAX_BYTES}
                     maxFiles={1}
+                    onFileReject={({ files }) => {
+                      const fileError = files.map(({ file }) => validateImageFile(file)).find(Boolean);
+                      setMediaError(fileError || `Choose one image at a time. ${IMAGE_UPLOAD_LIMITS}`);
+                    }}
                     onFileChange={(details) => {
                       setSelectedImageFile(details.acceptedFiles[0] || null);
+                      if (!details.rejectedFiles.length) setMediaError("");
                     }}
                   >
                     <FileUpload.HiddenInput />
@@ -367,6 +376,9 @@ export default function EditorToolbar({ editor, uploadImage }) {
                     </FileUpload.ItemGroup>
                   </FileUpload.Root>
 
+                  <Text fontSize="sm" color="muted">
+                    {IMAGE_UPLOAD_LIMITS}
+                  </Text>
                   <Text fontSize="sm" color="muted">
                     Images are stored persistently. Save the guide after inserting an image.
                   </Text>

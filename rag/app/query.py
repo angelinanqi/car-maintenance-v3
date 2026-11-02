@@ -10,7 +10,8 @@ from rag.config import settings
 from shared.visual_identity import image_identified, source_image_available, image_identity
 from shared.table_evidence import table_reference_text
 from shared.source_pages import element_page, element_region, page_assets
-from rag.app.generation.provider import GenerationClient, FALLBACK_NOTICE
+from shared.source_elements import element_parts
+from rag.app.generation.provider import GenerationClient
 from rag.app.generation.intent import Intent, interpret
 from rag.app.generation.context import bounded_history
 from rag.app.generation.grounded import applicable, generate, GeneratedReply, INSUFFICIENT, CLARIFY
@@ -43,7 +44,8 @@ def retrieve_manual(query_embedding, top_k, *, scope, query):
     # A scoped lexical search still works if the embedding service is unavailable.
     # Query-time reranking belongs to visual selection below; paragraph search
     # keeps its hybrid order even when that optional component is enabled.
-    results = search(store, query, query_embedding, scope["document_ids"], top_k=top_k * 3,
+    candidate_limit = max(top_k, settings.RAG_CANDIDATES) * 3
+    results = search(store, query, query_embedding, scope["document_ids"], top_k=candidate_limit,
                      mode="lexical" if query_embedding is None else None, use_reranker=False)
     return [replace(r, metadata={**r.metadata, **scope["document_metadata"].get(r.metadata["document_name"], {})})
             for r in results]
@@ -72,6 +74,7 @@ async def handle_query(query, *, scope, history=None, vehicle_profile=None,
     client = GenerationClient()
     records, eligible, videos, attachments, excluded = [], [], [], [], []
     reference_candidates = []
+    recommended_guides = []
     useful = False
     cited_labels = []
     relevance = {}
@@ -117,7 +120,10 @@ async def handle_query(query, *, scope, history=None, vehicle_profile=None,
             phase = perf_counter()
             retrieval_query = intent.search_query or intent.question
             embedding = None
-            if scope["document_ids"] or scope.get("video_ids") or scope.get("content_sources"):
+            video_ids = scope.get("video_ids", [])
+            # None means all prepared videos; an empty list keeps document previews isolated.
+            search_all_videos = video_ids is None
+            if scope["document_ids"] or search_all_videos or video_ids or scope.get("content_sources"):
                 try:
                     embedding = await asyncio.to_thread(prepare_retrieval, retrieval_query)
                 except Exception as error:
@@ -127,7 +133,7 @@ async def handle_query(query, *, scope, history=None, vehicle_profile=None,
             video_diagnostics = {}
 
             def search_manuals():
-                return retrieve_manual(embedding, max(top_k, settings.RAG_CANDIDATES), scope=scope, query=retrieval_query)
+                return retrieve_manual(embedding, top_k, scope=scope, query=retrieval_query)
 
             def search_content():
                 sources = scope.get('content_sources', [])
@@ -142,16 +148,17 @@ async def handle_query(query, *, scope, history=None, vehicle_profile=None,
                 return found
 
             def search_videos():
-                if not scope.get("video_ids") or embedding is None or not videos_allowed(intent):
+                if video_ids == [] or embedding is None or not videos_allowed(intent):
                     return []
                 return retrieve_youtube(retrieval_query, top_k, query_embedding=embedding,
-                                        video_ids=scope["video_ids"], diagnostics=video_diagnostics)
+                                        video_ids=video_ids, diagnostics=video_diagnostics)
 
             records, published, candidates = await asyncio.gather(
                 asyncio.to_thread(search_manuals), asyncio.to_thread(search_content),
                 asyncio.to_thread(search_videos), return_exceptions=True)
             manual_failed, content_failed, video_failed = [isinstance(value, Exception) for value in (records, published, candidates)]
             records = [] if manual_failed else records
+            manual_failed = manual_failed or bool(scope.get('unavailable_documents'))
             published = [] if content_failed else published
             candidates = [] if video_failed else candidates
             eligible, excluded = applicable(intent.question, records, scope, intent=intent)
@@ -165,14 +172,12 @@ async def handle_query(query, *, scope, history=None, vehicle_profile=None,
             reference_candidates = prepare_references(eligible + ranked_media, diagnostics=diagnostics)
             selected_elements = {(item['descriptor']['document_id'], item['descriptor']['element_id'])
                                  for item in reference_candidates}
-            table_evidence_elements = {(item['descriptor']['document_id'], item['descriptor']['element_id'])
-                                       for item in reference_candidates if item.get('table_element')}
             # Resolve validity/deduplication before applying the sole reference budget.
             # Keep retrieved table fragments together with their original reference.
             for record in media_candidates:
                 key = (record.metadata.get('document_id', record.metadata['document_name']),
                        record.metadata.get('element_id'))
-                if key not in table_evidence_elements or record.metadata.get('content_type') != 'table':
+                if key not in selected_elements or record.metadata.get('content_type') != 'table':
                     continue
                 eligible.append(record)
             eligible.sort(key=lambda record: record.rank)
@@ -185,14 +190,15 @@ async def handle_query(query, *, scope, history=None, vehicle_profile=None,
             videos = await select_videos(intent.question, candidates, (scope.get("vehicle") or {}).get("code"),
                                          video_diagnostics.get("metric") or "l2", intent=intent)
             diagnostics.update(retrieved=len(records), eligible=len(eligible), excluded=len(excluded),
-                               source_exclusions=excluded)
+                               source_exclusions=excluded,
+                               unavailable_manual_count=len(scope.get('unavailable_documents', [])))
             timings["retrieval_ms"] = round((perf_counter() - phase) * 1000, 1)
             answer, response_type = INSUFFICIENT + (" " + CLARIFY if excluded and not eligible else ""), "insufficient_information"
             # The same generation call can explain general concepts without a
             # manual. It must explicitly distinguish background from evidence.
             phase = perf_counter()
             try:
-                image_candidates = [item for item in reference_candidates if item.get('image_input')]
+                image_candidates = [visual for item in reference_candidates for visual in item.get('visual_inputs', [])]
                 visual_options = {}
                 if image_candidates:
                     visual_options = {
@@ -204,16 +210,23 @@ async def handle_query(query, *, scope, history=None, vehicle_profile=None,
                     generated = GeneratedReply('The requested original reference is shown below.',
                         'reference_only', reference_labels=[exact_reference])
                 else:
+                    personal_context = intent.personal_context
+                    if intent.suggest_service_plan or (activity_context and activity_context.get('kind') == 'plan'):
+                        personal_context = 'maintenance'
                     generated = await asyncio.to_thread(
                         generate, intent.question, eligible, client, scope=scope, risk=intent.risk,
-                        vehicle_profile=vehicle_profile, maintenance_context=maintenance_context,
+                        vehicle_profile=vehicle_profile if personal_context != 'none' else None,
+                        maintenance_context=maintenance_context if personal_context == 'maintenance' else None,
                         activity_context=activity_context, assistance=assistance,
                         diagnostics=diagnostics, intent=intent, history=history, latest_message=query,
-                        references=[{k: v for k, v in item.items() if k not in {'descriptor', 'image_input', 'image_source'}}
+                        references=[{k: v for k, v in item.items() if k not in {'descriptor', 'visual_inputs'}}
                                     for item in reference_candidates], **visual_options)
                 answer = generated.text
                 cited_labels = generated.cited_labels
                 useful = generated.status == "answered"
+                if useful:
+                    recommended_guides = [public_source(record, f'S{index}')
+                        for index, record in enumerate(eligible, 1) if f'S{index}' in generated.guide_labels]
                 response_type = "manual_only" if useful else generated.status
                 if not generated.allow_videos or generated.status == 'reference_only':
                     videos = []
@@ -243,8 +256,6 @@ async def handle_query(query, *, scope, history=None, vehicle_profile=None,
                     response_type = "mixed_sources" if relevance.get("manual_relevant") else "published_content"
                 elif relevance.get("profile_relevant"):
                     response_type = "profile_and_manual" if relevance.get("manual_relevant") else "profile_only"
-                if client.fallback_reason:
-                    answer += "\n\n" + FALLBACK_NOTICE
             if manual_failed or content_failed:
                 answer += "\n\n" + MANUAL_UNAVAILABLE
                 if not useful and not attachments:
@@ -283,11 +294,13 @@ async def handle_query(query, *, scope, history=None, vehicle_profile=None,
             sources.append({"label": "P2", "source_type": "personal_maintenance", "title": "Saved maintenance records",
                             "vehicle_id": vehicle_profile["vehicle_id"], "as_of": maintenance_context["as_of"]})
         for reference in reference_candidates:
-            if reference.get('image_input') and reference['image_input'].label in cited_labels:
+            for visual in reference.get('visual_inputs', []):
+                if visual['image_input'].label not in cited_labels:
+                    continue
                 descriptor = reference['descriptor']
-                source = {'label': reference['image_input'].label, 'source_type': 'manual',
+                source = {'label': visual['image_input'].label, 'source_type': 'manual',
                     'document_id': descriptor['document_id'], 'source_revision': descriptor['source_revision']}
-                if reference['image_source'].get('source_extent') != 'page':
+                if visual['image_source'].get('source_extent') != 'page':
                     source['element_id'] = descriptor['element_id']
                 sources.append(source)
     timings["total_ms"] = round((perf_counter() - start) * 1000, 1)
@@ -297,6 +310,7 @@ async def handle_query(query, *, scope, history=None, vehicle_profile=None,
     logger.info("rag_query %s", json.dumps({"scope_id": scope["scope_id"], "response_type": response_type,
                 "provider": client.provider, "model": client.model, **timings, **diagnostics}))
     return {"route": route, "answer": answer, "videos": public_videos, "attachments": attachments,
+            "recommended_guides": recommended_guides,
             "suggested_activity": 'service_plan' if intent and intent.suggest_service_plan and vehicle_profile
                 and route in {'rag', 'rag_with_external_warning'} and response_type not in {'restricted', 'emergency'} else None,
             "external_warning": route == "rag_with_external_warning",
@@ -321,6 +335,33 @@ def rank_visuals(search_query, records, *, diagnostics=None):
         diagnostics['visual_reranking_ms'] = round((perf_counter() - started) * 1000, 1)
         diagnostics['visual_rerank_order'] = [record.chunk_id for record in ranked]
     return ranked
+
+
+def ordered_visual_parts(element, records, document_name):
+    """Keep linked originals together; prioritize exact retrieved rows after headers."""
+    parts = element_parts(element)
+    if len(parts) < 2 or not all(part.get('structure_valid') for part in parts):
+        return parts
+    counts = [max((cell['row'] + cell['rowspan'] for cell in part.get('cells', [])), default=0)
+              for part in parts]
+    total = max((cell['row'] + cell['rowspan'] for cell in element.get('cells', [])), default=0)
+    if not all(counts) or sum(counts) != total:
+        return parts  # No established mapping from combined rows to parts.
+    ranges = []
+    for record in records:
+        metadata = record.metadata
+        if (metadata.get('document_name') == document_name and metadata.get('element_id') == element['element_id']
+                and metadata.get('evidence_type') == 'table_cells_v1'):
+            fragment = json.loads(metadata['source_content'])
+            ranges.append(fragment['row_range'])
+    preferred = [0]
+    start = 0
+    for index, count in enumerate(counts):
+        if index and any(left < start + count and right >= start for left, right in ranges):
+            preferred.append(index)
+        start += count
+    preferred.extend(index for index in range(len(parts)) if index not in preferred)
+    return [parts[index] for index in preferred]
 
 
 def prepare_references(records, *, diagnostics=None):
@@ -394,34 +435,56 @@ def prepare_references(records, *, diagnostics=None):
             # Literal table previews identify originals. Only structured source
             # fragments establish row/column relationships for factual answers.
             "description": description[:1600],
-            "pages": element.get("pages", []), "descriptor": descriptor}
+            "pages": element.get("pages", []), "descriptor": descriptor, 'visual_inputs': []}
         if kind == 'table' and table_evidence_count < TABLE_EVIDENCE_LIMIT:
             # Private parent evidence comes from the exact source manifest, never
             # caption similarity. Context packing removes it from reference JSON.
             selected[(name, identity)]['table_element'] = element
             table_evidence_count += 1
-        # Prefer the exact recorded page so headings/legends remain visible.
-        # A shared page consumes one of the same three original-image inputs.
-        if settings.RAG_VISUAL_INPUTS:
+        reference = selected[(name, identity)]
+        parts = ordered_visual_parts(element, records, name)
+        reference['pixel_source_labels'] = []
+        reference['visual_coverage'] = {
+            'expected_pages': sorted({element_page(part) for part in parts if element_page(part) is not None}),
+            'unmapped_parts': sum(element_page(part) is None for part in parts), 'page_inputs': []}
+        # A linked table's pages share the same three-frame budget. No page
+        # relationship is inferred from adjacency, captions or element order.
+        for part in parts:
+            number = element_page(part)
+            coverage = {'page': number, 'source_label': None, 'extent': 'unavailable',
+                        'omission_reason': 'original_unavailable', 'context_omitted': False}
+            reference['visual_coverage']['page_inputs'].append(coverage)
+            if not settings.RAG_VISUAL_INPUTS:
+                coverage['omission_reason'] = 'visual_inputs_disabled'
+                continue
             from rag.app.generation.visual import original_image
-            reference = selected[(name, identity)]
-            number = element_page(element)
             page = pages_by_document[name].get(number)
             options = []
             if page:
                 options.append(('page', page['asset_sha256']))
-            if element.get('asset_sha256'):
-                options.append(('crop', element['asset_sha256']))
+            if part.get('asset_sha256'):
+                options.append(('crop', part['asset_sha256']))
             for extent, digest in options:
                 key = (name, extent, number if extent == 'page' else None, digest)
                 if key in frames:
-                    reference['pixel_source_label'] = frames[key]
+                    visual = frames[key]
+                    image_label = visual['image_input'].label
+                    if kind == 'table':
+                        visual['image_source']['contains_table'] = True
+                    coverage.update(source_label=image_label, extent=extent, omission_reason=None)
+                    if image_label not in reference['pixel_source_labels']:
+                        reference['pixel_source_labels'].append(image_label)
                     if extent == 'page':
-                        region = element_region(element)
+                        region = element_region(part)
                         if region is not None:
-                            reference['page_region'] = {'source_label': frames[key], 'bbox_1000': region}
+                            item = {'source_label': image_label, 'bbox_1000': region}
+                            if len(parts) == 1:
+                                reference['page_region'] = item
+                            else:
+                                reference.setdefault('page_regions', []).append(item)
                     break
                 if len(frames) >= 3:
+                    coverage['omission_reason'] = 'image_limit'
                     break
                 try:
                     # Factual pixel-source labels must not also name attachments.
@@ -429,24 +492,34 @@ def prepare_references(records, *, diagnostics=None):
                     image = original_image(settings.OUTPUT_DIR / 'assets' / name / digest, digest, image_label)
                 except (OSError, ValueError):
                     logger.warning('Original %s unavailable for generation: %s/%s', extent, name, identity)
+                    coverage['omission_reason'] = 'invalid_or_missing_original'
                     continue
-                reference['image_input'] = image
-                reference['pixel_source_label'] = image_label
-                reference['image_source'] = {
+                image_source = {
                     'label': image_label, 'title': (f'Original manual PDF page {number}' if extent == 'page'
                                              else reference['title']),
                     'source_type': 'manual', 'document_type': metadata.get('document_type', 'other_reference'),
                     'source_fidelity_verified': metadata.get('source_fidelity_verified', False),
                     'content_type': kind, 'pixels_supplied': True, 'source_extent': extent,
+                    'contains_table': kind == 'table',
                     'content': ('Original PDF page supplied; it can contain several references, headings and legends.'
                                 if extent == 'page' else 'Original crop supplied. Its description alone is not evidence.'),
                 }
+                if kind == 'table':
+                    image_source['continuation_coverage'] = 'See reference visual_coverage; extracted rows do not prove visual coverage.'
                 if extent == 'page':
-                    reference['image_source']['physical_page'] = number
-                    region = element_region(element)
+                    image_source['physical_page'] = number
+                    region = element_region(part)
                     if region is not None:
-                        reference['page_region'] = {'source_label': image_label, 'bbox_1000': region}
-                frames[key] = image_label
+                        item = {'source_label': image_label, 'bbox_1000': region}
+                        if len(parts) == 1:
+                            reference['page_region'] = item
+                        else:
+                            reference.setdefault('page_regions', []).append(item)
+                visual = {'image_input': image, 'image_source': image_source}
+                reference['visual_inputs'].append(visual)
+                reference['pixel_source_labels'].append(image_label)
+                coverage.update(source_label=image_label, extent=extent, omission_reason=None)
+                frames[key] = visual
                 break
     if diagnostics is not None:
         diagnostics["unverified_image_omissions"] = [

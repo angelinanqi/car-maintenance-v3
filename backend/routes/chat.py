@@ -4,10 +4,16 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 from backend import auth
 from backend.models import ChatRequest, MechanicPreparationRequest, MechanicPreparation
-from backend.companion_models import ActivityUpdate
+from backend.companion_models import ActivityUpdate, ChatSessionInput
 from uuid import UUID
 
 router = APIRouter()
+
+
+@router.put('/chat/sessions/{session_id}')
+def create_session(session_id: UUID, request: ChatSessionInput, user=Depends(auth.require_user)):
+    from backend.services.chat import create_session
+    return create_session(str(session_id), request.session_token, user)
 
 
 @router.post("/chat")

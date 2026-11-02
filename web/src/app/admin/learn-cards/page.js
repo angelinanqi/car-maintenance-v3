@@ -1,4 +1,5 @@
 "use client";
+import Pagination, { usePagination } from "@/components/admin/Pagination";
 
 import { AdminSelect } from "@/components/admin/NativeControls";
 
@@ -88,9 +89,11 @@ export default function ContentPage() {
         .includes(query.toLowerCase()),
   );
 
+  const pagination = usePagination(filteredCards, JSON.stringify([query, status, selectedTab]));
+
   return (
     <AdminLayout
-      title="Learning guides"
+      title="Learning Guides"
       description="Write, preview, and manage maintenance guides."
     >
       <Stack gap={6}>
@@ -172,7 +175,7 @@ export default function ContentPage() {
           {/* HORIZONTAL CARDS LIST VIEW */}
           <Tabs.Content value={selectedTab} pt={4}>
             <Stack gap={3} w="100%">
-              {filteredCards.map((card) => {
+              {pagination.items.map((card) => {
                 const isPublished = card.status === "published";
                 return (
                   <Card.Root key={card.id} variant="outline" w="100%">
@@ -229,7 +232,7 @@ export default function ContentPage() {
                             disabled={Boolean(publishingId)}
                             loading={publishingId === card.id}
                           >
-                            {isPublished ? "Unpublish" : "Publish"}
+                            {isPublished ? "Unpublish guide" : "Publish guide"}
                           </Button>
 
                           <Button
@@ -262,6 +265,7 @@ export default function ContentPage() {
               })}
             </Stack>
 
+            <Pagination {...pagination} label="Learning Guides" />
             {/* Empty state */}
             {filteredCards.length === 0 && (
               <Box py={10} textAlign="center">

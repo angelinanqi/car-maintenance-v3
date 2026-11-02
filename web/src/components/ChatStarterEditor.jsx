@@ -20,6 +20,9 @@ export default function ChatStarterEditor() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [reload, setReload] = useState(0);
+  const [revision, setRevision] = useState(null);
+  const [conflict, setConflict] = useState(false);
+  const [latest, setLatest] = useState(null);
   const dirty = saved !== null && text !== saved;
   useUnsavedChanges(dirty);
 
@@ -31,6 +34,7 @@ export default function ChatStarterEditor() {
         const value = data.questions.join("\n");
         setText(value);
         setSaved(value);
+        setRevision(data.updated_at);
       })
       .catch((cause) => {
         if (active) setError(cause.message);
@@ -59,17 +63,21 @@ export default function ChatStarterEditor() {
     try {
       const result = await request("/admin/chat-starters", {
         method: "PUT",
-        body: { questions },
+        body: { questions, expected_updated_at: revision },
       });
       const value = result.questions.join("\n");
       setText(value);
       setSaved(value);
+      setRevision(result.updated_at);
+      setConflict(false);
+      setLatest(null);
       toaster.create({
         title: "Mobile starter questions saved",
         type: "success",
       });
     } catch (cause) {
       setError(cause.message);
+      if (cause.status === 409) setConflict(true);
     } finally {
       setBusy(false);
     }
@@ -115,6 +123,19 @@ export default function ChatStarterEditor() {
           {error}
         </Text>
       )}
+      {conflict && <Button variant="outline" disabled={busy} onClick={async () => {
+        setBusy(true);
+        try {
+          const data = await request('/admin/chat-starters');
+          setRevision(data.updated_at);
+          setSaved(data.questions.join('\n'));
+          setLatest(data.questions.join('\n'));
+          setConflict(false);
+          setError('Latest saved version loaded. Your edits are kept; compare them before saving again.');
+        } catch (cause) { setError(cause.message); }
+        finally { setBusy(false); }
+      }}>Reload saved version and keep my edits</Button>}
+      {latest !== null && <Text whiteSpace="pre-wrap" mt={2}>Latest saved questions: {latest || '(empty)'}</Text>}
       {error && saved === null && <Button mt={3} variant="outline" onClick={() => { setError(""); setReload((value) => value + 1); }}>Retry loading starter questions</Button>}
     </Box>
   );

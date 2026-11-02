@@ -49,7 +49,7 @@ export default function Home() {
   const drafts = cards.filter((card) => card.status === "draft");
   return (
     <AdminLayout
-      title="Welcome back"
+      title="Welcome Back"
       description="Pick up where you left off, or start an update. Saved work stays here between visits."
     >
       <Grid
@@ -63,7 +63,7 @@ export default function Home() {
         <Stack gap={6}>
           <Box bg="white" p={{ base: 5, md: 7 }} borderRadius="12px">
             <Flex justify="space-between" align="start" gap={3} wrap="wrap" mb={2}>
-              <Heading as="h2" size="xl">Needs your attention</Heading>
+              <Heading as="h2" size="xl">Needs Your Attention</Heading>
               <Button size="sm" variant="outline" onClick={() => refresh()}>Refresh tasks</Button>
             </Flex>
             <Text color="muted" mb={5}>
@@ -246,7 +246,7 @@ export default function Home() {
           {preparing.length > 0 && (
             <Box bg="white" p={{ base: 5, md: 7 }} borderRadius="12px">
               <Heading as="h2" size="lg" mb={2}>
-                Being prepared
+                Being Prepared
               </Heading>
               <Text mb={4} color="muted">
                 You can work on something else. These will move to “Needs your
@@ -275,7 +275,7 @@ export default function Home() {
         <Stack gap={4}>
           <Box bg="brand.100" p={{ base: 5, md: 7 }} borderRadius="12px">
             <Heading as="h2" size="lg" mb={4}>
-              What would you like to do?
+              What Would You Like to Do?
             </Heading>
             <Stack gap={3}>
               <Button asChild justifyContent="start">
@@ -302,7 +302,7 @@ export default function Home() {
           </Box>
           <Box bg="white" p={{ base: 5, md: 7 }} borderRadius="12px">
             <Heading as="h2" size="lg" mb={2}>
-              Check the result
+              Check the Result
             </Heading>
             <Text color="muted" mb={4}>
               Try questions about a vehicle or topic to see how the chatbot uses

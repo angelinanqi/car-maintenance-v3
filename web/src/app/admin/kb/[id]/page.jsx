@@ -17,6 +17,7 @@ import { useContent } from "@/components/ContentProvider";
 import { Checkbox } from "@/components/ui/checkbox";
 import FileModal from "@/components/modals/FileModal";
 import DocumentCoverage from "@/components/admin/DocumentCoverage";
+import PublicationChecklist from "@/components/admin/PublicationChecklist";
 import DocumentReview from "@/components/admin/DocumentReview";
 import DocumentTests from "@/components/admin/DocumentTests";
 import DocumentAvailability from "@/components/admin/DocumentAvailability";
@@ -86,7 +87,7 @@ function DocumentWorkspace() {
   }, [document?.source_revision, reviewQuestions]);
   if (!document || !knowledge)
     return (
-      <AdminLayout title="Document workspace">
+      <AdminLayout title="Document Workspace">
         <Text>
           {loading
             ? "Opening your document…"
@@ -187,7 +188,7 @@ function DocumentWorkspace() {
         {notice && <Text role="status">{notice}</Text>}
         {document.superseded_by_id ? (
           <Box bg="white" p={6} borderRadius="12px">
-            <Heading size="lg">A newer version is in use</Heading>
+            <Heading size="lg">A Newer Version Is in Use</Heading>
             <Text mt={2}>
               This version is kept so earlier references can still be checked.
             </Text>
@@ -202,7 +203,7 @@ function DocumentWorkspace() {
             {document.replacement_for_id && (
               <Box bg="brand.100" p={5} borderRadius="12px">
                 <Heading size="md">
-                  Updating {previous?.name || "an earlier document"}
+                  Updating {previous?.name || "An Earlier Document"}
                 </Heading>
                 <Text mt={2}>
                   {previous?.published
@@ -289,7 +290,7 @@ function DocumentWorkspace() {
                 wrap="wrap"
               >
                 <Heading size="lg">
-                  Which vehicles or topics does it cover?
+                  Which Vehicles or Topics Does It Cover?
                 </Heading>
                 {hasCoverage && (
                   <Button
@@ -333,10 +334,10 @@ function DocumentWorkspace() {
             {!document.published && (
               <>
                 <Box id="document-preparation" scrollMarginTop="130px" as="details" open={!ready} bg="white" p={{ base: 5, md: 7 }} borderRadius="12px">
-                  <Box as="summary" cursor="pointer" fontWeight="600">{ready ? "Preparation complete" : "Prepare the document"}</Box>
+                  <Box as="summary" cursor="pointer" fontWeight="600">{ready ? "Preparation Complete" : "Prepare the Document"}</Box>
                   <Box mt={4}>
                   <Heading size="lg" mb={3}>
-                    Prepare the document
+                    Prepare the Document
                   </Heading>
                   {isPreparing ? (
                     <>
@@ -348,7 +349,7 @@ function DocumentWorkspace() {
                             check the worker logs using the details below.
                           </Text>
                           <Box as="details" mt={2}>
-                            <Box as="summary">Problem details</Box>
+                            <Box as="summary">Problem Details</Box>
                             <Text fontSize="sm">{document.error}</Text>
                           </Box>
                         </Box>
@@ -378,7 +379,7 @@ function DocumentWorkspace() {
                             again. If the problem continues, use a clearer copy.
                           </Text>
                           <Box as="details" mt={2}>
-                            <Box as="summary">Problem details</Box>
+                            <Box as="summary">Problem Details</Box>
                             <Text fontSize="sm">{document.error}</Text>
                           </Box>
                         </Box>
@@ -416,7 +417,7 @@ function DocumentWorkspace() {
                   <Box id="document-review" scrollMarginTop="130px" bg="white" p={{ base: 5, md: 7 }} borderRadius="12px">
                     <Flex justify="space-between" align="center" gap={3} wrap="wrap" mb={3}>
                     <Heading size="lg" mb={3}>
-                      {document.source_fidelity_verified ? "Document check saved" : "Check that the document was read correctly"}
+                      {document.source_fidelity_verified ? "Document Check Saved" : "Check That the Document Was Read Correctly"}
                     </Heading>
                     {document.source_fidelity_verified && <Button variant="outline" size="sm" disabled={reviewExpanded && !reviewLoaded} onClick={() => setReviewExpanded((value) => !value)}>{reviewExpanded ? "Hide review" : "Reopen review"}</Button>}
                     </Flex>
@@ -485,11 +486,20 @@ function DocumentWorkspace() {
                 )}
                 <DocumentTests key={document.id} document={document} onDirty={setTestDirty} />
                 <Box id="document-publication" scrollMarginTop="130px" as="details" open={ready && document.source_fidelity_verified} bg="white" p={{ base: 5, md: 7 }} borderRadius="12px">
-                  <Box as="summary" cursor="pointer" fontWeight="600">{document.source_fidelity_verified ? "Ready to publish" : "Publication · finish the document check first"}</Box>
+                  <Box as="summary" cursor="pointer" fontWeight="600">{document.source_fidelity_verified ? "Ready to Publish" : "Publication · Finish the Document Check First"}</Box>
                   <Box mt={4}>
                   <Heading size="lg" mb={3}>
-                    Make this document available
+                    Make This Document Available
                   </Heading>
+                  <Box mb={4}>
+                    <PublicationChecklist steps={[
+                      { label: "Vehicle and topic coverage saved", complete: hasCoverage && !coverageDirty, href: "#document-coverage" },
+                      { label: "Current document revision indexed", complete: ready, href: "#document-preparation" },
+                      { label: "Original source verified", complete: document.source_fidelity_verified, href: "#document-review", description: "Explicit source approval is separate from individual checklist entries." },
+                      { label: "Clarification questions resolved", complete: openQuestions.length === 0, href: "#questions" },
+                      { label: "Test edits saved", complete: !testDirty, description: "Test results help review quality; passing every test is not required to publish." },
+                    ]} />
+                  </Box>
                   {openQuestions.length > 0 && (
                     <Text mb={3} color="orange.800">
                       There are open questions about this document. Resolve them
@@ -550,8 +560,8 @@ function DocumentWorkspace() {
                     }}
                   >
                     {document.replacement_for_id
-                      ? "Use this replacement"
-                      : "Make document available"}
+                      ? "Publish replacement"
+                      : "Publish document"}
                   </Button>
                   </Box>
                 </Box>
@@ -560,7 +570,7 @@ function DocumentWorkspace() {
             {document.published && (
               <Box bg="white" p={{ base: 5, md: 7 }} borderRadius="12px">
                 <Heading size="lg" mb={3}>
-                  What drivers can use
+                  What Drivers Can Use
                 </Heading>
                 <DocumentAvailability document={document} />
               </Box>
@@ -573,7 +583,7 @@ function DocumentWorkspace() {
           <Flex justify="space-between" gap={3} wrap="wrap" align="center">
             <Box>
               <Heading size="md">
-                Something in this document needs checking?
+                Something in This Document Needs Checking?
               </Heading>
               <Text mt={1}>
                 Save the question and its source now, then return when you have
@@ -597,7 +607,7 @@ function DocumentWorkspace() {
         </Box>
         <ReviewQuestions documentId={document.id} />
         <Box as="details" bg="white" p={5} borderRadius="12px">
-          <Box as="summary">Document details and other actions</Box>
+          <Box as="summary">Document Details and Other Actions</Box>
           <Stack mt={4} gap={3} align="start">
             <Text fontSize="sm">
               Original file: {document.original_filename}. Added {document.date}
@@ -676,7 +686,7 @@ function DocumentWorkspace() {
                       );
                   }}
                 >
-                  Take document offline
+                  Unpublish document
                 </Button>
               )}
               <Button

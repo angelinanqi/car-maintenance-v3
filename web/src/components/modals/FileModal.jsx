@@ -46,6 +46,8 @@ export default function FileModal({
   ]);
   const [selectedTags, setSelectedTags] = useState(editData?.tags || []);
   const isEditMode = Boolean(editData);
+  const maxFiles = isEditMode || replacementFor ? 1 : DOCUMENT_MAX_FILES;
+  const uploadLimits = `Accepted: ${DOCUMENT_EXTENSIONS.join(", ")}. Maximum ${DOCUMENT_MAX_BYTES / 1024 / 1024} MB per file; ${maxFiles} file(s) per upload.`;
   const dirty =
     files.length > 0 ||
     fileName !== (editData?.name || "") ||
@@ -96,6 +98,10 @@ export default function FileModal({
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (saving) return;
+    if (files.length > maxFiles) {
+      setError(`Too many files. ${uploadLimits}`);
+      return;
+    }
 
     if (
       ((isEditMode || files.length === 1) && !fileName.trim()) ||
@@ -152,10 +158,10 @@ export default function FileModal({
             >
               <Dialog.Title>
                 {replacementFor
-                  ? "Replace document"
+                  ? "Replace Document"
                   : isEditMode
-                    ? "Edit document details"
-                    : "Add a reference document"}
+                    ? "Edit Document Details"
+                    : "Add a Reference Document"}
               </Dialog.Title>
               <Button
                 type="button"
@@ -181,9 +187,7 @@ export default function FileModal({
                         : "Start with the file and a recognisable title. Next, you’ll choose the vehicles or topics it covers and prepare it for checking."}
                   </Text>
                   <Text fontSize="sm" color="muted">
-                    Accepted: {DOCUMENT_EXTENSIONS.join(", ")}. Maximum{" "}
-                    {Math.round(DOCUMENT_MAX_BYTES / 1024 / 1024)} MB per file;{" "}
-                    {isEditMode ? 1 : DOCUMENT_MAX_FILES} file(s) per upload.
+                    {uploadLimits}
                   </Text>
                   {error && (
                     <Text role="alert" color="red.600">
@@ -201,18 +205,15 @@ export default function FileModal({
                           editData?.published && !replacementFor,
                         )}
                         accept={DOCUMENT_EXTENSIONS}
+                        minFileSize={1}
                         maxFileSize={DOCUMENT_MAX_BYTES}
-                        maxFiles={isEditMode ? 1 : DOCUMENT_MAX_FILES}
+                        maxFiles={maxFiles}
                         acceptedFiles={files}
-                        onFileReject={() =>
-                          setError(
-                            `Choose ${DOCUMENT_EXTENSIONS.join(" or ")} files (up to ${DOCUMENT_MAX_FILES}; one when editing), at most ${DOCUMENT_MAX_BYTES} bytes each. Remove the current attachment before replacing it.`,
-                          )
-                        }
+                        onFileReject={() => setError(`File selection rejected. ${uploadLimits} Empty files are not allowed. Remove an existing attachment before replacing it.`)}
                         onFileChange={(details) => {
                           const selected = details.acceptedFiles[0] || null;
                           setFiles(details.acceptedFiles);
-                          setError("");
+                          if (!details.rejectedFiles.length) setError("");
                           if (selected && !fileName.trim())
                             setFileName(selected.name);
                         }}
@@ -292,7 +293,7 @@ export default function FileModal({
                   {/* 3. Clickable Tag Selection Section */}
                   {!replacementFor && (
                     <Box as="details">
-                      <Box as="summary">Search labels (optional)</Box>
+                      <Box as="summary">Search Labels (Optional)</Box>
                       <Field.Root mt={3}>
                         <Field.Label>
                           Labels to help find this document

@@ -8,6 +8,7 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import {
+  Box,
   Fieldset,
   Flex,
   Text,
@@ -33,7 +34,7 @@ export default function CreateArticlePage() {
   return (
     <Suspense
       fallback={
-        <AdminLayout title="Learning guides">
+        <AdminLayout title="Learning Guides">
           <Text>Loading editor...</Text>
         </AdminLayout>
       }
@@ -47,10 +48,10 @@ function GuideEditorRoute() {
   const searchParams = useSearchParams();
   const { cards, loading, error } = useContent();
   const editId = searchParams.get("edit");
-  if (loading) return <AdminLayout title="Learning guides" />;
+  if (loading) return <AdminLayout title="Learning Guides" />;
   const guide = cards.find((card) => card.id === editId);
   if (editId && !guide) {
-    return error ? <AdminLayout title="Learning guides" /> : <MissingGuide />;
+    return error ? <AdminLayout title="Learning Guides" /> : <MissingGuide />;
   }
   return <GuideForm key={editId || "new"} guide={guide} />;
 }
@@ -58,7 +59,7 @@ function GuideEditorRoute() {
 function MissingGuide() {
   const router = useRouter();
   return (
-    <AdminLayout title="Guide unavailable">
+    <AdminLayout title="Guide Unavailable">
       <Text mb={4}>This guide is no longer available.</Text>
       <Button onClick={() => router.push("/admin/learn-cards")}>
         Back to Learning guides
@@ -97,18 +98,21 @@ function GuideForm({ guide }) {
     exploration: guide?.exploration || null,
   };
   const [companion, setCompanion] = useState(initialCompanion);
-  const changed =
-    JSON.stringify(companion) !== JSON.stringify(initialCompanion) ||
-    title !== (guide?.title || "") ||
-    category !== (guide?.category_id || "") ||
-    editorHTML !== (guide?.content || "<p></p>") ||
-    description !== (guide?.description || "") ||
-    String(readingMinutes) !== String(guide?.reading_minutes || "") ||
-    displayOrder !== (guide?.display_order || 0) ||
-    JSON.stringify(relatedLessons) !==
-      JSON.stringify(guide?.related_lesson_ids || []) ||
-    JSON.stringify(relatedItems) !==
-      JSON.stringify(guide?.maintenance_item_ids || []);
+  const editorState = JSON.stringify({
+    title,
+    category,
+    editorHTML,
+    description,
+    readingMinutes: String(readingMinutes),
+    displayOrder,
+    relatedLessons,
+    relatedItems,
+    companion,
+  });
+  const [savedState, setSavedState] = useState(editorState);
+  const [relatedOpen, setRelatedOpen] = useState(false);
+  const [companionOpen, setCompanionOpen] = useState(false);
+  const changed = editorState !== savedState;
   useUnsavedChanges(changed && !saving);
   useEffect(() => {
     let active = true;
@@ -157,6 +161,7 @@ function GuideForm({ guide }) {
       learning_outcomes: companion.learning_outcomes.map((text) => text.trim()).filter(Boolean),
     });
     setGuideId(saved.id);
+    setSavedState(editorState);
     return saved.id;
   }
 
@@ -171,9 +176,12 @@ function GuideForm({ guide }) {
         title: status === "draft" ? "Draft saved" : "Guide published",
         type: "success",
       });
-      router.push("/admin/learn-cards");
+      if (status === "published") router.push("/admin/learn-cards");
     } catch (error) {
       setError(error.message);
+      // Validation can refer to fields inside either optional section.
+      setRelatedOpen(true);
+      setCompanionOpen(true);
     } finally {
       busy.current = false;
       setSaving(false);
@@ -196,7 +204,7 @@ function GuideForm({ guide }) {
 
   return (
     <AdminLayout
-      title={guide ? "Edit Guide" : "Create Guide"}
+      title={guideId ? "Edit Guide" : "Create Guide"}
       description="Write a maintenance guide. Images are uploaded to persistent storage; the first image upload creates a draft."
     >
       <Stack gap={6} w="100%" h="100%">
@@ -228,19 +236,6 @@ function GuideForm({ guide }) {
               variant="outline"
               disabled={saving}
               onClick={() => {
-                const changed =
-                  JSON.stringify(companion) !== JSON.stringify(initialCompanion) ||
-                  title !== (guide?.title || "") ||
-                  category !== (guide?.category_id || "") ||
-                  editorHTML !== (guide?.content || "<p></p>") ||
-                  description !== (guide?.description || "") ||
-                  String(readingMinutes) !==
-                    String(guide?.reading_minutes || "") ||
-                  displayOrder !== (guide?.display_order || 0) ||
-                  JSON.stringify(relatedLessons) !==
-                    JSON.stringify(guide?.related_lesson_ids || []) ||
-                  JSON.stringify(relatedItems) !==
-                    JSON.stringify(guide?.maintenance_item_ids || []);
                 if (
                   !changed ||
                   window.confirm("Discard unsaved guide changes?")
@@ -248,7 +243,7 @@ function GuideForm({ guide }) {
                   router.push("/admin/learn-cards");
               }}
             >
-              Cancel
+              Back to guides
             </Button>
 
             <Button
@@ -258,7 +253,7 @@ function GuideForm({ guide }) {
               onClick={() => handleSave("draft")}
               loading={saving}
             >
-              Save Draft
+              Save draft
             </Button>
 
             <Button
@@ -267,7 +262,7 @@ function GuideForm({ guide }) {
               onClick={() => handleSave("published")}
               loading={saving}
             >
-              Publish
+              Publish guide
             </Button>
           </Flex>
         </Flex>
@@ -324,52 +319,6 @@ function GuideForm({ guide }) {
             Lower numbers appear first within the mobile learning category.
           </Field.HelperText>
         </Field.Root>
-        <Fieldset.Root disabled={saving}>
-          <Stack gap={2}>
-            <Text fontWeight="semibold">Related learning cards</Text>
-            {cards
-              .filter((card) => card.id !== guideId)
-              .map((card) => (
-                <Checkbox
-                  key={card.id}
-                  checked={relatedLessons.includes(card.id)}
-                  onCheckedChange={(e) =>
-                    setRelatedLessons(
-                      e.checked === true
-                        ? [...relatedLessons, card.id]
-                        : relatedLessons.filter((id) => id !== card.id),
-                    )
-                  }
-                >
-                  {card.title} ({card.status})
-                </Checkbox>
-              ))}
-            <Text fontWeight="semibold" mt={2}>
-              Related standard maintenance items
-            </Text>
-            {items.map((item) => (
-              <Checkbox
-                key={item.id}
-                checked={relatedItems.includes(item.id)}
-                onCheckedChange={(e) =>
-                  setRelatedItems(
-                    e.checked === true
-                      ? [...relatedItems, item.id]
-                      : relatedItems.filter((id) => id !== item.id),
-                  )
-                }
-              >
-                {item.title} ({item.action}){!item.active ? " · inactive" : ""}
-              </Checkbox>
-            ))}
-            {!items.length && (
-              <Text fontSize="sm">
-                Create standard maintenance items to add relationships. Existing
-                relationship IDs are retained.
-              </Text>
-            )}
-          </Stack>
-        </Fieldset.Root>
 
         {/* ========================= */}
         {/* Content Editor             */}
@@ -384,7 +333,63 @@ function GuideForm({ guide }) {
             onChange={(html) => setEditorHTML(html)}
           />
         </Field.Root>
-        <CompanionEditor value={companion} onChange={setCompanion} content={editorHTML} uploadImage={uploadImage} />
+        <Box as="details" open={relatedOpen} onToggle={(event) => setRelatedOpen(event.currentTarget.open)}>
+          <Box as="summary" cursor="pointer" fontWeight="semibold">Related Guides and Maintenance Items (Optional)</Box>
+          <Box mt={4}>
+            <Fieldset.Root disabled={saving}>
+              <Stack gap={2}>
+                <Text fontWeight="semibold">Related learning cards</Text>
+                {cards
+                  .filter((card) => card.id !== guideId)
+                  .map((card) => (
+                    <Checkbox
+                      key={card.id}
+                      checked={relatedLessons.includes(card.id)}
+                      onCheckedChange={(e) =>
+                        setRelatedLessons(
+                          e.checked === true
+                            ? [...relatedLessons, card.id]
+                            : relatedLessons.filter((id) => id !== card.id),
+                        )
+                      }
+                    >
+                      {card.title} ({card.status})
+                    </Checkbox>
+                  ))}
+                <Text fontWeight="semibold" mt={2}>
+                  Related standard maintenance items
+                </Text>
+                {items.map((item) => (
+                  <Checkbox
+                    key={item.id}
+                    checked={relatedItems.includes(item.id)}
+                    onCheckedChange={(e) =>
+                      setRelatedItems(
+                        e.checked === true
+                          ? [...relatedItems, item.id]
+                          : relatedItems.filter((id) => id !== item.id),
+                      )
+                    }
+                  >
+                    {item.title} ({item.action}){!item.active ? " · inactive" : ""}
+                  </Checkbox>
+                ))}
+                {!items.length && (
+                  <Text fontSize="sm">
+                    Create standard maintenance items to add relationships. Existing
+                    relationship IDs are retained.
+                  </Text>
+                )}
+              </Stack>
+            </Fieldset.Root>
+          </Box>
+        </Box>
+        <Box as="details" open={companionOpen} onToggle={(event) => setCompanionOpen(event.currentTarget.open)}>
+          <Box as="summary" cursor="pointer" fontWeight="semibold">Learning Companion and Outcomes (Optional)</Box>
+          <Box mt={4}>
+            <CompanionEditor value={companion} onChange={setCompanion} content={editorHTML} uploadImage={uploadImage} />
+          </Box>
+        </Box>
       </Stack>
     </AdminLayout>
   );

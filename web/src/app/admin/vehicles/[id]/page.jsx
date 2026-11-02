@@ -66,7 +66,7 @@ export default function VehicleWorkspace() {
   );
   return (
     <AdminLayout
-      title={vehicle?.name || "Vehicle overview"}
+      title={vehicle?.name || "Vehicle Overview"}
       description={
         vehicle
           ? [
@@ -113,7 +113,7 @@ export default function VehicleWorkspace() {
           <>
             <Box bg="brand.100" p={{ base: 5, md: 7 }} borderRadius="12px">
               <Heading as="h2" size="lg" mb={3}>
-                What drivers can use
+                What Drivers Can Use
               </Heading>
               <Stack gap={2}>
                 <Text>
@@ -161,7 +161,7 @@ export default function VehicleWorkspace() {
                   mb={4}
                 >
                   <Heading as="h2" size="lg">
-                    Manuals and references
+                    Manuals and References
                   </Heading>
                   <Button asChild size="sm">
                     <NextLink href={`/admin/kb?add=1&vehicle=${id}`}>
@@ -201,7 +201,7 @@ export default function VehicleWorkspace() {
                 )}
                 {linked.some((document) => document.superseded_by_id) && (
                   <Box as="details" mt={4}>
-                    <Box as="summary">Previous document versions</Box>
+                    <Box as="summary">Previous Document Versions</Box>
                     <Stack mt={3}>
                       {linked
                         .filter((document) => document.superseded_by_id)
@@ -220,7 +220,7 @@ export default function VehicleWorkspace() {
               </Box>
               <Box bg="white" p={{ base: 5, md: 7 }} borderRadius="12px">
                 <Heading as="h2" size="lg" mb={3}>
-                  Service schedule
+                  Service Schedule
                 </Heading>
                 <Text color="muted" mb={4}>
                   Check service tasks and intervals against this vehicle’s
@@ -248,7 +248,7 @@ export default function VehicleWorkspace() {
                 </Button>
                 {schedules.length > 0 && (
                   <Box as="details" mt={4}>
-                    <Box as="summary">Saved versions</Box>
+                    <Box as="summary">Saved Versions</Box>
                     <Stack mt={3}>
                       {schedules.map((schedule) => (
                         <Text key={schedule.id} fontSize="sm">

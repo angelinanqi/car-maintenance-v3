@@ -22,6 +22,7 @@ class Intent(BaseModel):
     requested_variant: str | None
     requested_vehicle: str | None = None
     suggest_service_plan: bool = False
+    personal_context: Literal['none', 'profile', 'maintenance'] = 'maintenance'
 
 
 def interpret(question, history, scope, client):
@@ -51,6 +52,11 @@ def interpret(question, history, scope, client):
         "Set other risks according to the requested action. "
         "Set suggest_service_plan when the user wants a personal next-service proposal, grouping "
         "or a review of what to service next. A general question about servicing alone does not need it. "
+        "Set personal_context to none only for a clearly self-contained general educational question "
+        "that needs no saved personal facts. Use profile for saved identity or mileage questions "
+        "without maintenance history. Use maintenance for personal service status/planning, records, "
+        "or any uncertain follow-up such as 'what about mine?'. This controls personal evidence "
+        "packing only, never eligibility of general documents, manuals or Learning guides. "
         "Set specification only when the request needs an exact manufacturer value, interval or "
         "configuration, not for general explanations or saved personal service status. "
         "Set instructional when supplementary videos are appropriate for a requested procedure, "

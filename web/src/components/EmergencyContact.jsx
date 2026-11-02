@@ -13,6 +13,7 @@ import {
   Textarea,
 } from "@chakra-ui/react";
 import useUnsavedChanges from "./admin/useUnsavedChanges";
+import useEmergencyDraft from "./admin/useEmergencyDraft";
 
 export default function EmergencyContact({
   contact,
@@ -21,11 +22,14 @@ export default function EmergencyContact({
   onCancel,
   onDelete,
 }) {
-  const [editing, setEditing] = useState(isNew);
-  const [name, setName] = useState(contact.name);
-  const [phone, setPhone] = useState(contact.phone);
-  const [description, setDescription] = useState(contact.description || "");
-  const [displayOrder, setDisplayOrder] = useState(contact.display_order || 0);
+  const initial = {
+    name: contact.name, phone: contact.phone, description: contact.description || "",
+    display_order: contact.display_order || 0, base_updated_at: contact.updated_at || null,
+  };
+  const [draft, setDraft, recoveryWarning] = useEmergencyDraft(isNew ? "new-contact-fields" : "contact", isNew ? initial : null, contact.id);
+  const editing = draft !== null;
+  const { name, phone, description, display_order: displayOrder } = draft || initial;
+  const setField = (field, value) => setDraft(previous => ({ ...previous, [field]: value }));
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const dirty =
@@ -49,6 +53,10 @@ export default function EmergencyContact({
       setError("Enter a contact name and a valid phone number.");
       return;
     }
+    if (!Number.isInteger(displayOrder) || displayOrder < 0 || displayOrder > 2147483647) {
+      setError("Display order must be a whole number from 0 to 2147483647.");
+      return;
+    }
     setSaving(true);
     try {
       await onSave({
@@ -57,9 +65,10 @@ export default function EmergencyContact({
         phone: phone.trim(),
         description: description.trim(),
         display_order: displayOrder,
+        base_updated_at: draft.base_updated_at,
         isEditing: false,
       });
-      setEditing(false);
+      setDraft(null);
     } catch (error) {
       setError(error.message);
     } finally {
@@ -73,12 +82,8 @@ export default function EmergencyContact({
       (dirty && !window.confirm("Discard unsaved contact changes?"))
     )
       return;
-    setName(contact.name);
-    setPhone(contact.phone);
-    setDescription(contact.description || "");
-    setDisplayOrder(contact.display_order || 0);
     setError("");
-    setEditing(false);
+    setDraft(null);
     onCancel?.();
   }
 
@@ -94,7 +99,8 @@ export default function EmergencyContact({
                   value={name}
                   required
                   disabled={saving}
-                  onChange={(event) => setName(event.target.value)}
+                  maxLength={200}
+                  onChange={(event) => setField("name", event.target.value)}
                 />
               </Field.Root>
               <Field.Root required>
@@ -104,7 +110,8 @@ export default function EmergencyContact({
                   required
                   disabled={saving}
                   value={phone}
-                  onChange={(event) => setPhone(event.target.value)}
+                  maxLength={100}
+                  onChange={(event) => setField("phone", event.target.value)}
                 />
               </Field.Root>
               <Field.Root>
@@ -112,7 +119,8 @@ export default function EmergencyContact({
                 <Textarea
                   value={description}
                   disabled={saving}
-                  onChange={(event) => setDescription(event.target.value)}
+                  maxLength={10000}
+                  onChange={(event) => setField("description", event.target.value)}
                 />
               </Field.Root>
               <Field.Root>
@@ -120,12 +128,13 @@ export default function EmergencyContact({
                 <Input
                   type="number"
                   min={0}
+                  max={2147483647}
                   step={1}
                   required
                   value={displayOrder}
                   disabled={saving}
                   onChange={(event) =>
-                    setDisplayOrder(Number(event.target.value))
+                    setField("display_order", Number(event.target.value))
                   }
                 />
                 <Field.HelperText>
@@ -137,6 +146,8 @@ export default function EmergencyContact({
                   {error}
                 </Text>
               )}
+              {recoveryWarning && <Text role="alert" color="red.600">{recoveryWarning}</Text>}
+              <Text fontSize="sm">Unsaved contact edits are kept for this admin session. After a conflict, cancel to review the latest saved contact before editing again.</Text>
               <Flex gap={2}>
                 <Button type="submit" colorPalette="brand" loading={saving}>
                   Save contact
@@ -167,11 +178,8 @@ export default function EmergencyContact({
                 size="sm"
                 variant="outline"
                 onClick={() => {
-                  setName(contact.name);
-                  setPhone(contact.phone);
-                  setDescription(contact.description || "");
-                  setDisplayOrder(contact.display_order || 0);
-                  setEditing(true);
+                  setDraft(initial);
+                  setError("");
                 }}
               >
                 Edit

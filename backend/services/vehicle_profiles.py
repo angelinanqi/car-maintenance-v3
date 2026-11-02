@@ -5,8 +5,6 @@ from shared.models import PersonalVehicleProfile
 
 
 def active_vehicle(user):
-    if user.get('role') == 'admin':
-        return None
     current = db.get('app_users', user['id']).get('active_vehicle_id')
     return owned('user_vehicles', user['id'], current) if current else None
 

@@ -1,4 +1,5 @@
 "use client";
+import Pagination, { usePagination } from "@/components/admin/Pagination";
 
 import { useCallback, useEffect, useState } from "react";
 import { Box, Button, Flex, Heading, Input, Stack, Text } from "@chakra-ui/react";
@@ -19,6 +20,8 @@ export default function YouTubeChannels() {
   const [error, setError] = useState("");
   const [loadError, setLoadError] = useState("");
   const [notice, setNotice] = useState("");
+
+  const pagination = usePagination(channels);
 
   const load = useCallback(async (signal) => {
     try {
@@ -72,10 +75,10 @@ export default function YouTubeChannels() {
 
   return (
     <Box bg="white" p={{ base: 5, md: 7 }} borderRadius="12px">
-      <Heading size="lg" mb={3}>YouTube channels</Heading>
+      <Heading size="lg" mb={3}>YouTube Channels</Heading>
       <Text color="muted" mb={5}>
         Add a channel to prepare all its available videos for chatbot recommendations.
-        After syncing, use Related videos below to choose which videos support each vehicle or topic.
+        The chatbot automatically searches synced videos for relevant recommendations.
       </Text>
       <form onSubmit={(event) => {
         event.preventDefault();
@@ -109,7 +112,7 @@ export default function YouTubeChannels() {
       {loading ? <Text role="status" mt={5}>Loading channels…</Text> : (
         <Stack mt={5} gap={5}>
           {!channels.length && !loadError && <Text color="muted">No YouTube channels added yet.</Text>}
-          {channels.map((channel) => {
+          {pagination.items.map((channel) => {
             const pending = ["queued", "syncing"].includes(channel.status);
             const summary = channel.summary || {};
             return (
@@ -141,6 +144,7 @@ export default function YouTubeChannels() {
               </Flex>
             );
           })}
+          <Pagination {...pagination} label="YouTube Channels" />
         </Stack>
       )}
     </Box>

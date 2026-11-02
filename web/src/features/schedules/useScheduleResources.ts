@@ -27,7 +27,7 @@ export default function useScheduleResources(reloadKey: number) {
     Promise.all([
       loadCatalogue(),
       loadItems(),
-      listAll("/documents"),
+      listAll("/documents", {}, { timeoutMs: 30000 }),
       request("/knowledge/manage"),
     ])
       .then(([catalogue, items, documents, knowledge]) => {

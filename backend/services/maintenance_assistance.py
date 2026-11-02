@@ -6,6 +6,7 @@ from uuid import NAMESPACE_URL, uuid5
 from zipfile import BadZipFile
 
 from fastapi import HTTPException
+from postgrest.exceptions import APIError
 from backend import db
 from backend.services.source_assets import extraction
 from shared.maintenance_extraction import VERSION, build_catalogue, extract_items, suggest_matches
@@ -48,11 +49,17 @@ def load(document):
         state = rows[0]
         if state['catalogue'].get('assistance_version') != VERSION or (
                 not state['catalogue'].get('extraction_available') and document.get('extraction_storage_path')):
-            state = db.update(TABLE, identity, {'catalogue': inventory(document), 'version': state['version'] + 1})
+            state = update_state(state, {'catalogue': inventory(document), 'version': state['version'] + 1})
         return state
-    return db.insert(TABLE, {'id': identity, 'document_id': document['id'],
-        'source_revision': document['source_revision'], 'catalogue': inventory(document),
-        'selections': [], 'suggestions': [], 'bookmarks': [], 'version': 1})
+    try:
+        return db.insert(TABLE, {'id': identity, 'document_id': document['id'],
+            'source_revision': document['source_revision'], 'catalogue': inventory(document),
+            'selections': [], 'suggestions': [], 'bookmarks': [], 'version': 1})
+    except APIError as error:
+        if error.code != '23505':
+            raise
+        # Another worker initialized this exact document revision first.
+        return db.get(TABLE, identity)
 
 
 def check_version(state, expected):
@@ -60,8 +67,16 @@ def check_version(state, expected):
         raise HTTPException(409, 'Another review changed this document. Reload before saving.')
 
 
+def update_state(state, values):
+    rows = (db.client().table(TABLE).update(values).eq('id', state['id'])
+            .eq('version', state['version']).execute().data)
+    if not rows:
+        raise HTTPException(409, 'Another review changed this document. Your edits are kept. Reload before saving.')
+    return rows[0]
+
+
 def save(state, values, user_id):
-    return db.update(TABLE, state['id'], {**values, 'version': state['version'] + 1,
+    return update_state(state, {**values, 'version': state['version'] + 1,
         'reviewed_by': str(user_id), 'reviewed_at': datetime.now(timezone.utc).isoformat()})
 
 

@@ -11,13 +11,14 @@ export type LearningGuideSummary = {
   learning_outcomes?: string[];
 };
 
-export function ContentProvider(props: { children: ReactNode }): ReactNode;
+export function ContentProvider(props: { children: ReactNode; emergencyOnly?: boolean }): ReactNode;
 export function useContent(): {
   cards: LearningGuideSummary[];
   reviewQuestions: ReviewQuestion[];
   error: string;
   documentTestError: string;
   loading: boolean;
+  emergencyReady: boolean;
   refresh: (options?: {
     documentsOnly?: boolean;
     resources?: string[];

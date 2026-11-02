@@ -104,7 +104,7 @@ _rerank_lock = Lock()
 @lru_cache(maxsize=1)
 def reranker():
     from sentence_transformers import CrossEncoder
-    return CrossEncoder(settings.RERANK_MODEL, max_length=512)
+    return CrossEncoder(settings.RERANK_MODEL, max_length=512, device=settings.MODEL_DEVICE)
 
 
 def rerank(query, records):

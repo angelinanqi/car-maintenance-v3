@@ -1,5 +1,6 @@
 import logging
 import asyncio
+from uuid import uuid4
 from contextlib import asynccontextmanager
 
 import httpx
@@ -80,8 +81,10 @@ app.include_router(configuration.router)
 
 @app.middleware("http")
 async def prevent_response_caching(request, call_next):
+    request.state.request_id = str(uuid4())
     response = await call_next(request)
     response.headers["Cache-Control"] = "no-store"
+    response.headers["X-Request-ID"] = request.state.request_id
     return response
 
 
@@ -108,7 +111,7 @@ for router in (
 
 @app.exception_handler(APIError)
 async def database_error(request, error):
-    logging.getLogger(__name__).exception("Database operation failed", exc_info=error)
+    logging.getLogger(__name__).exception("Database operation failed request_id=%s", request.state.request_id, exc_info=error)
     if error.code in {"23503", "23001"}:
         return JSONResponse(status_code=409, content={"detail": "This record is still referenced, or the selected related record no longer exists."})
     if error.code == "23505":
@@ -122,13 +125,13 @@ async def database_error(request, error):
 
 @app.exception_handler(Exception)
 async def integration_error(request, error):
-    logging.getLogger(__name__).exception("Application operation failed", exc_info=error)
-    return JSONResponse(status_code=500, content={"detail": "The operation could not be completed. Please retry."}, headers={"Cache-Control": "no-store"})
+    logging.getLogger(__name__).exception("Application operation failed request_id=%s", request.state.request_id, exc_info=error)
+    return JSONResponse(status_code=500, content={"detail": "The operation could not be completed. Please retry."}, headers={"Cache-Control": "no-store", "X-Request-ID": request.state.request_id})
 
 
 @app.exception_handler(httpx.RequestError)
 async def network_error(request, error):
-    logging.getLogger(__name__).warning("Dependency connection failed (%s)", type(error).__name__)
+    logging.getLogger(__name__).warning("Dependency connection failed (%s) request_id=%s", type(error).__name__, request.state.request_id)
     return JSONResponse(status_code=503, content={"detail": "A required service is temporarily unavailable. Please retry."}, headers={"Cache-Control": "no-store"})
 
 
@@ -136,8 +139,9 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
-    allow_headers=["Content-Type", "Authorization", "X-CSRF-Token"],
+    allow_headers=["Content-Type", "Authorization"],
     allow_credentials=True,
+    expose_headers=["X-Request-ID", "Retry-After"],
 )
 
 

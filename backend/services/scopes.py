@@ -1,6 +1,6 @@
 """Resolve published knowledge through database associations on every request."""
 from fastapi import HTTPException
-from backend import db
+from backend import db, settings
 from backend.services import content_sources
 
 
@@ -42,12 +42,16 @@ def resolve(scope_type, scope_id, *, require_available=True):
             "index_revision": document["indexed_revision"],
             "indexed_chunk_count": document['chunk_count'],
         }
-    videos = db.all_rows("knowledge_videos", **{field: str(scope_id)})
+    # None searches the full prepared collection; [] explicitly disables videos.
+    video_ids = None
+    if not settings.YOUTUBE_SEARCH_ALL_VIDEOS:
+        videos = db.all_rows("knowledge_videos", **{field: str(scope_id)})
+        video_ids = [v["video_id"] for v in videos]
     return {"scope_type": scope_type, "scope_id": str(scope_id), "label": scope["name"],
             "vehicle": scope if scope_type == "vehicle" else None,
             "document_ids": list(metadata), "document_metadata": metadata,
             "content_sources": content,
-            "video_ids": [v["video_id"] for v in videos], "published": published,
+            "video_ids": video_ids, "published": published,
             "vehicle_codes": [v["code"] for v in vehicles.values()]}
 
 
@@ -117,10 +121,12 @@ def automatic(vehicle_id=None):
             'variant': document.get('variant', ''), 'applicable_vehicles': applicable,
             'index_revision': document['indexed_revision'], 'indexed_chunk_count': document['chunk_count'],
         }
-    videos = db.all_rows('knowledge_videos')
-    video_ids = sorted({v['video_id'] for v in videos
-                        if (vehicle and vehicle.get('published') and v.get('vehicle_id') == vehicle_id)
-                        or v.get('category_id') in category_ids})
+    video_ids = None
+    if not settings.YOUTUBE_SEARCH_ALL_VIDEOS:
+        videos = db.all_rows('knowledge_videos')
+        video_ids = sorted({v['video_id'] for v in videos
+                            if (vehicle and vehicle.get('published') and v.get('vehicle_id') == vehicle_id)
+                            or v.get('category_id') in category_ids})
     return {'scope_type': 'auto', 'scope_id': vehicle_id or 'general',
             'label': vehicle['name'] if vehicle else 'General car assistance',
             'vehicle': vehicle, 'document_ids': list(metadata), 'document_metadata': metadata,

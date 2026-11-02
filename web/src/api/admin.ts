@@ -82,12 +82,12 @@ export const loadItems = (): Promise<MaintenanceItem[]> =>
   listAll("/admin/maintenance-items");
 export const loadSchedules = (vehicleId: string): Promise<Schedule[]> =>
   listAll("/admin/schedules", { vehicle_id: vehicleId });
-export const saveManufacturer = (id: string, body: Omit<Manufacturer, "id">) =>
+export const saveManufacturer = (id: string, body: Omit<Manufacturer, "id"> & { id?: string }) =>
   request(id ? `/admin/manufacturers/${id}` : "/admin/manufacturers", {
     method: id ? "PATCH" : "POST",
     body,
   });
-export const saveModel = (id: string, body: Omit<VehicleModel, "id">) =>
+export const saveModel = (id: string, body: Omit<VehicleModel, "id"> & { id?: string }) =>
   request(id ? `/admin/models/${id}` : "/admin/models", {
     method: id ? "PATCH" : "POST",
     body,
@@ -97,13 +97,13 @@ export const saveVehicle = (
   body: Omit<
     Vehicle,
     "id" | "manual_available" | "manufacturer_schedule_available"
-  >,
+  > & { id?: string },
 ) =>
   request(id ? `/knowledge/vehicles/${id}` : "/knowledge/vehicles", {
     method: id ? "PATCH" : "POST",
     body,
   });
-export const saveItem = (id: string, body: Omit<MaintenanceItem, "id">) =>
+export const saveItem = (id: string, body: Omit<MaintenanceItem, "id"> & { id?: string }) =>
   request(id ? `/admin/maintenance-items/${id}` : "/admin/maintenance-items", {
     method: id ? "PATCH" : "POST",
     body,
@@ -114,21 +114,24 @@ export const saveSchedule = (
   entries: ScheduleEntry[],
   admin_note = "",
   work_context: Schedule["work_context"] = {},
+  createId?: string,
+  expectedUpdatedAt?: string,
 ): Promise<Schedule> =>
   request(id ? `/admin/schedules/${id}` : "/admin/schedules", {
     method: id ? "PATCH" : "POST",
-    body: { vehicle_id, entries, admin_note, work_context },
+    body: { vehicle_id, entries, admin_note, work_context,
+      ...(id ? { expected_updated_at: expectedUpdatedAt } : { id: createId }) },
   });
 export const validateSchedule = (
   id: string,
 ): Promise<{ valid: boolean; message: string }> =>
   request(`/admin/schedules/${id}/validate`, { method: "POST" });
-export const publishSchedule = (id: string): Promise<Schedule> =>
+export const publishSchedule = (id: string, expectedUpdatedAt?: string): Promise<Schedule> =>
   request(`/admin/schedules/${id}/publish`, {
     method: "POST",
-    body: { confirm_review: true },
+    body: { confirm_review: true, expected_updated_at: expectedUpdatedAt },
   });
-export const withdrawSchedule = (id: string): Promise<Schedule> =>
-  request(`/admin/schedules/${id}/withdraw`, { method: "POST" });
-export const deleteDraftSchedule = (id: string): Promise<void> =>
-  request(`/admin/schedules/${id}`, { method: "DELETE" });
+export const withdrawSchedule = (id: string, expectedUpdatedAt?: string): Promise<Schedule> =>
+  request(`/admin/schedules/${id}/withdraw`, { method: "POST", body: { expected_updated_at: expectedUpdatedAt } });
+export const deleteDraftSchedule = (id: string, expectedUpdatedAt?: string): Promise<void> =>
+  request(`/admin/schedules/${id}?${new URLSearchParams({ expected_updated_at: expectedUpdatedAt || '' })}`, { method: "DELETE" });

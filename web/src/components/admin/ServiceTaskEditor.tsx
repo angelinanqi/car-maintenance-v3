@@ -61,22 +61,25 @@ export default function ServiceTaskEditor({
     onChange({ ...entry, rule: { ...entry.rule, ...values } });
   }
   return (
-    <Box id={`schedule-task-${index + 1}`} bg="white" borderWidth="1px" borderRadius="10px" p={5}>
+    <Box id={`schedule-task-${index + 1}`} bg="white" borderWidth="1px" borderRadius="10px" p={4}>
       <Collapsible.Root defaultOpen={!entry.itemId}>
-        <Heading size="md">
-          {index + 1}. {item?.title || "New service task"}
-        </Heading>
-        <Text mt={2}>{serviceInstruction(entry)}</Text>
-        {entry.rule.conditions && entry.rule.type !== "informational" && (
-          <Text fontSize="sm" color="muted" mt={1}>
-            Applies when: {entry.rule.conditions}
-          </Text>
-        )}
-        <Text mt={2} fontSize="sm" color="muted">
-          {source
-            ? `Reference: ${source.name}${entry.rule.sourcePage ? `, page ${entry.rule.sourcePage}` : ""}`
-            : "Choose the manual that supports this instruction."}
-        </Text>
+        <Grid templateColumns={{ base: "1fr", lg: "minmax(0, 1fr) minmax(0, 1fr)" }} gap={3} alignItems="start">
+          <Box minW={0}>
+            <Text fontSize="xs" color="muted">Task {index + 1} · {entry.action}</Text>
+            <Heading size="md">{item?.title || "New Service Task"}</Heading>
+            {entry.rule.conditions && entry.rule.type !== "informational" && (
+              <Text fontSize="sm" color="muted" mt={1}>
+                Applies when: {entry.rule.conditions}
+              </Text>
+            )}
+          </Box>
+          <Box minW={0}>
+            <Text fontSize="sm" fontWeight="600">{serviceInstruction(entry)}</Text>
+            {source ? <Button variant="plain" size="sm" h="auto" py={2} whiteSpace="normal" textAlign="left" onClick={() => onSource()}>
+              {source.name}{entry.rule.sourcePage ? `, page ${entry.rule.sourcePage}` : ""}
+            </Button> : <Text mt={2} fontSize="sm" color="muted">Choose the manual that supports this instruction.</Text>}
+          </Box>
+        </Grid>
         {!disabled && issues.length > 0 && (
           <Text mt={2} color="orange.800">
             Before publishing: {issues.join(" ")}

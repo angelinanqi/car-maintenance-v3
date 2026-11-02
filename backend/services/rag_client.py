@@ -76,6 +76,7 @@ class ChatAnswer(BaseModel):
     manual_relevant: bool = False
     response_type: str = "manual_only"
     suggested_activity: Literal['service_plan'] | None = None
+    recommended_guides: list[dict] = Field(default_factory=list, max_length=2)
 
 
 async def query(message, history, scope, *, vehicle_profile=None, maintenance_context=None,
@@ -95,6 +96,9 @@ async def query(message, history, scope, *, vehicle_profile=None, maintenance_co
             by_id = {str(v.get('document_id', key)): v for key, v in metadata.items()}
             by_id.update(metadata)
             content = {(s['source_type'], s['source_id']): s for s in scope.get('content_sources', [])}
+            from backend.services.content_sources import resolve_guide_recommendations
+            answer['recommended_guides'] = resolve_guide_recommendations(
+                answer['recommended_guides'], scope.get('content_sources', []), strict=True)
             for source in answer['sources']:
                 kind = source.get('source_type', 'manual')
                 if kind == 'manual':

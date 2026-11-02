@@ -1,10 +1,6 @@
-import { fileURLToPath } from "node:url";
-import nextEnv from "@next/env";
+import { loadConfiguration } from "./scripts/configuration.mjs";
 
-nextEnv.loadEnvConfig(
-  fileURLToPath(new URL("../", import.meta.url)),
-  false,
-);
+loadConfiguration();
 
 const nextConfig = {
   async redirects() {
@@ -15,6 +11,8 @@ const nextConfig = {
   },
   // Explicitly expose only these non-secret shared limits to the browser.
   env: {
+    NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "",
+    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_PUBLISHABLE_KEY || "",
     NEXT_PUBLIC_API_PAGE_SIZE: process.env.API_PAGE_SIZE || "",
     NEXT_PUBLIC_DOCUMENT_BATCH_LIMIT: process.env.DOCUMENT_BATCH_LIMIT || "",
     NEXT_PUBLIC_DOCUMENT_EXTENSIONS: process.env.DOCUMENT_EXTENSIONS || "",

@@ -1,12 +1,12 @@
-"""Windows application configuration. No model or retrieval settings are loaded."""
+"""Application configuration. No model or retrieval settings are loaded."""
 import os
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from dotenv import load_dotenv
+from shared.configuration import load_configuration
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-load_dotenv(PROJECT_ROOT / ".env")
+load_configuration()
 
 
 def path_setting(name, default):
@@ -34,14 +34,13 @@ IMAGE_CONTENT_TYPES = [value.strip() for value in (os.getenv("IMAGE_CONTENT_TYPE
 API_PAGE_SIZE = int(os.getenv("API_PAGE_SIZE") or "100")
 CHAT_MAX_MESSAGE_LENGTH = int(os.getenv("CHAT_MAX_MESSAGE_LENGTH") or "4000")
 CHAT_HISTORY_LIMIT = int(os.getenv("CHAT_HISTORY_LIMIT") or "6")
+YOUTUBE_SEARCH_ALL_VIDEOS = (os.getenv("YOUTUBE_SEARCH_ALL_VIDEOS") or "true").lower() == "true"
 DUE_SOON_KM = int(os.getenv("DUE_SOON_KM") or "1000")
 DUE_SOON_DAYS = int(os.getenv("DUE_SOON_DAYS") or "30")
 MINERU_EXECUTABLE = os.getenv("MINERU_EXECUTABLE", "").strip()
+MINERU_API_URL = os.getenv("MINERU_API_URL", "").strip().rstrip('/')
 MINERU_BACKEND = os.getenv("MINERU_BACKEND") or "pipeline"
 MINERU_TIMEOUT = float(os.getenv("MINERU_TIMEOUT") or "7200")
-JWT_SECRET = os.getenv("JWT_SECRET", "").strip()
-JWT_ISSUER = os.getenv("JWT_ISSUER") or "car-maintenance-api"
-JWT_AUDIENCE = os.getenv("JWT_AUDIENCE") or "car-maintenance-clients"
 RAG_SERVICE_URL = os.getenv("RAG_SERVICE_URL", "").strip().rstrip("/")
 RAG_SERVICE_TOKEN = os.getenv("RAG_SERVICE_TOKEN", "").strip()
 RAG_SERVICE_TIMEOUT = float(os.getenv("RAG_SERVICE_TIMEOUT") or "240")
@@ -64,10 +63,10 @@ for origin in CORS_ORIGINS:
     parsed = urlsplit(origin)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.path or parsed.query or parsed.fragment or parsed.username:
         raise ValueError("CORS_ORIGINS must contain explicit http(s) origins without paths or credentials")
-if RAG_SERVICE_URL:
-    parsed = urlsplit(RAG_SERVICE_URL)
-    if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.query or parsed.fragment:
-        raise ValueError("RAG_SERVICE_URL must be an http(s) service URL without credentials, query or fragment")
-for name in ("JWT_SECRET", "RAG_SERVICE_TOKEN"):
-    if globals()[name] and len(globals()[name].encode()) < 32:
-        raise ValueError(f"{name} must contain at least 32 bytes")
+for name in ('RAG_SERVICE_URL', 'MINERU_API_URL'):
+    if globals()[name]:
+        parsed = urlsplit(globals()[name])
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.query or parsed.fragment:
+            raise ValueError(f"{name} must be an http(s) service URL without credentials, query or fragment")
+if RAG_SERVICE_TOKEN and len(RAG_SERVICE_TOKEN.encode()) < 32:
+    raise ValueError("RAG_SERVICE_TOKEN must contain at least 32 bytes")

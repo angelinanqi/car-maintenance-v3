@@ -1,11 +1,10 @@
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import nextEnv from "@next/env";
+import { loadConfiguration } from "./configuration.mjs";
 
 const frontendDir = fileURLToPath(new URL("../", import.meta.url));
-const rootDir = fileURLToPath(new URL("../../", import.meta.url));
 const command = process.argv[2];
-nextEnv.loadEnvConfig(rootDir, false);
+loadConfiguration();
 
 const args = [command, ...process.argv.slice(3)];
 if (command === "start") {

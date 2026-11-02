@@ -7,6 +7,8 @@ import EmergencyContact from "@/components/EmergencyContact";
 import DeleteConfirmModal from "@/components/modals/DeleteConfirmModal";
 import useUnsavedChanges from "@/components/admin/useUnsavedChanges";
 import CategoryInput from "@/components/admin/CategoryInput";
+import useEmergencyDraft from "@/components/admin/useEmergencyDraft";
+import { validImageUrl } from "@/api/emergency.mjs";
 import {
   Grid,
   Box,
@@ -33,7 +35,7 @@ import AdminLayout from "../../../components/layouts/AdminLayout";
 export default function SOPManagerPage() {
   const [mode, setMode] = useState("edit");
   const [completedIds, setCompletedIds] = useState([]);
-  const [newContact, setNewContact] = useState(null);
+  const [newContact, setNewContact, contactRecoveryWarning] = useEmergencyDraft("new-contact");
   const [deleteItem, setDeleteItem] = useState(null);
 
   const {
@@ -44,8 +46,10 @@ export default function SOPManagerPage() {
     deletePlaybook,
     saveContact,
     deleteContact,
+    emergencyReady,
+    refresh,
   } = useContent();
-  const [draft, setDraft] = useState(null);
+  const [draft, setDraft, recoveryWarning] = useEmergencyDraft("playbook");
   useUnsavedChanges(Boolean(draft));
   const [saving, setSaving] = useState(false);
   const [selectedSopId, setSelectedSopId] = useState(null);
@@ -90,10 +94,10 @@ export default function SOPManagerPage() {
     }
     if (
       !Number.isInteger(selectedSop.display_order ?? 0) ||
-      (selectedSop.display_order ?? 0) < 0
+      (selectedSop.display_order ?? 0) < 0 || (selectedSop.display_order ?? 0) > 2147483647
     ) {
       toaster.create({
-        title: "Display order must be a non-negative whole number.",
+        title: "Display order must be a whole number from 0 to 2147483647.",
         type: "error",
       });
       return;
@@ -114,7 +118,7 @@ export default function SOPManagerPage() {
         (step) =>
           !step.title.trim() ||
           !step.description.trim() ||
-          (step.imageUrl && !/^https?:\/\//i.test(step.imageUrl)),
+          !validImageUrl(step.imageUrl),
       )
     ) {
       toaster.create({
@@ -134,6 +138,7 @@ export default function SOPManagerPage() {
         category: selectedSop.category || "",
         description: selectedSop.description || "",
         safety_warnings: selectedSop.safety_warnings || "",
+        ...(selectedSop.id ? { expected_updated_at: selectedSop.updated_at } : { id: selectedSop.client_id }),
         ...(unpublish === true ? { status: "draft" } : {}),
         steps: selectedSop.steps.map(
           ({ id, title, description, imageUrl }) => ({
@@ -164,7 +169,7 @@ export default function SOPManagerPage() {
       return;
     setSaving(true);
     try {
-      await publishPlaybook(selectedSop.id);
+      await publishPlaybook(selectedSop.id, selectedSop.updated_at);
       toaster.create({ title: "Reviewed playbook published", type: "success" });
     } catch (error) {
       toaster.create({ title: error.message, type: "error" });
@@ -192,6 +197,7 @@ export default function SOPManagerPage() {
   };
 
   const handleAddStep = () => {
+    if (steps.length >= 100) return;
     const newStep = {
       id: crypto.randomUUID(),
       title: "",
@@ -223,7 +229,7 @@ export default function SOPManagerPage() {
         (step) =>
           !step.title.trim() ||
           !step.description.trim() ||
-          (step.imageUrl && !/^https?:\/\//i.test(step.imageUrl)),
+          !validImageUrl(step.imageUrl),
       )
     ) {
       toaster.create({
@@ -238,11 +244,14 @@ export default function SOPManagerPage() {
 
   return (
     <AdminLayout
-      title="Emergency & contacts"
+      title="Emergency & Contacts"
       description="Manage published playbooks, ordered steps, and shared contacts."
     >
-      <Fieldset.Root disabled={saving}>
+      <Fieldset.Root disabled={saving || !emergencyReady}>
         <Stack gap={6}>
+          {recoveryWarning && <Text role="alert">{recoveryWarning}</Text>}
+          {contactRecoveryWarning && <Text role="alert">{contactRecoveryWarning}</Text>}
+          {draft && <Text>Unsaved guide edits are kept for this admin session, including after signing in again.</Text>}
           <Text fontSize="sm" color="gray.600">
             Save edits, then review and publish. Mobile guides sync and download in
             Offline guides; withdrawals take effect after the next online
@@ -282,7 +291,7 @@ export default function SOPManagerPage() {
                           !window.confirm("Discard unsaved changes?")
                         )
                           return;
-                        setDraft({ title: "", steps: [] });
+                        setDraft({ title: "", steps: [], client_id: crypto.randomUUID() });
                         setMode("edit");
                       }}
                     >
@@ -369,7 +378,7 @@ export default function SOPManagerPage() {
                           </Card.Root>
                         );
                       })}
-                    {!sops.some((sop) =>
+                    {emergencyReady && !sops.some((sop) =>
                       `${sop.title} ${sop.category || ""}`
                         .toLowerCase()
                         .includes(query.toLowerCase()),
@@ -403,6 +412,7 @@ export default function SOPManagerPage() {
                         {mode === "edit" && selectedSop ? (
                           <Input
                             aria-label="Playbook title"
+                            maxLength={200}
                             placeholder="Playbook title"
                             value={selectedSop.title}
                             onChange={(event) =>
@@ -411,7 +421,7 @@ export default function SOPManagerPage() {
                           />
                         ) : (
                           <Heading size="md">
-                            {selectedSop?.title || "Create a playbook to begin"}
+                            {selectedSop?.title || "Create a Playbook to Begin"}
                           </Heading>
                         )}
                         {mode === "incident" && (
@@ -437,8 +447,13 @@ export default function SOPManagerPage() {
                             loading={saving}
                             onClick={() => persistPlaybook()}
                           >
-                            Save Playbook
+                            Save draft
                           </Button>
+                            {draft?.id && <Button size="sm" variant="outline" onClick={async () => {
+                              if (!window.confirm("Discard these unsaved guide edits and load the latest saved guide?")) return;
+                              const warning = await refresh({ resources: ["sops"] });
+                              if (!warning) { setSelectedSopId(draft.id); setDraft(null); }
+                            }}>Reload saved guide</Button>}
                           {selectedSop.id &&
                             selectedSop.status !== "published" && (
                               <Button
@@ -446,7 +461,7 @@ export default function SOPManagerPage() {
                                 disabled={saving || Boolean(draft)}
                                 onClick={reviewAndPublish}
                               >
-                                Review and publish
+                                Review and publish guide
                               </Button>
                             )}
                           {selectedSop.status === "published" && (
@@ -468,6 +483,7 @@ export default function SOPManagerPage() {
                                   type: "playbook",
                                   id: selectedSop.id,
                                   name: selectedSop.title,
+                                  updatedAt: selectedSop.updated_at,
                                 })
                               }
                             >
@@ -519,6 +535,7 @@ export default function SOPManagerPage() {
                         <Input
                           type="number"
                           min={0}
+                          max={2147483647}
                           step={1}
                           value={selectedSop.display_order || 0}
                           onChange={(event) =>
@@ -551,6 +568,7 @@ export default function SOPManagerPage() {
                         <Field.Label>Situation description</Field.Label>
                         <Textarea
                           value={selectedSop.description || ""}
+                          maxLength={20000}
                           onChange={(event) =>
                             editPlaybook("description", event.target.value)
                           }
@@ -560,6 +578,7 @@ export default function SOPManagerPage() {
                         <Field.Label>Safety warnings</Field.Label>
                         <Textarea
                           value={selectedSop.safety_warnings || ""}
+                          maxLength={20000}
                           onChange={(event) =>
                             editPlaybook("safety_warnings", event.target.value)
                           }
@@ -569,6 +588,7 @@ export default function SOPManagerPage() {
                         <Field.Label>Scenario key</Field.Label>
                         <Input
                           placeholder="minor-accident"
+                          maxLength={100}
                           value={selectedSop.scenario_key || ""}
                           onChange={(event) =>
                             editPlaybook("scenario_key", event.target.value)
@@ -577,14 +597,15 @@ export default function SOPManagerPage() {
                         <Field.HelperText>
                           Use breakdown for general car trouble or
                           minor-accident for the accident route. Other unique
-                          keys appear under car trouble. Matching keys replace
-                          the bundled scenario after download.
+                          keys appear under car trouble. Published guides update
+                          on the next successful mobile refresh.
                         </Field.HelperText>
                       </Field.Root>
                       <Field.Root>
                         <Field.Label>Source / review reference</Field.Label>
                         <Textarea
                           value={selectedSop.source || ""}
+                          maxLength={10000}
                           onChange={(event) =>
                             editPlaybook("source", event.target.value)
                           }
@@ -759,6 +780,7 @@ export default function SOPManagerPage() {
                                   fontWeight="semibold"
                                   aria-label={"Step " + (index + 1) + " title"}
                                   placeholder="Step title"
+                                  maxLength={200}
                                   value={step.title}
                                   onChange={(e) =>
                                     handleStepChange(
@@ -778,6 +800,7 @@ export default function SOPManagerPage() {
                                     "Step " + (index + 1) + " description"
                                   }
                                   value={step.description}
+                                  maxLength={20000}
                                   onChange={(e) =>
                                     handleStepChange(
                                       step.id,
@@ -792,6 +815,7 @@ export default function SOPManagerPage() {
                                 <Input
                                   aria-label={`Step ${index + 1} image URL`}
                                   placeholder="https://..."
+                                  maxLength={2048}
                                   value={step.imageUrl}
                                   onChange={(event) =>
                                     handleStepChange(
@@ -847,7 +871,7 @@ export default function SOPManagerPage() {
                         border="2px dashed"
                         borderColor="gray.300"
                         onClick={handleAddStep}
-                        disabled={!selectedSop}
+                        disabled={!selectedSop || steps.length >= 100}
                         w="100%"
                       >
                         + Add Step {steps.length + 1}
@@ -886,7 +910,7 @@ export default function SOPManagerPage() {
                 </Flex>
 
                 {/* Contact Cards List */}
-                {contacts.length === 0 && !newContact && (
+                {emergencyReady && contacts.length === 0 && !newContact && (
                   <Text>No contacts yet. Add a shared contact.</Text>
                 )}
                 {contacts.map((contact) => (
@@ -899,6 +923,7 @@ export default function SOPManagerPage() {
                         phone: saved.phone,
                         description: saved.description,
                         display_order: saved.display_order,
+                        expected_updated_at: saved.base_updated_at,
                       });
                       toaster.create({
                         title: "Contact saved",
@@ -910,6 +935,7 @@ export default function SOPManagerPage() {
                         type: "contact",
                         id: contact.id,
                         name: contact.name,
+                        updatedAt: contact.updated_at,
                       })
                     }
                   />
@@ -922,6 +948,7 @@ export default function SOPManagerPage() {
                     onCancel={() => setNewContact(null)}
                     onSave={async (saved) => {
                       await saveContact(null, {
+                        id: newContact.id,
                         name: saved.name,
                         phone: saved.phone,
                         description: saved.description,
@@ -947,7 +974,7 @@ export default function SOPManagerPage() {
         onConfirm={async () => {
           try {
             if (deleteItem.type === "playbook") {
-              await deletePlaybook(deleteItem.id);
+              await deletePlaybook(deleteItem.id, deleteItem.updatedAt);
               setDraft(null);
               setSelectedSopId(null);
             } else if (deleteItem.type === "step") {
@@ -955,7 +982,7 @@ export default function SOPManagerPage() {
                 previous.filter((step) => step.id !== deleteItem.id),
               );
             } else {
-              await deleteContact(deleteItem.id);
+              await deleteContact(deleteItem.id, deleteItem.updatedAt);
             }
             setDeleteItem(null);
             toaster.create({

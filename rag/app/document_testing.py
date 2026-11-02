@@ -34,4 +34,4 @@ def collect_trace(records, eligible, excluded, sources, diagnostics, client, ela
         "provider": client.provider, "model": client.model, "elapsed_ms": elapsed_ms,
         "reason": diagnostics.get("decision_reason", ""), "retrieved_count": len(records),
         "eligible_count": len(eligible), "evidence_truncated": len(ordered) > 20,
-        "fallback_used": bool(client.fallback_reason)}}
+        "fallback_used": False}}

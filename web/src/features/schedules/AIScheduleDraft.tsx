@@ -67,7 +67,7 @@ export default function AIScheduleDraft(props: Props) {
 
   return <Stack gap={4}>
     <Flex justify="space-between" gap={3} align="center" wrap="wrap">
-      <Heading size="sm">Review the AI schedule draft</Heading>
+      <Heading size="sm">Review the AI Schedule Draft</Heading>
       <Button size="sm" variant="outline" disabled={disabled || dirty} onClick={props.onBack}>Choose another table</Button>
     </Flex>
     <Text fontSize="sm">Check each operation, interval, condition and source. Accepting saves your review; selected accepted rows can then be added to the schedule draft.</Text>

@@ -4,6 +4,7 @@ Start with: python -m rag.service (requires the root RAG dependencies).
 Only FastAPI's server-resolved scope and history should reach this private API.
 """
 import logging
+from time import perf_counter
 from contextlib import asynccontextmanager
 import os
 import secrets
@@ -24,21 +25,41 @@ from shared.document_testing import DocumentTestRequest, DocumentTestReply
 
 @asynccontextmanager
 async def lifespan(app):
-    # Pay the local encoder's cold-start cost before advertising API readiness.
+    # Model imports and cached weights can take several minutes on a cold start.
+    # Report each stage while the launcher waits for application readiness.
+    startup_logger = logging.getLogger("uvicorn.error")
     # An unavailable encoder leaves the scoped lexical fallback operational.
     if (settings.CHROMA_PATH / "chroma.sqlite3").is_file():
+        started = perf_counter()
+        startup_logger.info("RAG startup: loading embedding model %s and running warmup", settings.EMBEDDING_MODEL)
         try:
             from rag.app.embedding.embedder import embed_query
             await asyncio.to_thread(embed_query, "vehicle manual")
+            startup_logger.info("RAG startup: embedding model ready in %.1fs", perf_counter() - started)
         except Exception as error:
             logging.getLogger(__name__).warning("Embedding warmup unavailable (%s)", type(error).__name__)
         if settings.RAG_RERANK:
+            started = perf_counter()
+            startup_logger.info("RAG startup: loading reranker %s", settings.RERANK_MODEL)
             try:
                 from rag.app.retrieval.hybrid import reranker
                 await asyncio.to_thread(reranker)
+                startup_logger.info("RAG startup: reranker ready in %.1fs", perf_counter() - started)
             except Exception as error:
                 logging.getLogger(__name__).warning("Reranker warmup unavailable (%s)", type(error).__name__)
-    yield
+    startup_logger.info("RAG startup: model warmup finished; starting HTTP service")
+    worker = None
+    if os.getenv('RAG_INDEX_WORKER_MODE', 'external') == 'embedded':
+        from rag.index_worker import start_embedded
+        worker = start_embedded()
+    try:
+        yield
+    finally:
+        if worker:
+            stop, thread = worker
+            stop.set()
+            startup_logger.info('Waiting for the current indexing pass to finish before shutdown')
+            await asyncio.to_thread(thread.join)
 
 
 app = FastAPI(lifespan=lifespan)
@@ -75,6 +96,7 @@ class Answer(BaseModel):
     manual_relevant: bool = False
     response_type: str = 'manual_only'
     suggested_activity: Literal['service_plan'] | None = None
+    recommended_guides: list[dict] = Field(default_factory=list, max_length=2)
 
 
 class MechanicQuestionsRequest(BaseModel):
@@ -134,33 +156,52 @@ def sync_youtube_channel(channel_id: UUID, request: YouTubeSyncRequest,
     return {'status': 'queued'}
 
 
-def verify_revisions(scope):
+def verify_revisions(scope, *, allow_partial=False):
     """Never hand an incomplete or stale managed index to RAG."""
     document_ids = scope.get('document_ids', [])
     if not document_ids:
-        return
-    expected = {name: metadata['index_revision'] for name, metadata in scope.get('document_metadata', {}).items()
-                if metadata.get('index_revision')}
-    if any(name not in expected for name in document_ids):
-        raise ValueError('Missing managed document revision')
+        return scope
     from rag.app.embedding.vector_store import VectorStore
-    store = VectorStore(create=False)
+    try:
+        store = VectorStore(create=False)
+    except Exception as error:
+        if not allow_partial:
+            raise
+        logger.warning('Manual index unavailable (%s)', type(error).__name__)
+        return {**scope, 'document_ids': [], 'document_metadata': {},
+                'unavailable_documents': list(document_ids)}
+    valid, unavailable = [], []
     for name in document_ids:
-        source_path = settings.OUTPUT_DIR / 'sources' / f'{name}.json'
-        if source_path.parent.resolve() != (settings.OUTPUT_DIR / 'sources').resolve():
-            raise ValueError('Invalid managed source name')
-        source_manifest = json.loads(source_path.read_text(encoding='utf-8'))
-        document_id = scope['document_metadata'][name]['document_id']
-        if (source_manifest.get('format_version') != 2
-                or source_manifest.get('document_id') != document_id
-                or source_manifest.get('source_revision') != expected[name]):
-            raise ValueError('Source manifest requires reprocessing')
-        records = store.collection.get(where={'document_name': name}, include=['metadatas'])
-        expected_count = scope['document_metadata'][name].get('indexed_chunk_count')
-        if (not records['ids'] or (expected_count is not None and len(records['ids']) != expected_count)
-                or any(m.get('document_id') != document_id or m.get('index_revision') != expected[name]
-                       or m.get('format_version') != 2 for m in records['metadatas'])):
-            raise ValueError('The authorised document revision is not completely indexed')
+        try:
+            metadata = scope.get('document_metadata', {}).get(name, {})
+            revision = metadata.get('index_revision')
+            if not revision:
+                raise ValueError('Missing managed document revision')
+            source_path = settings.OUTPUT_DIR / 'sources' / f'{name}.json'
+            if source_path.parent.resolve() != (settings.OUTPUT_DIR / 'sources').resolve():
+                raise ValueError('Invalid managed source name')
+            source_manifest = json.loads(source_path.read_text(encoding='utf-8'))
+            document_id = metadata['document_id']
+            if (source_manifest.get('format_version') != 2
+                    or source_manifest.get('document_id') != document_id
+                    or source_manifest.get('source_revision') != revision):
+                raise ValueError('Source manifest requires reprocessing')
+            records = store.collection.get(where={'document_name': name}, include=['metadatas'])
+            expected_count = metadata.get('indexed_chunk_count')
+            if (not records['ids'] or (expected_count is not None and len(records['ids']) != expected_count)
+                    or any(m.get('document_id') != document_id or m.get('index_revision') != revision
+                           or m.get('format_version') != 2 for m in records['metadatas'])):
+                raise ValueError('The authorised document revision is not completely indexed')
+        except Exception as error:
+            if not allow_partial:
+                raise
+            logger.warning('Excluded unavailable manual revision (%s)', type(error).__name__)
+            unavailable.append(name)
+        else:
+            valid.append(name)
+    return {**scope, 'document_ids': valid,
+            'document_metadata': {name: scope['document_metadata'][name] for name in valid},
+            'unavailable_documents': unavailable}
 
 
 @app.post('/v1/chat', response_model=Answer)
@@ -170,10 +211,13 @@ async def chat(request: Request, authorization: str = Header(default='')):
             or not request.scope.get('scope_id')):
         raise HTTPException(422, 'A resolved knowledge scope is required.')
     try:
-        await asyncio.to_thread(verify_revisions, request.scope)
+        from shared.safety import immediate_emergency
+        scope = request.scope
+        if not immediate_emergency(request.message):
+            scope = await asyncio.to_thread(verify_revisions, request.scope, allow_partial=True)
         from rag.app.query import handle_query
         return Answer.model_validate(await handle_query(request.message,
-            history=[message.model_dump() for message in request.history], scope=request.scope,
+            history=[message.model_dump() for message in request.history], scope=scope,
             vehicle_profile=request.vehicle_profile.model_dump(mode='json') if request.vehicle_profile else None,
             maintenance_context=request.maintenance_context.model_dump(mode='json') if request.maintenance_context else None,
             activity_context=request.activity_context, assistance=request.assistance))
@@ -202,7 +246,7 @@ async def document_test(request: DocumentTestRequest, authorization: str = Heade
     names = scope.get('document_ids', [])
     if (scope.get('scope_type') not in {'vehicle', 'category'} or not scope.get('scope_id')
             or len(names) != 1 or set(scope.get('document_metadata', {})) != set(names)
-            or scope.get('content_sources') or scope.get('video_ids')):
+            or scope.get('content_sources') or scope.get('video_ids', []) != []):
         raise HTTPException(422, 'Document previews require exactly one resolved document and context.')
     try:
         await asyncio.to_thread(verify_revisions, scope)

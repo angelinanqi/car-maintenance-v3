@@ -250,6 +250,17 @@ def package_extraction(row, markdown, directory, *, describe_visuals=False, incl
     manifest = {"format_version": FORMAT_VERSION, "document_id": row["id"], "source_revision": row["source_revision"],
                 "markdown": "document.md", "original_filename": row["original_filename"], "source_type": row["source_type"]}
     original = markdown.read_text(encoding='utf-8-sig')
+    from shared.article_snapshot import decode
+    article, original, assets = decode(original)
+    if article:
+        # Keep the uploaded snapshot intact; prepare only local derived files.
+        markdown = directory / 'article' / 'document.md'
+        markdown.parent.mkdir(parents=True, exist_ok=True)
+        markdown.write_text(original, encoding='utf-8')
+        for relative, data in assets.items():
+            target = markdown.parent / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
     processing = original
     provenance = markdown.parent / 'metadata'
     metadata = []
@@ -281,6 +292,9 @@ def package_extraction(row, markdown, directory, *, describe_visuals=False, incl
     with ZipFile(archive, "w", ZIP_DEFLATED, compresslevel=9) as bundle:
         bundle.writestr("manifest.json", json.dumps(manifest))
         elements = build_elements(processing)
+        if article:
+            elements['article'] = article
+            bundle.writestr('metadata/article.json', json.dumps(article, ensure_ascii=False))
         if processing != original:
             original_matches = list(ELEMENT_PATTERN.finditer(original))
             processing_matches = list(ELEMENT_PATTERN.finditer(processing))
@@ -354,8 +368,13 @@ def package_extraction(row, markdown, directory, *, describe_visuals=False, incl
                 bundle.write(path, 'metadata/' + path.name)
         images = markdown.parent / "images"
         if images.is_dir():
-            retained = {item.get('asset_path') for item in elements['elements']}
-            retained.update(item.get('visual_asset_path') for item in elements['elements'])
+            from shared.source_elements import element_parts
+            asset_elements = list(elements['elements'])
+            for item in elements['elements']:
+                if item.get('parts'):
+                    asset_elements.extend(element_parts(item))
+            retained = {item.get('asset_path') for item in asset_elements}
+            retained.update(item.get('visual_asset_path') for item in asset_elements)
             retained.update(item['asset_path'] for item in elements.get('page_assets', []))
             for path in sorted(images.rglob("*")):
                 if path.is_file() and not path.is_symlink():

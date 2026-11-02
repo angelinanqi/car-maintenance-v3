@@ -1,4 +1,4 @@
-"""Render physical PDF pages with the PDFium already installed beside MinerU."""
+"""Render physical PDF pages using the backend's lightweight PDFium dependency."""
 import argparse
 from hashlib import sha256
 import json

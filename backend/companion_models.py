@@ -63,6 +63,10 @@ class ActivityUpdate(InputModel):
     activity: ActivityReference | None = None
 
 
+class ChatSessionInput(InputModel):
+    session_token: str = Field(min_length=32, max_length=128)
+
+
 class PlanPreviewInput(InputModel):
     vehicle_id: str = Field(min_length=1, max_length=200)
 
@@ -72,6 +76,7 @@ class PlanSaveInput(PlanPreviewInput):
 
 
 class SavedItemInput(InputModel):
+    id: UUID | None = None
     kind: Literal['guide', 'explanation', 'plan', 'notes']
     title: str = Field(min_length=1, max_length=300)
     guide_id: UUID | None = None
@@ -82,6 +87,8 @@ class SavedItemInput(InputModel):
 
     @model_validator(mode='after')
     def reference_for_kind(self):
+        if self.id and self.kind != 'notes':
+            raise ValueError('Only personal notes accept a client-generated ID.')
         references = [self.guide_id is not None, self.message_id is not None, self.plan_id is not None]
         if self.kind == 'guide' and (not self.guide_id or sum(references) != 1):
             raise ValueError('Select one published guide.')

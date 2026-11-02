@@ -1,30 +1,63 @@
 # Supabase database
 
-[`fresh_schema.sql`](fresh_schema.sql) is the complete fresh-install database
-definition, incorporating the initial schema and all eight current migrations.
-Run the entire file once in a fresh Supabase project's SQL Editor. It creates all
-32 application tables, constraints, indexes, functions, triggers, permissions,
+[`init.sql`](init.sql) is the single complete fresh-install database definition.
+The existing `supabase/` directory is reused instead of adding `database/`.
+Run the entire file once in a fresh Supabase project's SQL Editor. It creates
+33 application tables, constraints, indexes, functions, triggers, permissions,
 Storage bucket definitions and initial presets in one transaction.
 
-The original [`initial_schema.sql`](initial_schema.sql) and every file in
-[`migrations/`](migrations/) remain unchanged in their existing locations. A fresh
-installation using `fresh_schema.sql` does not need to run them separately.
-Existing installations should continue applying only the migrations they need.
-Include new migration changes in `fresh_schema.sql` when extending the schema.
+This is a manual fresh-install script, not an upgrade or reset. It does not run
+during application startup. Existing objects cause an error and transaction
+rollback; never run it over an existing installation. Supabase-managed Auth,
+Storage, schemas and roles must already exist. The retained column-specific
+`ON DELETE SET NULL` syntax requires PostgreSQL 15 or later; UUID generation is
+built in, so no application extensions need to be installed.
 
-For an existing Car guide installation, apply [`migrations/learning_companion.sql`](migrations/learning_companion.sql)
-after `automatic_chat_context.sql`, then deploy the backend/private RAG service,
-admin dashboard and mobile client. It adds optional companion content, activity
-progress, structured chat replies, saved items and service plans. Existing guide
-content and completion remain intact.
+## Historical scripts and existing installations
+
+The 12 additive migrations, original `initial_schema.sql` and previous
+`fresh_schema.sql` are archived unchanged under
+`dumpster/database-migrations/supabase/`, preserving their original relative paths.
+The archive is excluded from Git by the root `/dumpster/` rule and is local only:
+retain a separate copy if an existing deployment still needs an upgrade. Fresh
+clones receive only `init.sql`. No Supabase CLI migration ledger, automatic migration
+runner or startup reference to these files was found in the repository.
+
+For existing databases, use only the missing additive upgrades from that archive
+after checking the deployed schema; do not substitute `init.sql`. In particular,
+`supabase_auth.sql`, `mobile_learning.sql`, `mobile_maintenance.sql` and
+`admin_maintenance.sql` remain relevant to installations that have not deployed
+those features. Moving the files does not apply any upgrade to those installations.
+
+Historical replay order used for validation:
+
+1. `initial_schema.sql`. This already incorporates `admin_review_workflow.sql`,
+   `maintenance_assistance.sql` and `youtube_channels.sql`; their non-idempotent
+   DDL must not be applied again. It also includes the initial document review,
+   document testing and companion structures.
+2. `migrations/automatic_chat_context.sql`
+3. `migrations/learning_companion.sql`
+4. `migrations/document_testing.sql`
+5. `migrations/document_test_follow_up.sql`
+6. `migrations/document_review_progress.sql`
+7. `migrations/supabase_auth.sql`
+8. `migrations/mobile_learning.sql`
+9. `migrations/mobile_maintenance.sql`
+10. `migrations/admin_maintenance.sql`
+
+This is a dependency order, not a deployment ledger: historical filenames have no
+numeric ordering. The archived automatic-chat migration conditionally replaces
+only the original starter presets, preserving administrator edits. A fresh install
+seeds the final presets directly. Existing learning completion dates are deliberately
+not backfilled by the mobile-learning migration. Auth identity linking remains an
+explicit administrative operation; no accounts or live records are seeded.
 
 ## Initialise the database
 
-1. Create a Supabase project, or confirm that its existing application tables and
-   functions have already been removed through an approved reset. Preserve
+1. Create a fresh Supabase project with no application tables. Preserve
    Supabase-managed schemas, roles, extensions and Storage infrastructure.
 2. If using custom bucket names, edit the two bucket IDs in the Storage section
-   of `fresh_schema.sql` to match the backend configuration below.
+   of `init.sql` to match the backend configuration below.
 3. Paste the entire file into the project's SQL Editor and execute it, including
    `begin;` and `commit;`. Tables, relationships, constraints, indexes, triggers,
    permissions, publication functions and initial presets are created together.
@@ -43,70 +76,33 @@ content and completion remain intact.
    ```dotenv
    SUPABASE_URL=https://YOUR_PROJECT.supabase.co
    SUPABASE_SERVICE_ROLE_KEY=YOUR_SERVER_ONLY_SERVICE_ROLE_KEY
-   JWT_SECRET=YOUR_RANDOM_SECRET_OF_AT_LEAST_32_BYTES
    SUPABASE_DOCUMENT_BUCKET=documents
    SUPABASE_CONTENT_BUCKET=content-images
    ```
 
    The bucket settings are optional when using the defaults shown. Keep the
-   service-role key and signing secret on the server. See the
+   service-role key on the server. See the
    [project README](../README.md) for the remaining application configuration.
-6. Start the application and register an account. Promote its exact normalized
-   email in the SQL Editor:
+6. Register through the interface, confirm your email and sign in once so FastAPI
+   creates your application profile. In Supabase's Table Editor, open
+   `public.app_users`, find your account by email and change `role` from `user`
+   to `admin`. Admin permissions are managed in this table, not Auth user metadata.
 
-   ```sql
-   update public.app_users
-   set role = 'admin'
-   where email = 'your-email@example.com';
-   ```
-
-7. Sign in to the admin dashboard and add the actual catalogue and application
-   content. The schema creates no accounts, demo vehicles, schedules, guides,
+7. Sign in through Supabase and complete mandatory TOTP setup before admin access.
+   Existing admin profiles must be linked to a confirmed Supabase identity; the
+   custom admin login is retired. Promotion does not create a legacy password.
+   See the project README for exact callback
+   allowlists and explicit linking of an existing admin. The schema creates
+   no accounts, demo vehicles, schedules, guides,
    emergency protocols or contacts. It seeds only the singleton `chat_settings`
    row with three editable starter questions.
 
 ## Schema overview
 
-For saved document questions and private RAG previews, apply
-[`migrations/document_testing.sql`](migrations/document_testing.sql) before
-deploying the updated backend, private RAG service and dashboard. It adds
-admin-only question/run records with revision-bound results and explicit reviews.
-Fresh installations include these tables in `fresh_schema.sql`. This migration
-does not publish documents or change driver access.
-
-For document test follow-up on the home dashboard and reference library, apply
-[`migrations/document_test_follow_up.sql`](migrations/document_test_follow_up.sql)
-after `document_testing.sql`. It adds an index for each question's latest run;
-fresh installations include it in `fresh_schema.sql`. No test history or
-publication state is changed. Deploy the updated backend and dashboard together.
-
-For saved admin document review, apply
-[`migrations/document_review_progress.sql`](migrations/document_review_progress.sql)
-before deploying the updated backend and dashboard. It adds revision-bound,
-per-admin checklists and source positions without changing existing publications.
-
-For automatic mobile conversations, apply
-[`migrations/automatic_chat_context.sql`](migrations/automatic_chat_context.sql)
-before deploying the updated backend and mobile app. This adds automatic
-conversation identity, allows general chats without a registered vehicle, and
-preserves existing vehicle/category sessions. Only the original untouched starter
-question presets are upgraded; administrator customisations are preserved.
-Fresh installations include these changes in `fresh_schema.sql`.
-
-For admin-managed YouTube channels, apply
-[`migrations/youtube_channels.sql`](migrations/youtube_channels.sql) once to an
-existing database. It stores channel URLs, queued ingestion requests and sync
-results. New installations include this table in `fresh_schema.sql`.
-
-For an existing installation, apply
-[`migrations/admin_review_workflow.sql`](migrations/admin_review_workflow.sql)
-once before running the updated admin. It adds private clarification questions,
-draft return notes and the saved reference page. It preserves existing data.
-Fresh installations already include these changes in `fresh_schema.sql`.
-
 | Area | Tables |
 | --- | --- |
-| Accounts and sessions | `app_users`, `app_sessions` |
+| Application profiles | `app_users` (linked to `auth.users`) |
+| Retained legacy sessions (unused) | `app_sessions` |
 | Shared vehicle catalogue | `vehicle_manufacturers`, `vehicle_models`, `knowledge_vehicles` |
 | Maintenance catalogue and rules | `maintenance_items`, `manufacturer_schedules`, `maintenance_assistance` |
 | Private admin clarification | `admin_review_questions` |
@@ -117,7 +113,7 @@ Fresh installations already include these changes in `fresh_schema.sql`.
 | Emergency content | `emergency_playbooks`, `emergency_contacts` |
 | Personal vehicles and maintenance | `user_vehicles`, `user_tasks`, `service_records` |
 | Personal saved resources and plans | `saved_items`, `service_plans` |
-| Personal progress and incidents | `learning_progress`, `incident_records` |
+| Personal progress and incidents | `learning_progress`, `learning_recaps`, `incident_records` |
 | Chat and configurable examples | `chat_sessions`, `chat_messages`, `chat_settings` |
 
 The schema also creates shared update-timestamp handling, an immutable chat-scope
@@ -126,9 +122,17 @@ for atomic publication changes.
 
 ## Authentication and access
 
-Application accounts belong to `app_users`; sessions store token hashes in
-`app_sessions`. The application uses backend authentication rather than
-Supabase Auth accounts.
+Supabase Auth owns credentials and sessions. FastAPI verifies Supabase access
+tokens and loads server-managed roles from `app_users` through `auth_user_id`.
+Email confirmation is required; admins require TOTP verification. Multiple admin
+profiles are supported. Application ownership and attribution continue to reference
+the original `app_users.id`.
+
+The schema still defines legacy `app_sessions` and
+`app_users.password_hash` for compatibility. Active code neither reads nor writes
+them. No tables, columns, hashes or records were deleted during the auth cleanup.
+Any cleanup requires a separately approved database migration. Do not rerun
+fresh-schema SQL on an existing database.
 
 Both clients access data through FastAPI. Every application table enables Row
 Level Security, with no direct client policies. `PUBLIC`, `anon` and
@@ -161,7 +165,7 @@ Storage policies. Review any pre-existing bucket policies when reusing a project
 
 ## Existing projects and resets
 
-`fresh_schema.sql` is for a fresh installation; it does not migrate existing data
+`init.sql` is for a fresh installation; it does not migrate existing data
 or support repeated execution over an installed schema. Stop application writes and indexing
 before an approved rebuild, retain any desired backups, and review application
 dependencies before manually removing objects. Do not drop entire managed schemas
@@ -178,6 +182,29 @@ maintenance records, incident synchronization, manual downloads, scoped chat and
 source access. A successful backend health check establishes process liveness;
 it does not verify those integrations.
 
-## Maintenance assistance upgrade
+## Consolidation validation
 
-For an existing installation, apply [`migrations/maintenance_assistance.sql`](migrations/maintenance_assistance.sql) once in the Supabase SQL Editor before using the admin assistance endpoints. Fresh installations already include this table in `fresh_schema.sql`; do not also run the migration. The migration adds only the private review/cache table, its permissions and timestamp trigger. It does not modify schedules, documents or Chroma.
+Validated on disposable local PostgreSQL 18 databases on 2 November 2026, comparing
+the historical replay above with `init.sql`. Catalogue comparisons matched all
+33 tables, 319 columns (types, defaults, nullability and comments), constraints,
+85 indexes (including constraint indexes), 27 triggers, four functions (bodies,
+signatures, security settings, search paths and execute grants), RLS settings,
+table grants, public schema permissions, types, two buckets and starter presets.
+There are no application enums, standalone custom types, views, procedures or
+direct-client RLS/Storage policies. Function body comparison ignores formatting
+and comments; column order and creation timestamps are not compared.
+
+Database smoke checks passed for service-role writes, unique Auth identity links,
+composite ownership foreign keys, retained service history, learning progress,
+immutable chat ownership, stale schedule rejection and publication history,
+document indexing/publication checks, timestamp triggers, and denied anonymous
+and authenticated table/RPC access. Test writes were rolled back.
+Repeated initialization was rejected without changing seed values or timestamps.
+A forced mid-script index conflict rolled back all newly created application
+tables and preserved pre-existing sentinel data.
+
+The local test supplied minimal stand-ins for `auth.users`, `storage.buckets` and
+Supabase roles. This verifies PostgreSQL schema equivalence in that environment,
+not live Supabase Auth, Storage, PostgREST, backend HTTP workflows or hosted default
+privileges. Those integrations still require a disposable Supabase project and the
+operational checks above. The live project was not accessed or modified.

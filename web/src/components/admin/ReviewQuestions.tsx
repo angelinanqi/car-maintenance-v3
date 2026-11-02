@@ -1,4 +1,5 @@
 "use client";
+import Pagination, { usePagination } from "@/components/admin/Pagination";
 
 import { useEffect, useState } from "react";
 import NextLink from "next/link";
@@ -173,6 +174,9 @@ export default function ReviewQuestions({
   }, [documentId, vehicleId, reviewQuestions, attempt]);
   const open = rows.filter((row) => row.status === "open");
   const resolved = rows.filter((row) => row.status === "resolved");
+  const paginationKey = JSON.stringify([documentId, vehicleId]);
+  const openPages = usePagination(open, paginationKey);
+  const resolvedPages = usePagination(resolved, paginationKey);
   async function decide(
     question: ReviewQuestion,
     status: ReviewQuestion["status"],
@@ -324,15 +328,17 @@ export default function ReviewQuestions({
       </Text>
       {loading && <Text role="status">Opening saved questions…</Text>}
       {error && <Text role="alert">{error}</Text>}
-      <Stack gap={3}>{open.map(card)}</Stack>
+      <Stack gap={3}>{openPages.items.map(card)}</Stack>
+      <Pagination {...openPages} label="Open Questions" />
       {!loading && !error && !open.length && (
         <Text>No open questions here.</Text>
       )}
       {resolved.length > 0 && (
         <Box as="details" mt={4}>
-          <Box as="summary">Previously clarified ({resolved.length})</Box>
+          <Box as="summary">Previously Clarified ({resolved.length})</Box>
           <Stack gap={3} mt={3}>
-            {resolved.map(card)}
+            {resolvedPages.items.map(card)}
+            <Pagination {...resolvedPages} label="Clarified Questions" />
           </Stack>
         </Box>
       )}

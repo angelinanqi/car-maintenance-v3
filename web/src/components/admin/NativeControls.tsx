@@ -21,7 +21,8 @@ export function AdminSelect({
         aria-required={required || props["aria-required"]}
         minH="44px"
         bg="white"
-        borderColor="#7b8794"
+        borderColor="border"
+        borderRadius="14px"
       >
         {children}
       </NativeSelect.Field>

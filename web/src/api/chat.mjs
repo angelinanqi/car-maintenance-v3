@@ -7,9 +7,22 @@ export async function sendChatMessage(payload, signal) {
       "The chatbot returned an empty or invalid answer. Please retry.",
     );
   }
-  if (payload.scope_id && (!result.session_id || !result.session_token ||
-      result.scope_id !== payload.scope_id || result.scope_type !== payload.scope_type)) {
+  if (!result.session_id || !result.session_token ||
+      (payload.scope_id && (result.scope_id !== payload.scope_id || result.scope_type !== payload.scope_type))) {
     throw new Error("The chatbot returned an invalid session or changed scope. Start a new chat and retry.");
+  }
+  if (['generation_error', 'retrieval_error'].includes(result.response_type)) {
+    const error = new Error('The AI service could not complete this answer. Retry shortly.');
+    error.status = 503;
+    throw error;
   }
   return result;
 }
+
+export const createChatSession = (session, signal) => request(`/chat/sessions/${session.id}`, {
+  method: 'PUT', body: { session_token: session.token }, signal,
+});
+export const resumeChat = (id, { messageId, signal } = {}) => request(
+  `/chat/sessions/${id}/resume${messageId ? `?message_id=${encodeURIComponent(messageId)}` : ''}`,
+  { method: 'POST', body: {}, signal },
+);

@@ -126,6 +126,12 @@ export default function DocumentReview({ document, onLoaded, onUpdated }) {
   }
 
   return <Stack gap={5}>
+    {review?.article && <Box borderWidth="1px" borderRadius="8px" p={4}>
+      <Text fontWeight="600">Website snapshot: {review.article.article_title}</Text>
+      <Text as="a" href={review.article.original_url} target="_blank" rel="noopener noreferrer" color="blue.700">{review.article.original_url}</Text>
+      <Text fontSize="sm" color="muted">Retrieved {new Date(review.article.retrieved_at).toLocaleString()}. Compare the extracted text, tables and illustrations before approving.</Text>
+      {review.article.warnings?.map((warning) => <Text key={warning} role="alert" color="orange.700">{warning}</Text>)}
+    </Box>}
     <Text color="muted">Check instructions, numbers, units and table relationships against the original.
       Your checklist and source position save as you work. Final approval is a separate step below.</Text>
     <Flex gap={3} justify="space-between" align="center" wrap="wrap">
@@ -153,7 +159,9 @@ export default function DocumentReview({ document, onLoaded, onUpdated }) {
           <option value="issues">Extraction issues ({blocks.filter((block) => block.issues.length).length})</option>
         </AdminSelect></FormField>
       </Grid>
-      <Box as="nav" aria-label="Document review entries" maxH="200px" overflowY="auto" borderWidth="1px" borderRadius="8px">
+      <Grid templateColumns={{ base: "1fr", xl: "210px minmax(0, 1fr)" }} gap={4} alignItems="start">
+      <Box as="nav" aria-label="Document review entries" maxH={{ base: "200px", xl: "760px" }} position={{ xl: "sticky" }} top={{ xl: "20px" }} overflowY="auto" borderWidth="1px" borderRadius="8px">
+        <Text px={4} py={3} fontSize="sm" fontWeight="600" bg="canvas" borderBottomWidth="1px">Review entries ({visible.length})</Text>
         {visible.map((block) => <Button key={block.element_id} variant="plain" w="100%" h="auto" minH="44px" py={3} px={4}
           justifyContent="start" textAlign="left" whiteSpace="normal" borderRadius="0"
           bg={selected?.element_id === block.element_id ? "brand.50" : "transparent"}
@@ -167,7 +175,7 @@ export default function DocumentReview({ document, onLoaded, onUpdated }) {
         </Button>)}
         {!visible.length && <Text p={4}>No entries match these filters. Clear the search or choose another filter.</Text>}
       </Box>
-      {selected && <>
+      {selected && <Stack gap={4} minW={0}>
         <Flex gap={3} justify="space-between" align="center" wrap="wrap">
           <Box minW={0}>
             <Text fontSize="sm" color="muted">{selected.section_path.join(" → ") || "Document content"}</Text>
@@ -182,7 +190,7 @@ export default function DocumentReview({ document, onLoaded, onUpdated }) {
         <Grid templateColumns={{ base: "1fr", xl: "1fr 1fr" }} gap={5}>
           <Stack gap={3} minW={0} position={{ base: "static", xl: "sticky" }} top={{ xl: "110px" }} alignSelf="start">
             <Flex justify="space-between" align="center" gap={2} wrap="wrap">
-              <Heading size="sm">Original document</Heading>
+              <Heading size="sm">Original Document</Heading>
               <Button asChild variant="outline" size="xs"><a href={original} target="_blank" rel="noopener noreferrer">Open original in new tab</a></Button>
             </Flex>
             {document.source_type === "pdf" && <>
@@ -203,7 +211,10 @@ export default function DocumentReview({ document, onLoaded, onUpdated }) {
             </Box>
           </Stack>
           <Stack gap={3} minW={0}>
-            <Heading size="sm">What the system read</Heading>
+            <Flex justify="space-between" gap={2} align="center" wrap="wrap">
+              <Heading size="sm">What the System Read</Heading>
+              <Badge colorPalette={decisions[selected.element_id] === "checked" ? "green" : "gray"}>{statusLabels[decisions[selected.element_id]] || "Unchecked"}</Badge>
+            </Flex>
             {selected.issues.length > 0 && <Box bg="orange.50" borderRadius="8px" p={3}>
               {selected.issues.map((issue) => <Text key={issue} fontSize="sm" mb={1}>{issue}</Text>)}
             </Box>}
@@ -227,9 +238,10 @@ export default function DocumentReview({ document, onLoaded, onUpdated }) {
             {decisions[selected.element_id] === "needs_clarification" && <Text fontSize="sm">Resolve the saved question in <a href="#questions" style={{ textDecoration: "underline" }}>Questions needing clarification</a>, then check this entry again.</Text>}
           </Stack>
         </Grid>
-      </>}
+      </Stack>}
+      </Grid>
       {review.correction_count > 0 && <Box as="details" borderTopWidth="1px" pt={4}>
-        <Box as="summary" cursor="pointer">Extraction correction history ({review.correction_count})</Box>
+        <Box as="summary" cursor="pointer">Extraction Correction History ({review.correction_count})</Box>
         <Text fontSize="sm" color="muted" mt={2}>Showing the latest {review.corrections.length} corrections. The downloadable extraction bundle retains the original extraction and full history.</Text>
         <Stack gap={4} mt={3}>{review.corrections.slice().reverse().map((change, index) => <Box key={index} bg="canvas" p={4} borderRadius="8px">
           <Text fontWeight="600">{change.title}</Text>
@@ -247,7 +259,7 @@ export default function DocumentReview({ document, onLoaded, onUpdated }) {
         </Box>)}</Stack>
       </Box>}
       <Box as="details" borderTopWidth="1px" pt={4}>
-        <Box as="summary" cursor="pointer">Illustration identity review</Box>
+        <Box as="summary" cursor="pointer">Illustration Identity Review</Box>
         <Box as="fieldset" disabled={disabled} mt={4} p={0} minW={0} border={0}>
           <VisualReview document={document} onSaved={async () => { onLoaded(false); await onUpdated?.(); }} />
         </Box>

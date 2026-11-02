@@ -1,5 +1,5 @@
 """Account-owned mobile persistence."""
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Literal
 from uuid import UUID
 
@@ -14,6 +14,7 @@ from backend.services.personal_records import valid_id, owned, put
 from backend.services.catalogue import catalogue, item_lessons
 from backend.services.maintenance import as_date, status
 from backend.services.personal_maintenance import load_tasks, personal_schedules, record_view
+from backend.services import learning_progress
 
 
 router = APIRouter(prefix='/mobile/me', tags=['Mobile personal data'])
@@ -69,6 +70,7 @@ class RecordInput(InputModel):
     mileage: int = Field(ge=0, le=2147483647)
     date: datetime
     notes: str = Field(default='', max_length=10000)
+    workshopName: str | None = Field(default=None, max_length=200)
     cost: float | None = Field(default=None, ge=0, allow_inf_nan=False)
 
     @field_validator('id', 'vehicleId', 'taskId')
@@ -87,6 +89,7 @@ class IncidentInput(InputModel):
     version: Literal[1] = 1
     id: str
     type: str = Field(min_length=1, max_length=100)
+    mileage: int | None = Field(default=None, ge=0, le=2147483647)
     location: str = Field(default='', max_length=2000)
     occurredAt: datetime
     name: str = Field(default='', max_length=200)
@@ -140,7 +143,7 @@ def snapshot(user=Depends(auth.require_user)):
             task['status'] = status(task, records, mileage[task['vehicleId']],
                                    due_soon_km=settings.DUE_SOON_KM, due_soon_days=settings.DUE_SOON_DAYS)
         return {'vehicles': output, 'tasks': visible_tasks, 'records': records,
-                'completedLessons': [r['id'] for r in db.all_rows('learning_progress', user_id=owner, completed=True)],
+                **learning_progress.snapshot(owner),
                 'activeVehicleId': active_id,
                 'dueSoonKm': settings.DUE_SOON_KM, 'dueSoonDays': settings.DUE_SOON_DAYS}
 
@@ -179,7 +182,8 @@ def save_vehicle(record_id: str, request: VehicleInput, user=Depends(auth.requir
 @router.delete('/vehicles/{record_id}', status_code=204)
 def remove_vehicle(record_id: str, user=Depends(auth.require_user)):
     with content_lock('mobile:' + user['id']):
-        owned('user_vehicles', user['id'], record_id)
+        # Retry safely after a committed delete whose response was lost.
+        valid_id(record_id)
         db.client().table('user_vehicles').delete().eq('user_id', user['id']).eq('id', record_id).execute()
     return Response(status_code=204)
 
@@ -212,7 +216,9 @@ def save_task(record_id: str, request: TaskInput, user=Depends(auth.require_user
 @router.delete('/tasks/{record_id}', status_code=204)
 def remove_task(record_id: str, user=Depends(auth.require_user)):
     with content_lock('mobile:' + user['id']):
-        task = owned('user_tasks', user['id'], record_id)
+        task = owned('user_tasks', user['id'], record_id, optional=True)
+        if not task:
+            return Response(status_code=204)
         vehicle = owned('user_vehicles', user['id'], task['vehicle_id'])
         if any(e['itemId'] == task.get('item_id') for e in personal_schedules([vehicle]).get(vehicle['id'], {}).get('entries', [])):
             raise HTTPException(409, 'This item is in the manufacturer schedule. Select No schedule to stop its reminders while keeping history.')
@@ -248,28 +254,75 @@ def save_record(record_id: str, request: RecordInput, user=Depends(auth.require_
             title = db.get('maintenance_items', task['item_id'])['title']
         else:
             title = task['title']
+        workshop_name = old.get('workshop_name', '') if old else ''
+        if request.workshopName is not None:
+            workshop_name = request.workshopName
         row = put('service_records', user['id'], record_id, {'vehicle_id': request.vehicleId, 'task_id': request.taskId,
             'title': title, 'category': request.category,
-            'mileage': request.mileage, 'performed_at': request.date.date().isoformat(), 'notes': request.notes, 'cost': request.cost})
+            'mileage': request.mileage, 'performed_at': request.date.date().isoformat(), 'notes': request.notes,
+            'cost': request.cost, 'workshop_name': workshop_name})
         return record_view(row)
+
+
+@router.delete('/records/{record_id}', status_code=204)
+def remove_record(record_id: str, user=Depends(auth.require_user)):
+    with content_lock('mobile:' + user['id']):
+        # An already-deleted record is a successful retry. Other owners are never touched.
+        valid_id(record_id)
+        db.client().table('service_records').delete().eq('user_id', user['id']).eq('id', record_id).execute()
+    return Response(status_code=204)
 
 
 @router.put('/progress/{guide_id}')
 def save_progress(guide_id: UUID, request: ProgressInput, user=Depends(auth.require_user)):
+    with content_lock('learning:' + user['id']):
+        return persist_progress(guide_id, request, user)
+
+
+def persist_progress(guide_id, request, user):
     guide = db.get('guides', guide_id)
     if guide['status'] != 'published' or (guide['category_id'] and not db.get('guide_categories', guide['category_id'])['published']):
         raise HTTPException(404, 'Published lesson not found.')
     values = request.model_dump(exclude_none=True)
-    if request.completed is None:
-        previous = owned('learning_progress', user['id'], str(guide_id), optional=True)
-        values['completed'] = previous.get('completed', False) if previous else False
+    if (request.completed is None and not request.current_step_id) or (request.current_step_id is not None and not request.current_step_id.strip()):
+        raise HTTPException(422, 'Provide completion or a valid current step.')
+    previous = owned('learning_progress', user['id'], str(guide_id), optional=True)
+    if request.completed is None and not previous:
+        values['completed'] = False
+    if request.guide_revision is not None:
+        from backend.services.learning_companion import same_revision
+        if not same_revision(request.guide_revision, guide['updated_at']):
+            raise HTTPException(409, 'This guide changed. Reopen it to continue.')
     if request.current_step_id:
         from backend.services.learning_companion import guide_step, same_revision
         if not same_revision(request.guide_revision, guide['updated_at']):
             raise HTTPException(409, 'This guide changed. Reopen it to continue.')
         guide_step(guide, request.current_step_id)
-    row = put('learning_progress', user['id'], str(guide_id), values)
+    # Keep the first completion date across retries, rereading and marking unread.
+    if request.completed is True and not (previous and previous.get('completed_at')):
+        if not previous or not previous['completed']:
+            values['completed_at'] = datetime.now(timezone.utc).isoformat()
+    row = learning_progress.save(user['id'], str(guide_id), values, previous)
     return {'completed': row['completed'], 'current_step_id': row.get('current_step_id')}
+
+
+@router.get('/learning')
+def learning(user=Depends(auth.require_user)):
+    return learning_progress.snapshot(user['id'])
+
+
+@router.put('/recaps/{category_id}')
+def complete_recap(category_id: UUID, user=Depends(auth.require_user)):
+    with content_lock('learning:' + user['id']):
+        category = db.get('guide_categories', category_id)
+        if not category['published']:
+            raise HTTPException(404, 'Published learning category not found.')
+        if not db.all_rows('guides', category_id=str(category_id), status='published'):
+            raise HTTPException(409, 'This category has no published guides to recap.')
+        row = owned('learning_recaps', user['id'], str(category_id), optional=True)
+        if not row:
+            row = put('learning_recaps', user['id'], str(category_id), {})
+        return {'id': row['id'], 'completed': True}
 
 
 @router.get('/incidents')

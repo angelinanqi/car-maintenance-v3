@@ -301,10 +301,31 @@ def combine_continuations(manifest):
         manifest['elements'] = [p for p in manifest['elements'] if p['element_id'] not in removed]
 
 
+def element_parts(element):
+    """Return only source parts linked by explicit continuation metadata."""
+    parts = element.get('parts')
+    if not parts:
+        return [element]
+    logical_id = element.get('logical_table_id')
+    if (element.get('kind') != 'table' or not logical_id or not isinstance(parts, list)
+            or len(parts) < 2 or any(not isinstance(part, dict) for part in parts)
+            or parts[0].get('element_id') != element.get('element_id')
+            or parts[0].get('is_continuation')
+            or any(part.get('kind') != 'table' or part.get('logical_table_id') != logical_id for part in parts)
+            or any(part.get('is_continuation') is not True for part in parts[1:])):
+        raise ValueError('Invalid explicit table continuation relationship')
+    return parts
+
+
 def inspect_assets(manifest, directory):
     """Record availability and byte identity without claiming topic relevance."""
     missing = []
-    for record in manifest['elements']:
+    records = []
+    for element in manifest['elements']:
+        records.append(element)
+        if element.get('parts'):
+            records.extend(element_parts(element))
+    for record in records:
         reference = record.get('asset_path') if record['kind'] == 'image' else record.get('visual_asset_path')
         if not reference:
             continue

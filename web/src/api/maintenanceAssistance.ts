@@ -42,4 +42,5 @@ export const loadReview = (id: string, revision: string, signal?: AbortSignal): 
 export const sourceUrl = (id: string, revision: string) =>
   `${API_URL}${base(id)}/original?source_revision=${encodeURIComponent(revision)}`;
 export const updateReview = (state: Review, path: string, method: string, body: object = {}): Promise<Review> =>
-  request(`${base(state.document_id)}${path}`, { method, body: { ...body, source_revision: state.source_revision, version: state.version } });
+  request(`${base(state.document_id)}${path}`, { method, timeoutMs: path.includes('schedule-draft') ? 180000 : 30000,
+    body: { ...body, source_revision: state.source_revision, version: state.version } });

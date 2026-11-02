@@ -18,6 +18,16 @@ from backend.services import document_review, review_questions, extraction_corre
 router = APIRouter(prefix="/documents", tags=["Documents"])
 
 
+class WebsiteArticle(InputModel):
+    url: str = Field(min_length=1, max_length=2048)
+
+
+@router.post("/website", response_model=Document, status_code=201, dependencies=[Depends(auth.require_admin)])
+def add_website_article(request: WebsiteArticle):
+    from backend.services import website_articles
+    return website_articles.create(request.url)
+
+
 @router.get("", response_model=list[Document], dependencies=[Depends(auth.require_admin)])
 def list_documents(offset: int = Query(0, ge=0), limit: int = Query(settings.API_PAGE_SIZE, ge=1, le=1000)):
     return db.list_rows("documents", offset=offset, limit=limit)
@@ -113,6 +123,10 @@ def original_document(document_id: UUID, revision: UUID | None = None):
     if revision is not None and row["source_revision"] != str(revision):
         raise HTTPException(409, "The original document changed. Reload the current review.")
     data = db.bucket(settings.SUPABASE_DOCUMENT_BUCKET).download(row["storage_path"])
+    if row['source_type'] == 'md':
+        from shared.article_snapshot import decode
+        _, markdown, _ = decode(data.decode('utf-8-sig'))
+        data = markdown.encode('utf-8')
     return Response(data, media_type="application/pdf" if row["source_type"] == "pdf" else "text/plain", headers={
         "X-Content-Type-Options": "nosniff", "Content-Disposition": "inline", "Cache-Control": "no-store",
     })
@@ -134,7 +148,11 @@ def process_document(document_id: UUID, background: BackgroundTasks, force: bool
 @router.get("/{document_id}/download")
 def download_document(document_id: UUID, request: Request):
     row = db.get("documents", document_id)
-    if not (row.get("mobile_visible", False) and row.get("published", False)):
+    from backend.services import manuals
+    public_download = row.get('mobile_visible', False) and row.get('published', False)
+    if row.get('document_type') == 'owners_manual':
+        public_download = manuals.available(row)
+    if not public_download:
         try:
             auth.require_draft_access(request)
         except HTTPException as error:
@@ -172,8 +190,10 @@ def review_document(document_id: UUID, revision: UUID, identity=Depends(auth.req
     blocks = document_review.blocks_for(row)
     progress = document_review.progress(row, identity["user"]["id"])
     document_review.current_document(document_id, revision)
+    with extraction(row) as archive:
+        article = json.loads(archive.read('metadata/article.json')) if 'metadata/article.json' in archive.namelist() else None
     return {"document_id": str(document_id), "source_revision": row["source_revision"],
-            "blocks": blocks,
+            "blocks": blocks, "article": article,
             "corrections": [document_review.correction_preview(change) for change in changes[-20:]],
             "correction_count": len(changes), "progress": progress}
 

@@ -27,7 +27,7 @@ export default function FrequencyTools({ entries, schedules, items, disabled, on
     groups.set(label, [...(groups.get(label) || []), i]);
   });
   return <Box borderWidth="1px" p={4} borderRadius="md" mb={4}><Stack gap={3}>
-    <Heading size="sm">Apply a frequency to several items</Heading>
+    <Heading size="sm">Apply a Frequency to Several Items</Heading>
     <Text fontSize="sm">Choose items and enter a recurring interval. Source references, actions and conditions stay with each item.</Text>
     {entries.map((entry, index) => <Checkbox key={index} disabled={disabled} checked={selected.includes(index)} onCheckedChange={e => setSelected(e.checked === true ? [...selected, index] : selected.filter(i => i !== index))}>{items.find(i => i.id === entry.itemId)?.title || `Rule ${index + 1}`} · {entry.action}</Checkbox>)}
     {presets.length > 0 && <>
@@ -44,6 +44,6 @@ export default function FrequencyTools({ entries, schedules, items, disabled, on
         distanceMilestones: [], monthMilestones: [], vehicleStartDate: null,
       } } : entry));
     }}>Apply interval to {selected.length} selected items</Button>
-    <Box as="details"><Box as="summary" cursor="pointer">Review items grouped by frequency</Box><Stack mt={2}>{[...groups].map(([label, indices]) => <Flex key={label} gap={2} wrap="wrap"><Text>{label} · {indices.length} items</Text><Button size="sm" variant="outline" disabled={disabled} onClick={() => setSelected(indices)}>Select this group</Button></Flex>)}</Stack></Box>
+    <Box as="details"><Box as="summary" cursor="pointer">Review Items Grouped by Frequency</Box><Stack mt={2}>{[...groups].map(([label, indices]) => <Flex key={label} gap={2} wrap="wrap"><Text>{label} · {indices.length} items</Text><Button size="sm" variant="outline" disabled={disabled} onClick={() => setSelected(indices)}>Select this group</Button></Flex>)}</Stack></Box>
   </Stack></Box>;
 }

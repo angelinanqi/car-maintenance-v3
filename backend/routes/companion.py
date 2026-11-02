@@ -70,6 +70,23 @@ def save_item(request: SavedItemInput, user=Depends(auth.require_user)):
 
 def persist_saved_item(request, user):
     values = request.model_dump(mode='json', exclude={'text'})
+    if request.plan_id:
+        plan = service_planning.get_plan(user, str(request.plan_id))
+        values['vehicle_id'] = plan['vehicle_id']
+    if request.id:
+        existing = db.all_rows('saved_items', id=str(request.id))
+        if existing:
+            row = existing[0]
+            if row['user_id'] != user['id']:
+                raise HTTPException(404, 'Saved item not found.')
+            if (request.kind != 'notes' or row['kind'] != 'notes'
+                    or row['title'] != request.title or row.get('vehicle_id') != values.get('vehicle_id')
+                    or row.get('plan_id') != (str(request.plan_id) if request.plan_id else None)
+                    or row.get('payload', {}).get('text') != request.text):
+                raise HTTPException(409, 'These notes were already saved. Reopen them from Saved to edit the saved copy.')
+            return saved_view(row, user)
+    else:
+        values.pop('id', None)
     if request.vehicle_id:
         owned('user_vehicles', user['id'], request.vehicle_id)
     payload = {}
@@ -84,9 +101,6 @@ def persist_saved_item(request, user):
             raise HTTPException(422, 'Save an assistant explanation.')
         values['vehicle_id'] = session.get('user_vehicle_id')
         payload['session_id'] = session['id']
-    if request.plan_id:
-        plan = service_planning.get_plan(user, str(request.plan_id))
-        values['vehicle_id'] = plan['vehicle_id']
     if request.kind == 'notes':
         payload['text'] = request.text
     # Repeat taps on a referenced resource are idempotent; notes remain distinct drafts.

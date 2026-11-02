@@ -78,8 +78,13 @@ class GenerationContext:
 
     @property
     def incomplete(self):
-        return bool(self.omitted_sources or self.incomplete_section_labels
-                    or any(source.get('table_complete') is False for source in self.sources))
+        return bool(self.omitted_sources or self.omitted_references or self.incomplete_section_labels
+                    or any(source.get('table_complete') is False for source in self.sources)
+                    or any(reference.get('kind') == 'table' and (
+                        reference.get('visual_coverage', {}).get('unmapped_parts', 0)
+                        or any(page.get('source_label') is None or page.get('extent') != 'page'
+                               for page in reference.get('visual_coverage', {}).get('page_inputs', [])))
+                           for reference in self.references))
 
 
 def prepare_context(records, references, vehicle_profile=None, maintenance_context=None, *, image_sources=None):
@@ -96,12 +101,18 @@ def prepare_context(records, references, vehicle_profile=None, maintenance_conte
                             for reference in references}
     table_elements = {reference['label']: reference['table_element'] for reference in references
                       if reference.get('table_element')}
-    pixel_labels = {reference['label']: reference.get('pixel_source_label', reference['label'])
+    pixel_labels = {reference['label']: reference.get('pixel_source_labels',
+                   [reference.get('pixel_source_label', reference['label'])])
                     for reference in references}
     for reference in references:
         # Internal join keys need not consume the model's description budget.
         item = {key: value for key, value in reference.items()
-                if key not in {'document_name', 'element_id', 'table_element', 'source_label', 'pixel_source_label'}}
+                if key not in {'document_name', 'element_id', 'table_element', 'source_label',
+                               'pixel_source_label', 'pixel_source_labels'}}
+        if reference.get('visual_coverage'):
+            # Coverage is corrected after packing without mutating caller data.
+            item['visual_coverage'] = {**reference['visual_coverage'],
+                'page_inputs': [dict(page) for page in reference['visual_coverage']['page_inputs']]}
         if reference.get('kind') == 'table':
             # Repeated navigation paths can consume the entire preview allowance.
             # Literal captions and cell previews identify tables; inherited paths
@@ -165,11 +176,22 @@ def prepare_context(records, references, vehicle_profile=None, maintenance_conte
                 "source_fidelity_verified": metadata.get("source_fidelity_verified", False),
                 "section_path": section_path,
                 "content": text}
+        if metadata.get('source_kind') == 'website':
+            item.update(source_kind='website', original_url=metadata.get('original_url'),
+                        title=metadata.get('article_title') or item['title'],
+                        retrieved_at=metadata.get('retrieved_at'))
         if structured_table:
             item['evidence_type'] = 'table_cells_v1'
             item['element_id'] = metadata['element_id']
+            fragment = json.loads(text)
+            row_range = fragment.get('row_range', [])
+            item['table_complete'] = bool(len(row_range) == 2 and row_range[0] == 0
+                                          and row_range[1] + 1 == fragment.get('total_rows'))
+            item['continuation_coverage'] = 'unknown'
             item['extraction_warning'] = ('Cell positions and spans are extracted, not independently verified. '
-                'Use explicit headers, units, conditions and notes. Do not guess missing header relationships.')
+                'Use explicit headers, units, conditions and notes. Do not guess missing header relationships. '
+                'Complete rows describe this extracted element only; continuation pages and footnote '
+                'associations are not established.')
         if metadata.get("section_chunk_count", 1) > 1:
             item["section_fragment"] = {
                 "index": metadata["section_chunk_index"],
@@ -209,7 +231,7 @@ def prepare_context(records, references, vehicle_profile=None, maintenance_conte
     # OCR fragment must not prevent inspection of an otherwise fitting original.
     for reference in result.references:
         for source in image_sources or []:
-            if source['label'] != pixel_labels[reference['label']]:
+            if source['label'] not in pixel_labels[reference['label']]:
                 continue
             grouped_labels.add(source['label'])
             extra = encoded_size([source['label']]) - encoded_size([])
@@ -304,6 +326,16 @@ def prepare_context(records, references, vehicle_profile=None, maintenance_conte
     for reference in result.references:
         if reference.get('page_region', {}).get('source_label') not in supplied_labels:
             reference.pop('page_region', None)
+        if 'page_regions' in reference:
+            reference['page_regions'] = [region for region in reference['page_regions']
+                                         if region['source_label'] in supplied_labels]
+        for page in reference.get('visual_coverage', {}).get('page_inputs', []):
+            if page.get('source_label') not in supplied_labels:
+                if page.get('source_label') is not None:
+                    page['context_omitted'] = True
+                # Replacing a V-label with null cannot increase serialized size.
+                page['source_label'] = None
+                reference['evidence_omitted'] = True
     for items in sections.values():
         items = [item for item in items if item['label'] in supplied_labels]
         if not items:

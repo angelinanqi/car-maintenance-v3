@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import useScheduleResources from "./useScheduleResources";
 import SchedulePreview from "./SchedulePreview";
+import ScheduleChanges from "./ScheduleChanges";
 import NextLink from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
@@ -22,6 +23,7 @@ import AdminLayout from "@/components/layouts/AdminLayout";
 import FormField from "@/components/admin/FormField";
 import { AdminSelect } from "@/components/admin/NativeControls";
 import useUnsavedChanges from "@/components/admin/useUnsavedChanges";
+import PublicationChecklist from "@/components/admin/PublicationChecklist";
 import ServiceTaskEditor from "@/components/admin/ServiceTaskEditor";
 import MaintenanceItemEditor from "@/components/admin/MaintenanceItemEditor";
 import MaintenanceAssistance from "./MaintenanceAssistance";
@@ -85,9 +87,14 @@ export default function ScheduleEditor() {
     useState<QuestionContext | null>(null);
   const [assistanceDirty, setAssistanceDirty] = useState(false);
   const [scheduleLoading, setScheduleLoading] = useState(false);
+  const [loadedVehicleId, setLoadedVehicleId] = useState('');
+  const [loadError, setLoadError] = useState('');
+  const createId = useRef('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [sourceNotice, setSourceNotice] = useState("");
+  const autoTablePending = useRef(false);
   const [pdfId, setPdfId] = useState(search.get("source") || "");
   const [page, setPage] = useState(
     Math.max(1, Number(search.get("page")) || 1),
@@ -108,7 +115,8 @@ export default function ScheduleEditor() {
   const dirty = contentDirty || contextDirty;
   useUnsavedChanges(dirty || assistanceDirty);
   const canEdit = !schedule || schedule.status === "draft";
-  const locked = busy || loading || scheduleLoading;
+  const locked = busy || loading || scheduleLoading || Boolean(resourceError) ||
+    Boolean(loadError) || (Boolean(vehicleId) && loadedVehicleId !== vehicleId);
   const vehicle = vehicles.find((row) => row.id === vehicleId);
   const sources = documents.filter(
     (document) =>
@@ -132,7 +140,10 @@ export default function ScheduleEditor() {
     documents,
   );
   const progress = scheduleProgress(entries, documents);
+  const publishedSchedule = schedules.find((row) => row.vehicle_id === vehicleId && row.status === "published");
   function viewSource(documentId: string, nextPage = 1) {
+    autoTablePending.current = false;
+    setSourceNotice("");
     if (documentId !== pdfId || nextPage !== page) {
       setPdfId(documentId);
       setPage(nextPage);
@@ -148,10 +159,14 @@ export default function ScheduleEditor() {
     if (!vehicleId) return;
     let active = true;
     setScheduleLoading(true);
+    setLoadedVehicleId('');
+    setLoadError('');
     loadSchedules(vehicleId)
       .then((rows) => {
         if (!active) return;
         setSchedules(rows);
+        setLoadedVehicleId(vehicleId);
+        createId.current = '';
         const latest = [...rows].sort((a, b) => b.revision - a.revision);
         const selected =
           rows.find((row) => row.id === search.get("schedule")) ||
@@ -159,6 +174,8 @@ export default function ScheduleEditor() {
           latest.find((row) => row.status === "published") ||
           null;
         setSchedule(selected);
+        autoTablePending.current = !search.get("page") && !selected?.work_context?.page;
+        setSourceNotice("");
         setEntries(selected?.entries || []);
         setAdminNote(selected?.admin_note || "");
         setPdfId(
@@ -175,7 +192,7 @@ export default function ScheduleEditor() {
         setReviewed(false);
       })
       .catch((cause) => {
-        if (active) setError(cause.message);
+        if (active) setLoadError(cause.message);
       })
       .finally(() => {
         if (active) setScheduleLoading(false);
@@ -274,6 +291,7 @@ export default function ScheduleEditor() {
     setError("");
     setNotice("");
     try {
+      if (!schedule && !createId.current) createId.current = crypto.randomUUID();
       const saved = await saveSchedule(
         schedule?.id || "",
         vehicleId,
@@ -284,6 +302,8 @@ export default function ScheduleEditor() {
           source_revision: selectedSource?.source_revision || null,
           page,
         },
+        createId.current,
+        schedule?.updated_at,
       );
       setSchedule(saved);
       setEntries(saved.entries);
@@ -325,7 +345,7 @@ export default function ScheduleEditor() {
           throw new Error(
             "Check every task against its manual before making the schedule available.",
           );
-        const saved = await publishSchedule(schedule.id);
+        const saved = await publishSchedule(schedule.id, schedule.updated_at);
         setSchedule(saved);
         setReviewed(false);
         setSchedules((previous) =>
@@ -371,14 +391,15 @@ export default function ScheduleEditor() {
     setNotice("");
     try {
       if (draft) {
-        await deleteDraftSchedule(schedule.id);
+        await deleteDraftSchedule(schedule.id, schedule.updated_at);
         setSchedules((previous) =>
           previous.filter((row) => row.id !== schedule.id),
         );
         setSchedule(null);
         setEntries([]);
+        createId.current = '';
       } else {
-        const saved = await withdrawSchedule(schedule.id);
+        const saved = await withdrawSchedule(schedule.id, schedule.updated_at);
         setSchedule(saved);
         setSchedules((previous) =>
           previous.map((row) => (row.id === saved.id ? saved : row)),
@@ -403,7 +424,7 @@ export default function ScheduleEditor() {
   return (
     <AdminLayout
       title={
-        vehicle ? `Service schedule: ${vehicle.name}` : "Service schedules"
+        vehicle ? `Service schedule: ${vehicle.name}` : "Service Schedules"
       }
       description="Use the manufacturer’s manual to check what needs doing and when. Save an unfinished draft whenever you need to stop."
     >
@@ -415,14 +436,14 @@ export default function ScheduleEditor() {
             </NextLink>
           </Button>
         )}
-        {(error || resourceError) && (
-          <Text role="alert">{error || resourceError}</Text>
+        {(error || resourceError || loadError) && (
+          <Text role="alert">{error || resourceError || loadError}</Text>
         )}
         {notice && <Text role="status">{notice}</Text>}
         <Box bg="white" p={5} borderRadius="12px">
           <FormField label="Which vehicle are you working on?">
             <AdminSelect
-              disabled={locked}
+              disabled={busy || loading || scheduleLoading}
               value={vehicleId}
               onChange={(event) => {
                 if (!canLeaveEdits()) return;
@@ -463,7 +484,7 @@ export default function ScheduleEditor() {
             size="sm"
             variant="plain"
             mt={3}
-            disabled={locked}
+            disabled={busy || loading || scheduleLoading}
             onClick={() => {
               if (!canLeaveEdits()) return;
               setDirty(false);
@@ -491,7 +512,7 @@ export default function ScheduleEditor() {
                     <Heading size="md">
                       {schedule
                         ? `Version ${schedule.revision}`
-                        : "New service schedule"}
+                        : "New Service Schedule"}
                     </Heading>
                     <Badge mt={2}>
                       {schedule
@@ -505,6 +526,7 @@ export default function ScheduleEditor() {
                         disabled={locked || assistanceDirty}
                         onClick={() => {
                           setSchedule(null);
+                          createId.current = '';
                           setAdminNote("");
                           setEntries(structuredClone(entries));
                           setDirty(true);
@@ -563,7 +585,7 @@ export default function ScheduleEditor() {
                   </Text>
                 )}
                 <Box as="details" mt={3}>
-                  <Box as="summary">Choose a different saved version</Box>
+                  <Box as="summary">Choose a Different Saved Version</Box>
                   <AdminSelect
                     mt={2}
                     disabled={locked}
@@ -575,6 +597,7 @@ export default function ScheduleEditor() {
                           (row) => row.id === event.target.value,
                         ) || null;
                       setSchedule(next);
+                      createId.current = '';
                       setEntries(next?.entries || []);
                       setAdminNote(next?.admin_note || "");
                       setPdfId(next?.work_context?.document_id || "");
@@ -620,7 +643,7 @@ export default function ScheduleEditor() {
                     top={{ xl: "16px" }}
                   >
                     <Heading size="lg" mb={4}>
-                      1. Check the manual
+                      1. Check the Manual
                     </Heading>
                     <Stack gap={4}>
                       <FormField label="Manufacturer reference">
@@ -686,6 +709,9 @@ export default function ScheduleEditor() {
                       )}
                       {selectedSource && (
                         <>
+                          {sourceNotice && <Box role="status" bg="blueSurface" color="blueInk" borderRadius="14px" p={3}>
+                            <Text fontSize="sm">{sourceNotice}</Text>
+                          </Box>}
                           <Button asChild variant="outline">
                             <a
                               href={`${sourceUrl(pdfId, selectedSource.source_revision)}${selectedSource.source_type === "pdf" ? `#page=${page}` : ""}`}
@@ -710,11 +736,11 @@ export default function ScheduleEditor() {
                     </Stack>
                   </Box>
                   <Stack gap={4} minW={0}>
-                    <Heading size="lg">2. Service tasks and intervals</Heading>
+                    <Heading size="lg">2. Service Tasks and Intervals</Heading>
                     {selectedSource && !selectedSource.superseded_by_id && (
                       <Box as="details" bg="white" p={4} borderRadius="10px">
                         <Box as="summary">
-                          Draft a schedule from this manual
+                          Draft a Schedule From This Manual
                         </Box>
                         <Text mt={2} mb={4} color="muted">
                           Select a maintenance table to draft tasks and timing with AI,
@@ -732,11 +758,18 @@ export default function ScheduleEditor() {
                               item,
                             ])
                           }
-                          onNavigate={(nextPage) => viewSource(pdfId, nextPage)}
+                          onNavigate={(nextPage, tableTitle, automatic) => {
+                            if (automatic && !autoTablePending.current) return;
+                            viewSource(pdfId, nextPage);
+                            if (tableTitle) setSourceNotice(
+                              'Automatically opened PDF page ' + nextPage + ' for "' + tableTitle + '". Check this detected table against the original before using its instructions.'
+                            );
+                          }}
                           vehicleId={vehicleId}
                           scheduleId={schedule?.id}
                           existingItemIds={entries.map((entry) => entry.itemId)}
                           currentPage={page}
+                          autoOpenTable={autoTablePending.current}
                           onImport={importSuggestions}
                         />
                       </Box>
@@ -744,7 +777,7 @@ export default function ScheduleEditor() {
                     {entries.length > 1 && (
                       <Box as="details" bg="white" p={4} borderRadius="10px">
                         <Box as="summary">
-                          Set the same interval for several tasks
+                          Set the Same Interval for Several Tasks
                         </Box>
                         <FrequencyTools
                           key={`${vehicleId}:${schedule?.id || "new"}`}
@@ -862,10 +895,17 @@ export default function ScheduleEditor() {
               )}
               <Box bg="white" p={{ base: 5, md: 7 }} borderRadius="12px">
                 <Heading size="lg" mb={3}>
-                  3. Save and check your work
+                  3. Save and Check Your Work
                 </Heading>
                 {canEdit ? (
                   <Stack gap={4}>
+                    <PublicationChecklist steps={[
+                      { label: "Latest draft saved", complete: Boolean(schedule) && !dirty && !assistanceDirty, description: dirty || assistanceDirty ? "Save your changes before the final review." : undefined },
+                      { label: "Service tasks and references complete", complete: entries.length > 0 && progress.incomplete === 0, description: entries.length ? String(progress.incomplete) + " tasks need details. See the issue links below." : "Add at least one service task." },
+                      { label: "Clarification questions resolved", complete: openQuestions.length === 0, href: "#questions" },
+                      { label: "Manufacturer source reviewed", complete: reviewed, description: "Confirm the source review below after saving the draft." },
+                    ]} />
+                    {publishedSchedule && <ScheduleChanges published={publishedSchedule} entries={entries} items={items} />}
                     <Text>
                       Save a draft if you need to stop or ask someone about an
                       unclear requirement. Keep the schedule as a draft until
@@ -899,18 +939,21 @@ export default function ScheduleEditor() {
                         loading={busy}
                         onClick={saveDraft}
                       >
-                        Save draft for later
+                        Save draft
                       </Button>
                       <Button
-                        variant="outline"
+                        variant="plain"
                         disabled={
                           !schedule || dirty || assistanceDirty || locked
                         }
                         onClick={() => checkOrPublish(false)}
                       >
-                        Check for missing details
+                        Check for missing details (optional)
                       </Button>
                     </Flex>
+                    <Text fontSize="sm" color="muted">
+                      The optional check looks for missing or invalid details. Publishing runs validation again; you still need to check the source manual.
+                    </Text>
                     {assistanceDirty && (
                       <Text color="muted">
                         Save the task or table edits in “Help me find service
@@ -981,7 +1024,7 @@ export default function ScheduleEditor() {
                           checkOrPublish(true);
                       }}
                     >
-                      Make schedule available
+                      Publish schedule
                     </Button>
                   </Stack>
                 ) : (
@@ -994,8 +1037,8 @@ export default function ScheduleEditor() {
                   <Box as="details" mt={5}>
                     <Box as="summary">
                       {schedule.status === "draft"
-                        ? "Discard this draft"
-                        : "Take this schedule offline"}
+                        ? "Discard This Draft"
+                        : "Unpublish This Schedule"}
                     </Box>
                     <Button
                       mt={3}
@@ -1006,7 +1049,7 @@ export default function ScheduleEditor() {
                     >
                       {schedule.status === "draft"
                         ? "Delete draft"
-                        : "Take schedule offline"}
+                        : "Unpublish schedule"}
                     </Button>
                   </Box>
                 )}

@@ -10,9 +10,9 @@ def open_store(database_path, *, create=True):
 
 
 def create_embedder():
-    from rag.app.embedding.embedder import Embedder
+    from rag.app.embedding.embedder import SharedEmbedder
 
-    return Embedder()
+    return SharedEmbedder()
 
 
 def replace_video(store, video_id, chunks, embedder):

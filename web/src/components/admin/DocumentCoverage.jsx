@@ -224,7 +224,7 @@ export default function DocumentCoverage({
           </Checkbox>
           <Box as="details">
             <Box as="summary">
-              Year, engine or version stated in the document (optional)
+              Year, Engine or Version Stated in the Document (Optional)
             </Box>
             <Stack mt={3} gap={3}>
               <Text fontSize="sm" color="muted">

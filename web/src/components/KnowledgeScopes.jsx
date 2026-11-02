@@ -1,32 +1,25 @@
 "use client";
+import Pagination, { usePagination } from "@/components/admin/Pagination";
 
 import { useState } from "react";
 import NextLink from "next/link";
 import {
   Box,
   Button,
-  Fieldset,
   Flex,
   Heading,
   Stack,
   Text,
-  Textarea,
 } from "@chakra-ui/react";
-import { AdminSelect } from "@/components/admin/NativeControls";
 import { useContent } from "@/components/ContentProvider";
 import { request } from "@/api/client.mjs";
-import { parseVideoLinks } from "@/lib/adminJourney.mjs";
-import useUnsavedChanges from "@/components/admin/useUnsavedChanges";
 
 export default function KnowledgeScopes() {
   const { knowledge, refresh } = useContent();
-  const [destination, setDestination] = useState("");
-  const [links, setLinks] = useState("");
-  const [baseline, setBaseline] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  useUnsavedChanges(links !== baseline);
+  const pagination = usePagination(knowledge?.categories || []);
   async function save(action, message) {
     if (busy) return;
     setBusy(true);
@@ -55,7 +48,7 @@ export default function KnowledgeScopes() {
       {notice && <Text role="status">{notice}</Text>}
       <Box bg="white" p={{ base: 5, md: 7 }} borderRadius="12px">
         <Heading size="lg" mb={3}>
-          Documents belong with their vehicles and topics
+          Documents Belong with Their Vehicles and Topics
         </Heading>
         <Text color="muted">
           To change where a reference is used, open it in the reference library.
@@ -68,14 +61,14 @@ export default function KnowledgeScopes() {
       </Box>
       <Box bg="white" p={{ base: 5, md: 7 }} borderRadius="12px">
         <Heading size="lg" mb={3}>
-          Learning topics in the chatbot
+          Learning Topics in the Chatbot
         </Heading>
         <Text color="muted" mb={5}>
           Enable a topic when you want drivers to ask questions about its
           published guides and reference documents.
         </Text>
         <Stack gap={4}>
-          {knowledge.categories.map((category) => (
+          {pagination.items.map((category) => (
             <Flex
               key={category.id}
               justify="space-between"
@@ -126,108 +119,10 @@ export default function KnowledgeScopes() {
             </Flex>
           ))}
         </Stack>
+        <Pagination {...pagination} label="Chatbot Topics" />
         {!knowledge.categories.length && (
           <Text>Add a learning topic in Learning topics first.</Text>
         )}
-      </Box>
-      <Box bg="white" p={{ base: 5, md: 7 }} borderRadius="12px">
-        <Heading size="lg" mb={3}>
-          Related videos
-        </Heading>
-        <Text color="muted" mb={4}>
-          Choose a vehicle or topic, then add YouTube links. Only videos already
-          prepared by your Roadie video service can be recommended. Adding a
-          link here does not prepare a new video.
-        </Text>
-        <Fieldset.Root disabled={busy}>
-          <Stack gap={4}>
-            <Box as="label">
-              Vehicle or learning topic
-              <AdminSelect
-                value={destination}
-                onChange={(event) => {
-                  if (
-                    links !== baseline &&
-                    !window.confirm("Discard unsaved video links?")
-                  )
-                    return;
-                  const value = event.target.value;
-                  const [kind, id] = value.split(":");
-                  const text = knowledge.videos
-                    .filter((video) => video[`${kind}_id`] === id)
-                    .map(
-                      (video) =>
-                        `https://www.youtube.com/watch?v=${video.video_id}`,
-                    )
-                    .join("\n");
-                  setDestination(value);
-                  setLinks(text);
-                  setBaseline(text);
-                }}
-              >
-                <option value="">Choose a vehicle or topic</option>
-                <optgroup label="Vehicles">
-                  {knowledge.vehicles.map((vehicle) => (
-                    <option key={vehicle.id} value={`vehicle:${vehicle.id}`}>
-                      {[
-                        vehicle.name,
-                        vehicle.year,
-                        vehicle.engine,
-                        vehicle.variant,
-                      ]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    </option>
-                  ))}
-                </optgroup>
-                <optgroup label="Learning topics">
-                  {knowledge.categories.map((category) => (
-                    <option key={category.id} value={`category:${category.id}`}>
-                      {category.name}
-                    </option>
-                  ))}
-                </optgroup>
-              </AdminSelect>
-            </Box>
-            {destination && (
-              <>
-                <Box as="label">
-                  YouTube links, one per line
-                  <Textarea
-                    mt={2}
-                    rows={5}
-                    value={links}
-                    onChange={(event) => setLinks(event.target.value)}
-                    placeholder="https://www.youtube.com/watch?v=..."
-                  />
-                </Box>
-                <Button
-                  alignSelf="start"
-                  disabled={links === baseline}
-                  loading={busy}
-                  onClick={() => {
-                    let ids;
-                    try {
-                      ids = parseVideoLinks(links);
-                    } catch (cause) {
-                      setError(cause.message);
-                      return;
-                    }
-                    save(async () => {
-                      await request(
-                        `/knowledge/${destination.replace(":", "/")}/videos`,
-                        { method: "PUT", body: { video_ids: ids } },
-                      );
-                      setBaseline(links);
-                    }, "Related video links saved.");
-                  }}
-                >
-                  Save video links
-                </Button>
-              </>
-            )}
-          </Stack>
-        </Fieldset.Root>
       </Box>
     </Stack>
   );

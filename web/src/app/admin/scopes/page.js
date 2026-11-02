@@ -8,8 +8,8 @@ import { Stack } from "@chakra-ui/react";
 export default function ScopesPage() {
   return (
     <AdminLayout
-      title="Topics and related videos"
-      description="Choose the learning topics drivers can ask about and the videos that support them."
+      title="Topics and Related Videos"
+      description="Manage learning topics and sync YouTube channels for chatbot recommendations."
     >
       <Stack gap={6}>
         <YouTubeChannels />

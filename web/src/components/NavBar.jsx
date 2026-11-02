@@ -9,31 +9,32 @@ import Brand from "./Brand";
 
 const groups = [
   {
-    label: "Your work",
+    label: "Your Work",
     items: [
       ["Home", "/admin/home"],
-      ["Questions to clarify", "/admin/review-questions"],
+      ["Questions to Clarify", "/admin/review-questions"],
       ["Vehicles", "/admin/vehicles"],
-      ["Reference library", "/admin/kb"],
+      ["Reference Library", "/admin/kb"],
     ],
   },
   {
-    label: "Help drivers learn",
+    label: "Help Drivers Learn",
     items: [
-      ["Learning guides", "/admin/learn-cards"],
-      ["Learning topics", "/admin/learn-cards/manage-cat"],
-      ["Emergency information", "/admin/emergency"],
+      ["Learning Guides", "/admin/learn-cards"],
+      ["Learning Topics", "/admin/learn-cards/manage-cat"],
+      ["Emergency Information", "/admin/emergency"],
     ],
   },
   {
-    label: "Check your changes",
-    items: [["Try the chatbot", "/admin/chatbot"]],
+    label: "Check Your Changes",
+    items: [["Try the Chatbot", "/admin/chatbot"]],
   },
   {
-    label: "Other tools",
+    label: "Other Tools",
     items: [
-      ["Service task library", "/admin/maintenance-items"],
-      ["Topics & videos", "/admin/scopes"],
+      ["Service Task Library", "/admin/maintenance-items"],
+      ["Topics & Videos", "/admin/scopes"],
+      ["Account Security", "/admin/account-security"],
     ],
   },
 ];
@@ -78,7 +79,7 @@ export default function NavBar() {
           aria-controls="admin-navigation"
           onClick={() => setOpen(!open)}
         >
-          {open ? "Close menu" : "Menu"}
+          {open ? "Close Menu" : "Menu"}
         </Button>
       </Flex>
       <Stack
@@ -89,7 +90,7 @@ export default function NavBar() {
       >
         {groups.map((group) => (
           <Box key={group.label}>
-            <Text color="#abb7c4" fontSize="sm" px={3} mb={2}>
+            <Text color="#ffe08a" fontSize="sm" px={3} mb={2}>
               {group.label}
             </Text>
             <Stack gap={1}>
@@ -110,8 +111,8 @@ export default function NavBar() {
                     justifyContent="start"
                     fontWeight={active ? "650" : "400"}
                     bg={active ? "brand.400" : "transparent"}
-                    color={active ? "ink" : "#e2e7ed"}
-                    _hover={{ bg: active ? "brand.300" : "#303d49" }}
+                    color={active ? "ink" : "#fff8e6"}
+                    _hover={{ bg: active ? "brand.300" : "#493b16" }}
                     px={3}
                     minH="42px"
                   >
@@ -138,7 +139,7 @@ export default function NavBar() {
         <Text fontSize="sm" fontWeight="600">
           {session.user?.display_name || "Administrator"}
         </Text>
-        <Text fontSize="sm" color="#abb7c4" overflowWrap="anywhere" mt={1}>
+        <Text fontSize="sm" color="#ffe08a" overflowWrap="anywhere" mt={1}>
           {session.user?.email}
         </Text>
         {error && (
@@ -150,7 +151,7 @@ export default function NavBar() {
           mt={3}
           size="sm"
           variant="plain"
-          color="#e2e7ed"
+          color="#fff8e6"
           px={0}
           loading={signingOut}
           onClick={async () => {
@@ -164,7 +165,7 @@ export default function NavBar() {
             }
           }}
         >
-          Sign out
+          Sign Out
         </Button>
       </Box>
     </Box>

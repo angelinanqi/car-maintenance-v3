@@ -7,7 +7,8 @@ function positiveInteger(name, raw, fallback) {
   return value;
 }
 
-export const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/+$/, "");
+// Same-origin proxy also authenticates private image/document requests.
+export const API_URL = "/api/backend";
 export const CHAT_MAX_MESSAGE_LENGTH = positiveInteger("CHAT_MAX_MESSAGE_LENGTH", process.env.NEXT_PUBLIC_CHAT_MAX_MESSAGE_LENGTH, 4000);
 export const DOCUMENT_MAX_FILES = positiveInteger("NEXT_PUBLIC_DOCUMENT_MAX_FILES", process.env.NEXT_PUBLIC_DOCUMENT_MAX_FILES, 20);
 export const DOCUMENT_MAX_BYTES = positiveInteger("NEXT_PUBLIC_DOCUMENT_MAX_BYTES", process.env.NEXT_PUBLIC_DOCUMENT_MAX_BYTES, 52428800);

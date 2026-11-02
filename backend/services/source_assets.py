@@ -88,6 +88,12 @@ def resolve_manual_sources(sources, scope, session_id, user, *, browse=False):
             raise HTTPException(409, 'The manual source changed. Retry the question.')
         result = {'document_id': identity, 'source_revision': document['source_revision'],
                   'document_title': document['name']}
+        if document.get('source_type') == 'md' or document.get('original_filename', '').startswith('website-'):
+            with extraction(document) as archive:
+                article = json.loads(archive.read('metadata/article.json')) if 'metadata/article.json' in archive.namelist() else None
+            if article:
+                result.update(source_kind='website', title=article['article_title'],
+                              original_url=article['original_url'], retrieved_at=article['retrieved_at'])
         if original_download_allowed(document, user):
             result['source_endpoint'] = (
                 f"/chat/sessions/{session_id}/sources/{identity}/{document['source_revision']}/original")

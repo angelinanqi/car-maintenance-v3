@@ -31,6 +31,7 @@ export function ManufacturerEditor({
 }: CommonProps<Manufacturer>) {
   const original = { name: row?.name || "", active: row?.active ?? true };
   const [draft, setDraft] = useState(original);
+  const [createId] = useState(() => crypto.randomUUID());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -46,6 +47,7 @@ export function ManufacturerEditor({
       onSaved(
         await saveManufacturer(row?.id || "", {
           ...draft,
+          ...(!row ? { id: createId } : {}),
           name: draft.name.trim(),
         }),
       );
@@ -107,6 +109,7 @@ export function ModelEditor({
     active: row?.active ?? true,
   };
   const [draft, setDraft] = useState(original);
+  const [createId] = useState(() => crypto.randomUUID());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const maker = data.manufacturers.find((m) => m.id === draft.manufacturer_id);
@@ -121,7 +124,7 @@ export function ModelEditor({
     setError("");
     try {
       onSaved(
-        await saveModel(row?.id || "", { ...draft, name: draft.name.trim() }),
+        await saveModel(row?.id || "", { ...draft, ...(!row ? { id: createId } : {}), name: draft.name.trim() }),
       );
     } catch (cause) {
       setError((cause as Error).message);
@@ -216,6 +219,7 @@ export function VehicleEditor({
     code: row?.code || "",
   };
   const [draft, setDraft] = useState(original);
+  const [createId] = useState(() => crypto.randomUUID());
   const [manufacturerId, setManufacturerId] = useState(
     data.models.find((m) => m.id === row?.model_id)?.manufacturer_id || "",
   );
@@ -263,6 +267,7 @@ export function VehicleEditor({
     try {
       const saved = await saveVehicle(row?.id || "", {
         ...draft,
+        ...(!row ? { id: createId } : {}),
         name: draft.name.trim(),
         code,
         model_id: draft.model_id,

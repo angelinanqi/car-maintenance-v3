@@ -1,4 +1,5 @@
 "use client";
+import Pagination, { usePagination } from "@/components/admin/Pagination";
 
 import { useEffect, useState } from "react";
 import NextLink from "next/link";
@@ -103,9 +104,10 @@ export default function MaintenanceItemsPage() {
     setAction("");
     setStatus("all");
   }
+  const pagination = usePagination(visible, JSON.stringify([query, category, action, status]));
   return (
     <AdminLayout
-      title="Service task library"
+      title="Service Task Library"
       description="The names of service tasks used across vehicles, such as checking tyres or replacing engine oil. Open a vehicle to set when each task is needed."
     >
       <Stack gap={5}>
@@ -203,7 +205,7 @@ export default function MaintenanceItemsPage() {
           </Text>
         )}
         <Stack as="ul" gap={3} m={0} p={0} listStyleType="none">
-          {visible.map((row) => {
+          {pagination.items.map((row) => {
             const related = guides.filter(
               (guide: { maintenance_item_ids?: string[] }) =>
                 guide.maintenance_item_ids?.includes(row.id),
@@ -284,8 +286,8 @@ export default function MaintenanceItemsPage() {
           <Box bg="white" p={8} borderRadius="10px">
             <Heading as="h2" size="md">
               {items.length
-                ? "No matching items"
-                : "Start your maintenance library"}
+                ? "No Matching Items"
+                : "Start Your Maintenance Library"}
             </Heading>
             <Text mt={2} color="muted">
               {items.length
@@ -308,6 +310,7 @@ export default function MaintenanceItemsPage() {
             )}
           </Box>
         )}
+        <Pagination {...pagination} label="Service Tasks" />
         <Flex
           bg="brand.100"
           p={5}

@@ -193,7 +193,7 @@ export default function DocumentTests({ document, onDirty }) {
   }
 
   return <Box id="document-tests" scrollMarginTop="130px" bg="white" p={{ base: 5, md: 7 }} borderRadius="12px">
-    <Heading size="lg" mb={3}>Test this document</Heading>
+    <Heading size="lg" mb={3}>Test This Document</Heading>
     <Text color="muted">Ask saved questions using this document and its selected vehicle or topic. Tests use the normal answer pipeline with only this reference available. Results and review notes are private.</Text>
     {error && <Text role="alert" mt={3}>{error}</Text>}
     {notice && <Text role="status" mt={3}>{notice}</Text>}
@@ -214,7 +214,7 @@ export default function DocumentTests({ document, onDirty }) {
           onClick={() => runQuestions(work.questions.filter((question) => chosen.includes(question.id)))}>Run selected questions ({chosen.filter((id) => work.questions.some((question) => question.id === id)).length})</Button>
       </Flex>
       {showForm && <Stack gap={3} p={4} bg="canvas" borderRadius="8px">
-        <Heading size="sm">{editing ? "Edit test question" : "New test question"}</Heading>
+        <Heading size="sm">{editing ? "Edit Test Question" : "New Test Question"}</Heading>
         <FormField label="Test context"><AdminSelect value={form.context} disabled={loading || !!running} onChange={(event) => setForm({ ...form, context: event.target.value })}>
           <option value="">Choose a covered vehicle or topic</option>
           {work.contexts.map((context) => <option key={`${context.scope_type}:${context.scope_id}`} value={`${context.scope_type}:${context.scope_id}`}>{context.label} · {context.scope_type}</option>)}
@@ -283,10 +283,10 @@ function TestResult({ run, document, stale, disabled, onDirty, onSave }) {
       {reasons[result.diagnostics.reason] && <Text fontSize="sm" color="orange.800">{reasons[result.diagnostics.reason]}</Text>}
       <Box bg="canvas" p={4} borderRadius="8px"><ChatAnswer>{result.answer}</ChatAnswer></Box>
       {result.sources.length > 0 && <Text fontSize="sm">Citations: {result.sources.map((source) => `${source.label}${source.section_path?.length ? ` · ${source.section_path.join(" → ")}` : ""}`).join("; ")}</Text>}
-      <Heading size="sm">Retrieved evidence</Heading>
+      <Heading size="sm">Retrieved Evidence</Heading>
       <Text fontSize="sm" color="muted">Retrieved content may be unused or excluded. Citation labels identify evidence cited by the answer. Page links appear only where source mapping is available.</Text>
       {result.evidence.map((evidence, index) => <Box as="details" key={`${evidence.chunk_id}:${evidence.element_id}:${index}`} open={index === 0} borderWidth="1px" borderRadius="8px" p={3}>
-        <Box as="summary" cursor="pointer">{evidence.label ? `${evidence.label} · ` : ""}{evidence.kind} · {evidence.cited ? "Cited" : evidence.selected_reference ? "Selected reference" : evidence.eligible ? "Available, not cited" : "Not supplied as answer evidence"}</Box>
+        <Box as="summary" cursor="pointer">{evidence.label ? `${evidence.label} · ` : ""}{evidence.kind} · {evidence.cited ? "Cited" : evidence.selected_reference ? "Selected Reference" : evidence.eligible ? "Available, Not Cited" : "Not Supplied as Answer Evidence"}</Box>
         <Stack gap={3} mt={3}>
           {evidence.section_path.length > 0 && <Text fontSize="sm">{evidence.section_path.join(" → ")}</Text>}
           {evidence.exclusion && <Text fontSize="sm" color="orange.800">Excluded: {evidence.exclusion}</Text>}
@@ -298,12 +298,12 @@ function TestResult({ run, document, stale, disabled, onDirty, onSave }) {
         </Stack>
       </Box>)}
       {!result.evidence.length && <Text>No document passages were retrieved for this response.</Text>}
-      <Box as="details"><Box as="summary" cursor="pointer">Test details</Box><Text fontSize="sm" mt={2}>Provider: {result.diagnostics.provider || "Not used"} · Model: {result.diagnostics.model || "Not used"} · {(result.diagnostics.elapsed_ms / 1000).toFixed(1)} seconds</Text>
+      <Box as="details"><Box as="summary" cursor="pointer">Test Details</Box><Text fontSize="sm" mt={2}>Provider: {result.diagnostics.provider || "Not used"} · Model: {result.diagnostics.model || "Not used"} · {(result.diagnostics.elapsed_ms / 1000).toFixed(1)} seconds</Text>
         <Text fontSize="sm">{result.diagnostics.retrieved_count} retrieved; {result.diagnostics.eligible_count} eligible.{result.diagnostics.evidence_truncated ? " Evidence preview limited to 20 records." : ""}{result.diagnostics.fallback_used ? " A fallback provider was used." : ""}</Text>
         {result.diagnostics.reason && <Text fontSize="sm">Decision detail: {result.diagnostics.reason}</Text>}</Box>
     </>}
     {run.status === "completed" ? <Stack gap={3} bg="canvas" p={4} borderRadius="8px">
-      <Heading size="sm">Review this result</Heading>
+      <Heading size="sm">Review This Result</Heading>
       <FormField label="Test review decision"><AdminSelect value={decision} disabled={disabled || !reviewable} onChange={(event) => setDecision(event.target.value)}>{Object.entries(decisions).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</AdminSelect></FormField>
       <FormField label="Test review note"><Textarea value={note} maxLength={2000} disabled={disabled || !reviewable} onChange={(event) => setNote(event.target.value)} placeholder="Record incorrect values, missing conditions, or evidence to check." /></FormField>
       <Flex gap={3} wrap="wrap"><Button disabled={disabled || !reviewable || !dirty || decision === "needs_fixing" && !note.trim()} onClick={() => onSave({ version: run.review_version, decision, note })}>Save test review</Button>

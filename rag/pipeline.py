@@ -1,9 +1,10 @@
 """Index extracted Markdown supplied by the production document worker."""
 from pathlib import Path
+from contextlib import closing
 import json
 import re
 import shutil
-from shared.source_elements import ELEMENT_PATTERN, FORMAT_VERSION
+from shared.source_elements import ELEMENT_PATTERN, FORMAT_VERSION, element_parts
 from shared.table_evidence import table_fragments, table_search_text
 from shared.visual_identity import image_search_text
 from shared.source_pages import copy_page_assets
@@ -52,12 +53,22 @@ def run_pipeline(
     if not element_path.is_file():
         raise ValueError('Extraction is missing elements.json. Reprocess the document through the backend.')
     elements = json.loads(element_path.read_text(encoding='utf-8'))
+    if elements.get('article'):
+        article = elements['article']
+        metadata = {**(metadata or {}), 'source_kind': 'website',
+                    'original_url': article['original_url'], 'article_title': article['article_title'],
+                    'retrieved_at': article['retrieved_at'], 'content_sha256': article['content_sha256']}
     if elements.get('format_version') != FORMAT_VERSION:
         raise ValueError('Reprocess extraction to the current source-element format')
     copy_page_assets(elements, source.parent, output_dir / 'assets' / name)
     for element in elements['elements']:
         element['original_section_path'] = element['section_path'].copy()
         element['section_path'] = render_section_path(element['section_path'])
+    asset_elements = list(elements['elements'])
+    for element in elements['elements']:
+        if element.get('parts'):
+            asset_elements.extend(element_parts(element))
+    for element in asset_elements:
         reference = element.get('asset_path') if element['kind'] == 'image' else element.get('visual_asset_path')
         if reference and element.get('asset_sha256'):
             from shared.source_elements import image_path
@@ -156,13 +167,16 @@ def run_pipeline(
     staged.write_text(json.dumps(elements, ensure_ascii=False), encoding='utf-8')
     staged.replace(sources / f'{name}.json')
 
-    from rag.app.embedding.embedder import Embedder
+    from rag.app.embedding import embedder
     from rag.app.embedding.vector_store import VectorStore
     from rag.app.embedding.ingestion import process_document
 
-    count = process_document(
-        chunks_path, Embedder(), VectorStore(chroma_path), extra_metadata={**(metadata or {}), 'format_version': FORMAT_VERSION}
-    )
+    store = VectorStore(chroma_path)
+    with closing(store.client):
+        count = process_document(
+            chunks_path, embedder, store,
+            extra_metadata={**(metadata or {}), 'format_version': FORMAT_VERSION}
+        )
     # Optional review artifacts never enter embeddings or affect index success.
     try:
         from shared.maintenance_extraction import prepare_safely

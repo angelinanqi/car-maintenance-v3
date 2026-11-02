@@ -1,5 +1,8 @@
 """Account-owned, immutable conversation scopes and server-loaded history."""
 import hashlib
+import asyncio
+import json
+import logging
 import secrets
 from copy import deepcopy
 from uuid import UUID
@@ -11,10 +14,35 @@ from backend.services import rag_client
 from backend.services import vehicle_profiles
 from backend.services import personal_maintenance
 from backend import settings
+from shared.safety import immediate_emergency, emergency_guidance
 
 # One process is the existing supported backend deployment. Concurrent turns
 # in one conversation are rejected instead of interleaving their histories.
 _active = set()
+EMERGENCY_PROTOCOL_TIMEOUT = 1.0
+
+
+def create_session(session_id, token, user):
+    from backend.locks import content_lock
+    with content_lock('chat:' + session_id):
+        existing = db.all_rows('chat_sessions', id=session_id)
+        if existing:
+            row = authorize_session(session_id, token, user)
+            enforce_automatic_vehicle(row, user)
+        else:
+            vehicle = vehicle_profiles.active_vehicle(user)
+            values = {'id': session_id, 'automatic': True, 'user_id': user['id'],
+                      'user_vehicle_id': vehicle['id'] if vehicle else None,
+                      'vehicle_id': vehicle['catalogue_id'] if vehicle else None,
+                      'token_hash': hashlib.sha256(token.encode()).hexdigest()}
+            enforce_automatic_vehicle(values, user)
+            db.insert('chat_sessions', values)
+    return {'session_id': session_id, 'session_token': token}
+
+
+def request_hash(request):
+    values = request.model_dump(mode='json', exclude={'session_token', 'conversation'})
+    return hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()
 
 
 def enforce_vehicle(user, kind, scope_id, personal_id=None):
@@ -51,11 +79,19 @@ def enforce_automatic_vehicle(row, user):
     return catalogue_id or 'general'
 
 
-def automatic_scope(row, user):
-    return scopes.resolve('auto', enforce_automatic_vehicle(row, user))
+def conversation_scope(kind, identity, *, safety_only=False):
+    if not safety_only:
+        return scopes.resolve(kind, identity)
+    # Safety guidance uses no manuals or personal maintenance evidence.
+    return {'scope_type': kind, 'scope_id': str(identity), 'label': 'Emergency assistance',
+            'document_ids': [], 'document_metadata': {}, 'content_sources': [], 'video_ids': []}
 
 
-def load(request, user):
+def automatic_scope(row, user, *, safety_only=False):
+    return conversation_scope('auto', enforce_automatic_vehicle(row, user), safety_only=safety_only)
+
+
+def load(request, user, *, safety_only=False):
     token = request.session_token
     automatic = not request.scope_type and not request.scope_id and not request.car_model
     if request.session_id:
@@ -63,7 +99,9 @@ def load(request, user):
         if row.get('automatic'):
             if request.scope_type or request.scope_id:
                 raise HTTPException(409, 'Start a new chat to change conversation mode.')
-            scope = automatic_scope(row, user)
+            scope = automatic_scope(row, user, safety_only=safety_only)
+            if safety_only:
+                return row, token, scope, [], None, None
             profile = vehicle_profiles.load(user)
             return row, token, scope, recent_messages(row['id']), profile, personal_maintenance.load(user, profile)
         kind = "vehicle" if row.get("vehicle_id") else "category"
@@ -78,9 +116,11 @@ def load(request, user):
                       'user_vehicle_id': vehicle['id'] if vehicle else None,
                       'vehicle_id': vehicle['catalogue_id'] if vehicle else None,
                       'token_hash': hashlib.sha256(token.encode()).hexdigest()}
-            scope = automatic_scope(values, user)
-            profile = vehicle_profiles.load(user)
+            scope = automatic_scope(values, user, safety_only=safety_only)
+            profile = None if safety_only else vehicle_profiles.load(user)
             row = db.insert('chat_sessions', values)
+            if safety_only:
+                return row, token, scope, [], None, None
             return row, token, scope, [], profile, personal_maintenance.load(user, profile)
         kind, identity = request.scope_type, request.scope_id
         if not kind or not identity:
@@ -95,13 +135,15 @@ def load(request, user):
         except ValueError:
             raise HTTPException(422, "Use a valid knowledge scope identifier.") from None
         personal_id = enforce_vehicle(user, kind, identity)
-        scopes.resolve(kind, identity)
+        conversation_scope(kind, identity, safety_only=safety_only)
         token = secrets.token_urlsafe(32)
         row = db.insert("chat_sessions", {kind + "_id": str(identity),
                          'user_id': user['id'], 'user_vehicle_id': personal_id,
                          "token_hash": hashlib.sha256(token.encode()).hexdigest()})
     enforce_vehicle(user, kind, identity, row.get('user_vehicle_id'))
-    scope = scopes.resolve(kind, identity)
+    scope = conversation_scope(kind, identity, safety_only=safety_only)
+    if safety_only:
+        return row, token, scope, [], None, None
     profile = vehicle_profiles.load(user)
     personal_id = profile['vehicle_id'] if profile else None
     if user.get('role') != 'admin' and personal_id != row.get('user_vehicle_id'):
@@ -134,9 +176,38 @@ async def send(request, user):
     if identity:
         _active.add(identity)
     try:
-        row, token, scope, history, profile, maintenance = await run_in_threadpool(load, request, user)
+        safety_only = immediate_emergency(request.message)
+        row, token, scope, history, profile, maintenance = await run_in_threadpool(
+            load, request, user, safety_only=safety_only)
         identity = row["id"]
         _active.add(identity)
+        if request.request_id:
+            saved = await run_in_threadpool(db.all_rows, 'chat_messages', id=str(request.request_id))
+            if saved:
+                message = saved[0]
+                if (message['session_id'] != identity or message['role'] != 'assistant'
+                        or (message.get('reply') or {}).get('request_hash') != request_hash(request)):
+                    raise HTTPException(409, 'This question ID has already been used. Restore the conversation before continuing.')
+                if safety_only:
+                    try:
+                        scope['content_sources'] = await asyncio.wait_for(
+                            run_in_threadpool(optional_emergency_sources), EMERGENCY_PROTOCOL_TIMEOUT)
+                    except TimeoutError:
+                        scope['content_sources'] = []
+                restored = await run_in_threadpool(restore_messages, [message], scope, identity, user)
+                return {**restored[0]['reply'], 'session_id': identity, 'session_token': token,
+                        'scope_type': scope['scope_type'], 'scope_id': scope['scope_id']}
+        if safety_only:
+            answer = await emergency_reply(request.message)
+            if row.get('automatic'):
+                await run_in_threadpool(enforce_automatic_vehicle, row, user)
+            else:
+                await run_in_threadpool(enforce_vehicle, user, scope['scope_type'], scope['scope_id'], row.get('user_vehicle_id'))
+            answer['message_id'] = await run_in_threadpool(
+                save_turn, identity, request.message, answer, [],
+                str(request.request_id) if request.request_id else None, request_hash(request))
+            return {**answer, 'session_id': identity, 'session_token': token,
+                    'scope_type': scope['scope_type'], 'scope_id': scope['scope_id']}
         activity_context = None
         activity_notice = None
         if activity:
@@ -156,6 +227,8 @@ async def send(request, user):
         answer = await rag_client.query(request.message, history, scope, vehicle_profile=profile,
                                        maintenance_context=rag_maintenance, activity_context=activity_context,
                                        assistance=getattr(request, 'assistance', None))
+        if answer.get('response_type') in {'generation_error', 'retrieval_error'}:
+            raise HTTPException(503, 'The AI service could not complete this question. Retry shortly.')
         if activity_notice:
             answer['activity_notice'] = activity_notice
         attachment_refs = deepcopy(answer.get('attachments', []))
@@ -191,25 +264,64 @@ async def send(request, user):
                 raise HTTPException(409, 'The activity changed. Reopen it before retrying.')
             await run_in_threadpool(db.update, 'chat_sessions', identity,
                                     {'activity': activity.model_dump(mode='json')})
-        if answer.get('response_type') not in {'generation_error', 'retrieval_error'}:
-            answer['message_id'] = await run_in_threadpool(save_turn, identity, request.message, answer, attachment_refs)
+        answer['message_id'] = await run_in_threadpool(
+            save_turn, identity, request.message, answer, attachment_refs,
+            str(request.request_id) if request.request_id else None, request_hash(request))
         return {**answer, "session_id": identity, "session_token": token,
                 "scope_type": scope["scope_type"], "scope_id": scope["scope_id"]}
     finally:
         _active.discard(identity)
 
 
-def save_turn(session_id, question, answer, attachment_refs=None):
+def optional_emergency_sources():
+    from backend.services.content_sources import emergency_sources
+    try:
+        return emergency_sources()
+    except Exception as error:
+        # Only optional published-content loading is recoverable here. Session,
+        # ownership and vehicle failures are never converted into safety replies.
+        logging.getLogger(__name__).warning('Emergency protocols unavailable (%s)', type(error).__name__)
+        return []
+
+
+def reviewed_emergency_supplement(question):
+    from backend.services.content_sources import emergency_supplement
+    text, sources = emergency_supplement(question, optional_emergency_sources())
+    if sources:
+        # Recheck the exact revision before returning reviewed protocol text.
+        current = {(source['source_id'], source['revision']) for source in optional_emergency_sources()}
+        if any((source['source_id'], source['revision']) not in current for source in sources):
+            text, sources = '', []
+    return text, sources
+
+
+async def emergency_reply(question):
+    # Optional protocol reads have one shared, short deadline. A slow content
+    # dependency cannot delay basic guidance until its normal database timeout.
+    text, sources = '', []
+    try:
+        text, sources = await asyncio.wait_for(
+            run_in_threadpool(reviewed_emergency_supplement, question), EMERGENCY_PROTOCOL_TIMEOUT)
+    except Exception as error:
+        logging.getLogger(__name__).warning('Emergency supplement skipped (%s)', type(error).__name__)
+    return {'answer': emergency_guidance(question) + text, 'route': 'emergency',
+            'response_type': 'emergency_protocol' if sources else 'emergency',
+            'sources': sources, 'videos': [], 'attachments': [], 'manual_links': [],
+            'recommended_guides': [], 'manual_relevant': False, 'external_warning': False}
+
+
+def save_turn(session_id, question, answer, attachment_refs=None, message_id=None, fingerprint=None):
     # One database insert makes the pair visible atomically in order.
     from datetime import datetime, timezone, timedelta
     now = datetime.now(timezone.utc)
     from uuid import uuid4
-    message_id = str(uuid4())
+    message_id = message_id or str(uuid4())
     # Signed media URLs are regenerated under current source permissions on restore.
     reply = deepcopy(answer)
     reply.pop('attachments', None)
     reply.pop('manual_links', None)
     reply['attachment_refs'] = attachment_refs or []
+    reply['request_hash'] = fingerprint
     db.client().table("chat_messages").insert([
         {"id": str(uuid4()), "session_id": session_id, "role": "user", "content": question,
          "reply": None, "created_at": now.isoformat()},
@@ -228,18 +340,28 @@ def resume(session_id, user, message_id=None):
         enforce_vehicle(user, scope['scope_type'], scope['scope_id'], row.get('user_vehicle_id'))
     if session_id in _active:
         raise HTTPException(409, 'A reply is pending. Retry restoring this conversation shortly.')
-    messages = db.client().table('chat_messages').select('*').eq('session_id', session_id).order(
-        'created_at', desc=True).order('id', desc=True).limit(settings.CHAT_HISTORY_LIMIT).execute().data
-    if message_id and not any(message['id'] == message_id for message in messages):
-        anchor = db.get('chat_messages', message_id)
-        if anchor['session_id'] != session_id or anchor['role'] != 'assistant':
+    # Reading history is independent of the short context window sent to the model.
+    messages = db.all_rows('chat_messages', session_id=session_id)
+    if message_id:
+        anchor = next((message for message in messages if message['id'] == message_id), None)
+        if not anchor or anchor['role'] != 'assistant':
             raise HTTPException(404, 'This saved explanation does not belong to the conversation.')
-        # Include the explicitly saved older answer even outside the recent window.
-        messages.append(anchor)
+    result = restore_messages(messages, scope, session_id, user)
+    token = secrets.token_urlsafe(32)
+    db.update('chat_sessions', session_id, {'token_hash': hashlib.sha256(token.encode()).hexdigest()})
+    return {'session_id': session_id, 'session_token': token, 'activity': row.get('activity'), 'messages': result,
+            'selected_message_id': message_id}
+
+
+def restore_messages(messages, scope, session_id, user):
     content = {(source['source_type'], source['source_id']): source for source in scope.get('content_sources', [])}
     result = []
-    for message in reversed(messages):
+    for message in messages:
         reply = deepcopy(message.get('reply') or {})
+        reply.pop('request_hash', None)
+        from backend.services.content_sources import resolve_guide_recommendations
+        reply['recommended_guides'] = resolve_guide_recommendations(
+            reply.get('recommended_guides', []), scope.get('content_sources', []))
         # Historical answers can be read, but old citations never regain permissions.
         valid = []
         for source in reply.get('sources', []):
@@ -253,7 +375,9 @@ def resume(session_id, user, message_id=None):
         from backend.services.source_assets import resolve_manual_sources
         manuals = [source for source in reply.get('sources', []) if source.get('source_type', 'manual') == 'manual']
         try:
-            resolved, links = resolve_manual_sources(manuals, scope, session_id, user)
+            resolved, links = resolve_manual_sources(
+                manuals, scope, session_id, user,
+                browse=reply.get('response_type') == 'insufficient_information')
         except (HTTPException, ValueError):
             resolved, links = [], []
         restored_attachments = []
@@ -267,7 +391,4 @@ def resume(session_id, user, message_id=None):
                      attachments=restored_attachments, videos=[], message_id=message['id'])
         result.append({'id': message['id'], 'role': message['role'], 'content': message['content'],
                        'reply': reply if message['role'] == 'assistant' else None})
-    token = secrets.token_urlsafe(32)
-    db.update('chat_sessions', session_id, {'token_hash': hashlib.sha256(token.encode()).hexdigest()})
-    return {'session_id': session_id, 'session_token': token, 'activity': row.get('activity'), 'messages': result,
-            'selected_message_id': message_id}
+    return result

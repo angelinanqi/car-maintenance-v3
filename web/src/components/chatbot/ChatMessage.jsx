@@ -20,12 +20,13 @@ function sourceDate(value) {
 }
 
 // The RAG response uses timestamps in seconds and includes timestamped URLs.
-export default function ChatMessage({ message }) {
+export default function ChatMessage({ message, onMaintenance, onEmergency, onGuide }) {
   const isUser = message.role === "user";
   const sources = (Array.isArray(message.sources) ? message.sources : []).filter(Boolean);
   const failed = ["generation_error", "retrieval_error"].includes(message.response_type);
   const attachments = (Array.isArray(message.attachments) ? message.attachments : []).filter(Boolean);
   const manualLinks = (Array.isArray(message.manual_links) ? message.manual_links : []).filter(Boolean);
+  const guides = (Array.isArray(message.recommended_guides) ? message.recommended_guides : []).filter(Boolean);
 
   return (
     <Box
@@ -66,6 +67,19 @@ export default function ChatMessage({ message }) {
             The service could not complete this answer. Please try again shortly.
           </Text>
         )}
+        {!isUser && (message.route === 'emergency' || sources.some(source => source.source_type === 'emergency_protocol')) && onEmergency && <Button
+          colorPalette={message.route === 'emergency' ? 'red' : 'brand'}
+          variant={message.route === 'emergency' ? 'solid' : 'outline'} onClick={onEmergency}>
+          {message.route === 'emergency' ? 'Open emergency help' : 'Explore emergency guidance'}
+        </Button>}
+        {!isUser && onGuide && guides.length > 0 && <Box as="section" aria-label="Further learning">
+          <Text fontSize="sm" fontWeight="semibold" mb={2}>Further learning</Text>
+          <Stack gap={2}>
+            {guides.map(guide => <Button key={guide.source_id} variant="outline" whiteSpace="normal" height="auto" py={2}
+              onClick={() => onGuide(guide.source_id)}>Open guide: {guide.title}</Button>)}
+          </Stack>
+        </Box>}
+        {!isUser && sources.some(source => source.source_type === 'personal_maintenance') && onMaintenance && <Button variant="outline" onClick={onMaintenance}>View maintenance</Button>}
         {!isUser && sources.length > 0 && <Box as="section" aria-label="Supporting sources" mt={1} pt={3} borderTopWidth="1px" borderColor="gray.200">
           <Text fontSize="xs" fontWeight="semibold" color="muted" mb={3}>Supporting sources</Text>
           <Stack gap={3}>
@@ -112,7 +126,7 @@ export default function ChatMessage({ message }) {
             borderRadius="sm"
           >
             <Text fontSize="sm" color="orange.900">
-              Verify current legal requirements with the relevant authority.
+              This answer includes information outside the available manuals.
             </Text>
           </Box>
         )}

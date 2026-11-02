@@ -12,6 +12,9 @@ export default function DocumentAvailability({ document }) {
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const coverage = documentCoverage(document.id, knowledge);
+  const manualAvailable = document.document_type === "owners_manual" &&
+    document.mobile_visible && document.published && document.status === "processed" &&
+    document.indexed_revision === document.source_revision && document.chunk_count > 0;
   const destinations = [
     ...knowledge.vehicles
       .filter((row) => coverage.vehicle_ids.includes(row.id))
@@ -63,17 +66,18 @@ export default function DocumentAvailability({ document }) {
   }
   return (
     <Stack gap={3}>
-      {document.document_type === "owners_manual" &&
-        document.mobile_visible && (
-          <Text fontWeight="600">
-            This owner’s manual is available in the mobile manual library for
-            its covered vehicles
-            {document.vehicle_independent ? " and as general guidance" : ""}.
-          </Text>
-        )}
+      <Text fontWeight="600">Document: Published</Text>
       <Text>
-        The document is published. Chatbot access also depends on whether each
-        vehicle or topic is enabled below.
+        Mobile manual library: {manualAvailable
+          ? `Available for covered vehicles${document.vehicle_independent ? " and as general guidance" : ""}.`
+          : document.document_type === "owners_manual"
+            ? "Not currently available. The manual must be visible and fully prepared."
+            : "Not listed. Only owner’s manuals appear in this library."}
+      </Text>
+      <Text fontWeight="600">Chatbot access</Text>
+      <Text>Publication and chatbot access are separate. Check the vehicle and topic settings below.</Text>
+      <Text fontSize="sm" color="muted">
+        General chat uses topic documents only when they are marked as vehicle-independent guidance.
       </Text>
       {error && <Text role="alert">{error}</Text>}
       {destinations.map((destination) => {
@@ -96,16 +100,16 @@ export default function DocumentAvailability({ document }) {
               <Text fontWeight="600">{row.name}</Text>
               <Text fontSize="sm" color="muted">
                 {actual?.available
-                  ? "Available in the chatbot"
+                  ? "Scope enabled with published content"
                   : enabled
                     ? "Enabled. Refresh availability to check chatbot access."
-                    : "Not available in the chatbot"}
+                    : "Scope not enabled in the chatbot"}
               </Text>
             </Box>
             {kind === "category" && !row.published ? (
               <Button asChild variant="outline">
                 <NextLink href="/admin/learn-cards/manage-cat">
-                  Make learning topic available
+                  Manage topic publication
                 </NextLink>
               </Button>
             ) : !enabled ? (
