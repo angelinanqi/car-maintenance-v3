@@ -16,7 +16,6 @@ and a private RAG API using Gemini, hybrid Chroma/BM25S retrieval and reranking.
 | `scripts/` | Shared launcher, PDF renderer and trusted admin utilities. |
 | `output/` | Ignored persistent runtime files and rotating service logs. |
 | `dumpster/` | Ignored local archive, absent from fresh clones. |
-| `NEED-FOR-EVAL/tests/` | Focused regression tests, separated from production code. |
 
 **Viva:** MacBook M3 8 GB runs backend, production web and one RAG process with
 embedded Chroma and a document-indexing thread. Windows runs only MinerU 3.4.5.
@@ -37,10 +36,10 @@ py -3.12 -m venv .venv-ocr
 Invoke-RestMethod http://127.0.0.1:8010/health
 ```
 
-The launcher requires MinerU **3.4.5**, defaults to loopback port 8010, one
+The launcher requires MinerU **3.4.5**, uses loopback port 8010 from `app.config.json`, one
 concurrent request, no VLM preload, and output under `output/mineru-api`.
 `MINERU_API_HOST`, `MINERU_API_PORT`, `MINERU_API_OUTPUT_ROOT` and
-`MINERU_API_MAX_CONCURRENT_REQUESTS` override these defaults. Models load on the
+`MINERU_API_MAX_CONCURRENT_REQUESTS` can be configured in `app.config.json`. Models load on the
 first actual PDF; download and warm them before the viva. Verify a representative
 manual, including tables and images, rather than relying only on `/health`.
 Windows does not need Node, Flutter, Supabase service-role credentials or Gemini
@@ -129,11 +128,29 @@ and credential paths do not become valid Mac paths automatically. Use the Mac se
 above for native dependencies and adjust only machine-specific paths/addresses when
 needed; Windows continues to run OCR separately.
 
-Settings retain their existing names and JSON string values. Explicit process
-environment values take precedence, followed by dotenv values, then JSON settings;
-existing code defaults apply to omitted settings. Do not put secrets in JSON or
+Settings use JSON string values. Non-secret settings come from `app.config.json`,
+with code defaults for omitted settings. Explicit process environment values still
+take precedence. Python reads only these credentials from the root `.env`:
+`SUPABASE_SERVICE_ROLE_KEY`, `RAG_SERVICE_TOKEN`, `GEMINI_API_KEY`,
+`GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_PLACES_API_KEY`, and `YOUTUBE_API_KEY`.
+Old non-secret `.env` entries are ignored, including when omitted from JSON.
+The web configuration loader does not read the root `.env` at all.
+Do not put secrets in JSON or
 pass the root config to Flutter as a build asset. Invalid/missing JSON fails early
-with a filename-only error. OCR can run without `.env`; the app launcher requires it.
+with a filename-only error. `.env` is optional when the required credentials are
+already supplied through the process environment.
+
+All four service ports are listed together in `app.config.json`: `BACKEND_PORT`
+(`8000`), `FRONTEND_PORT` (`3000`), `RAG_HTTP_PORT` (`8001`), and `MINERU_API_PORT`
+(`8010`), plus `MINERU_TAILSCALE_HTTPS_PORT` (`443`). The launcher reads them through the environment populated by
+`load_configuration()`; they do not need entries in `.env`. Each port must be an
+integer from 1 to 65535; omitted or empty port settings use these fallback values.
+If you change a port, also update any matching URLs in
+`app.config.json` (`BACKEND_API_URL`, `CORS_ORIGINS`, `RAG_SERVICE_URL`,
+`RAG_BACKEND_URL`) and any manually configured Tailscale Serve targets.
+The OCR launcher updates its own Serve target automatically when enabled.
+`MINERU_API_URL`, when configured, is the backend's OCR endpoint;
+it can use a different public port from the local OCR listener.
 
 The settings below retain their existing meaning:
 
@@ -147,8 +164,9 @@ The settings below retain their existing meaning:
 | `CORS_ORIGINS` | `app.config.json`: explicit admin origins, including `https://MAC_FULL_MAGICDNS_NAME:8443` when used. |
 | `YOUTUBE_API_KEY`, `GOOGLE_PLACES_API_KEY` | Optional existing video/nearby integrations. |
 
-Keep the admin's existing `/api/backend` proxy. Do not set a remote public
-`NEXT_PUBLIC_API_URL` to bypass it. After configuring, build once:
+The admin uses its existing `/api/backend` proxy. `BACKEND_API_URL` is the
+server-side upstream address; the obsolete `NEXT_PUBLIC_API_URL` setting is no
+longer read. After configuring, build once:
 
 ```bash
 npm --prefix web run build
@@ -184,15 +202,31 @@ and active service credentials are retained unchanged. The unused `CHUNK_OVERLAP
 
 ## Private Tailscale HTTPS preparation
 
-**These are proposed one-time commands, not changes already applied. Obtain the
-separate approval required for live Serve, DNS, grants or security configuration.**
+The OCR launcher applies its Serve mapping when started with
+`MINERU_TAILSCALE_SERVE` set to `"true"` in `app.config.json` (currently enabled).
+The HTTPS port is `MINERU_TAILSCALE_HTTPS_PORT` (`"443"`); the forwarding target
+uses `MINERU_API_PORT` (`"8010"`). Run `start-ocr.cmd` normally; a separate Serve
+command is no longer needed. Tailscale must be installed, on PATH, connected,
+and have HTTPS enabled for the tailnet.
+
+The mapping is applied after OCR passes its local health check. It updates the
+root route on the configured HTTPS port, replacing any previous target there.
+The launcher does not reset other Serve routes or change DNS, grants or ACLs.
+No live Tailscale changes are made just by editing this file or the JSON.
+
+`--bg` saves the mapping across reboots and Tailscale restarts, but does not
+start OCR automatically: start OCR again after reboot. Closing the launcher
+stops OCR and leaves the Serve mapping saved. Setting `MINERU_TAILSCALE_SERVE`
+to `"false"` skips future Serve updates; to remove the saved mapping, run
+`tailscale serve --https=443 off` (use your configured HTTPS port).
+
 Install Tailscale on Mac, Windows and Android and join the same tailnet directly.
 Enable MagicDNS/HTTPS as appropriate for that tailnet. Use full device FQDNs from
 `tailscale status --json`, not guessed names. The current Windows device already
 has a Serve target for port 8000; inspect `tailscale serve status` before replacing
 it. A Mac device/hostname has not yet been verified in this environment.
 
-Proposed private HTTPS targets after approval:
+Equivalent manual Windows command, or use `start-ocr.cmd` with the settings above:
 
 ```powershell
 # Windows: replace the previous HTTPS 443 backend target only at cutover.
@@ -271,7 +305,8 @@ from overlapping. Different directories pointing at the same Chroma are unsuppor
 
 `RAG_INDEX_WORKER_MODE=external` retains the standalone worker arrangement when
 needed; the app launcher starts it in that mode. Direct `python -m rag.service`
-defaults to external mode for compatibility. Do not start a separate worker alongside
+also reads the JSON setting (currently `embedded`); it falls back to `external`
+only if the setting is omitted. Do not start a separate worker alongside
 embedded mode. Embedded-worker initialization failures stop RAG startup; per-document
 failures are logged/acknowledged and retried on the next pass. At shutdown, the
 worker stops polling and waits for its current pass. Finish active OCR/indexing
@@ -283,8 +318,11 @@ shutdown, leaving recoverable checkpoints for interrupted work.
 Build on Windows with the existing Flutter/Android tooling and existing signing key.
 Use actual public configuration values; no server keys belong in Dart defines.
 The existing release defines remain supported unchanged. `start-mobile.cmd` reads
-the JSON configuration and forwards only the public Supabase URL/key; continue to
-supply `API_BASE_URL` explicitly for the target host:
+the JSON configuration and forwards only `API_BASE_URL`, `SUPABASE_URL`, and
+`SUPABASE_PUBLISHABLE_KEY`. Set `API_BASE_URL` to the real backend address in JSON
+(it is currently empty because the deployment hostname is not known), or override
+it with an explicit `--dart-define=API_BASE_URL=...` argument. Direct `flutter build`
+commands still need the public Dart defines:
 
 ```powershell
 Push-Location mobile
@@ -341,7 +379,7 @@ Retained commands and supporting entry points:
 | `start-app.command` / `scripts/run.py app` / `start-app.cmd` | Managed production stack; `.command` is for Mac, `.cmd` for Windows. |
 | `scripts/run.py index [--once] [--restore-processed]` | Explicit local indexing/restoration with logs. |
 | `scripts/run.py youtube ...` | Existing manual YouTube ingestion; avoid simultaneous heavy jobs. |
-| `start-mobile.cmd` / `scripts/run.py mobile ...` | Development-only Flutter run; public Supabase defines injected. |
+| `start-mobile.cmd` / `scripts/run.py mobile ...` | Development-only Flutter run; public API and Supabase defines injected. |
 | `backend/__main__.py`, `rag/service.py`, `rag/index_worker.py` | Direct component entry points. |
 | `web/scripts/next.mjs`, npm `build`/`start` | Existing production web launcher/build wrapper. |
 | `scripts/render_pdf_pages.py` | Shared PDF page renderer, not an independent service. |

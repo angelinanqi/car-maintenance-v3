@@ -31,7 +31,7 @@ async function proxy(request, context) {
       }
       token = data.session?.access_token;
     }
-    const backendURL = (process.env.BACKEND_API_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/+$/, "");
+    const backendURL = (process.env.BACKEND_API_URL || "http://127.0.0.1:8000").replace(/\/+$/, "");
     const upstream = await forwardBackend(request, { path, backendURL, accessToken: token });
     const headers = new Headers({ "Cache-Control": "no-store" });
     for (const name of ["content-type", "content-disposition", "content-range", "accept-ranges", "location", "x-request-id", "retry-after"]) {

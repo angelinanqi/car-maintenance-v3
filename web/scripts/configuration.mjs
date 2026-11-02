@@ -1,10 +1,8 @@
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import nextEnv from "@next/env";
 
 export function loadConfiguration() {
   const root = new URL("../../", import.meta.url);
-  nextEnv.loadEnvConfig(fileURLToPath(root), false);
+  // The web app needs only non-secret JSON settings; root .env is for server credentials.
   let values;
   try {
     values = JSON.parse(readFileSync(new URL("app.config.json", root), "utf8"));

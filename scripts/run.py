@@ -182,7 +182,21 @@ def require_packages(rag):
 def require_settings(names):
     missing = [name for name in names if not os.getenv(name, "").strip()]
     if missing:
-        raise RuntimeError("Configure these settings in app.config.json or .env: " + ", ".join(missing))
+        raise RuntimeError(
+            "Missing settings: " + ", ".join(missing)
+            + ". Configure public settings in app.config.json and credentials in .env or the process environment."
+        )
+
+
+def configured_port(name, default):
+    # main() loads app.config.json into os.environ before launching any services.
+    try:
+        port = int(os.getenv(name) or default)
+    except ValueError:
+        raise ValueError(f"{name} must be an integer between 1 and 65535; configure it in app.config.json") from None
+    if not 1 <= port <= 65535:
+        raise ValueError(f"{name} must be between 1 and 65535; configure it in app.config.json")
+    return port
 
 
 def port_available(name, host, port):
@@ -208,17 +222,17 @@ def run_app(services, without_rag, no_browser):
         raise RuntimeError("Build the dashboard with npm --prefix web run build first.")
     require_settings(["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"])
     backend_host = os.getenv("BACKEND_HOST") or "127.0.0.1"
-    backend_port = int(os.getenv("BACKEND_PORT") or "8000")
-    frontend_port = int(os.getenv("FRONTEND_PORT") or "3000")
+    backend_port = configured_port("BACKEND_PORT", 8000)
+    frontend_port = configured_port("FRONTEND_PORT", 3000)
     frontend_host = os.getenv('FRONTEND_HOST') or '127.0.0.1'
     backend_url = local_url(backend_host, backend_port)
-    frontend_url = f"http://localhost:{frontend_port}"
+    frontend_url = local_url(frontend_host, frontend_port)
     port_available("Backend", backend_host, backend_port)
     port_available("Web dashboard", frontend_host, frontend_port)
     if not without_rag:
         require_settings(["RAG_SERVICE_TOKEN"])
-        rag_host = os.getenv("RAG_HTTP_HOST", "127.0.0.1")
-        rag_port = int(os.getenv("RAG_HTTP_PORT", "8001"))
+        rag_host = os.getenv("RAG_HTTP_HOST") or "127.0.0.1"
+        rag_port = configured_port("RAG_HTTP_PORT", 8001)
         rag_url = local_url(rag_host, rag_port)
         rag_startup_timeout = int(os.getenv("RAG_STARTUP_TIMEOUT_SECONDS") or "600")
         if rag_startup_timeout <= 0:
@@ -249,6 +263,34 @@ def run_app(services, without_rag, no_browser):
         time.sleep(0.5)
 
 
+def configure_ocr_tailscale(services, host, port):
+    enabled = os.getenv('MINERU_TAILSCALE_SERVE', 'false').strip().lower()
+    if enabled not in {'true', 'false'}:
+        raise ValueError('MINERU_TAILSCALE_SERVE must be true or false')
+    if enabled == 'false':
+        return
+    if host not in {'127.0.0.1', '0.0.0.0'}:
+        raise ValueError('Tailscale Serve requires MINERU_API_HOST to be 127.0.0.1 or 0.0.0.0')
+    https_port = configured_port('MINERU_TAILSCALE_HTTPS_PORT', 443)
+    tailscale = shutil.which('tailscale')
+    if not tailscale:
+        raise RuntimeError('Install Tailscale and add it to PATH, or set MINERU_TAILSCALE_SERVE to false.')
+    command = [tailscale, 'serve', '--bg', '--yes', f'--https={https_port}',
+               local_url('127.0.0.1', port)]
+    print(f'Configuring Tailscale HTTPS port {https_port} for OCR port {port}...', flush=True)
+    try:
+        result = subprocess.run(command, check=True, capture_output=True, text=True, timeout=30)
+    except subprocess.CalledProcessError as error:
+        details = (error.stderr or error.stdout or '').strip()
+        raise RuntimeError(f'Tailscale Serve failed. Ensure Tailscale is connected and HTTPS is enabled. {details}') from None
+    except subprocess.TimeoutExpired:
+        raise RuntimeError('Tailscale Serve timed out. Check Tailscale connectivity and HTTPS setup.') from None
+    output = result.stdout.strip()
+    if output:
+        print(output, flush=True)
+        services.record(services.launcher_name, output)
+
+
 def run_ocr_service(services):
     try:
         version = importlib.metadata.version('mineru')
@@ -260,15 +302,14 @@ def run_ocr_service(services):
     if not executable.is_file():
         raise RuntimeError('mineru-api is missing from the current Python environment')
     host = os.getenv('MINERU_API_HOST') or '127.0.0.1'
-    port = int(os.getenv('MINERU_API_PORT') or '8010')
-    if not 1 <= port <= 65535:
-        raise ValueError('MINERU_API_PORT must be between 1 and 65535')
+    port = configured_port('MINERU_API_PORT', 8010)
     port_available('MinerU OCR', host, port)
     os.environ.setdefault('MINERU_API_OUTPUT_ROOT', str(ROOT / 'output' / 'mineru-api'))
     os.environ.setdefault('MINERU_API_MAX_CONCURRENT_REQUESTS', '1')
     os.environ.setdefault('MINERU_API_DISABLE_ACCESS_LOG', '1')
     services.start('ocr', [str(executable), '--host', host, '--port', str(port)])
     services.wait_http('MinerU OCR', local_url(host, port) + '/health', timeout=180)
+    configure_ocr_tailscale(services, host, port)
     print('OCR ready. Models may still need a first document warmup. Ctrl+C stops this service.', flush=True)
     while True:
         services.check()
@@ -294,8 +335,6 @@ def main():
     try:
         if args.task not in {"mobile", "ocr"}:
             require_packages(rag=args.task == "youtube" or not args.without_rag)
-            if not (ROOT / ".env").is_file():
-                raise RuntimeError("Create and configure the root .env before launching. See README.md.")
         with launcher_lock(args.task):
             try:
                 if args.task == "mobile":
@@ -304,8 +343,8 @@ def main():
                         raise RuntimeError("Install Flutter and add its bin directory to PATH before starting mobile.")
                     # Only public client settings can enter the mobile build.
                     defines = []
-                    for name in ('SUPABASE_URL', 'SUPABASE_PUBLISHABLE_KEY'):
-                        if os.getenv(name) and not any(name + '=' in arg for arg in extra):
+                    for name in ('API_BASE_URL', 'SUPABASE_URL', 'SUPABASE_PUBLISHABLE_KEY'):
+                        if os.getenv(name) and not any(arg.startswith(f'--dart-define={name}=') for arg in extra):
                             defines.append(f'--dart-define={name}={os.environ[name]}')
                     process = services.start("mobile", [flutter, "run", *defines, *extra], cwd=ROOT / "mobile")
                     code = process.wait()

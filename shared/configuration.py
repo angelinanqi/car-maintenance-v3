@@ -3,14 +3,20 @@ import json
 import os
 from pathlib import Path
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+CREDENTIAL_SETTINGS = (
+    'SUPABASE_SERVICE_ROLE_KEY',
+    'RAG_SERVICE_TOKEN',
+    'GEMINI_API_KEY',
+    'GOOGLE_APPLICATION_CREDENTIALS',
+    'GOOGLE_PLACES_API_KEY',
+    'YOUTUBE_API_KEY',
+)
 
 
 def load_configuration():
-    # Preserve process and dotenv overrides for existing deployments.
-    load_dotenv(PROJECT_ROOT / '.env')
     path = PROJECT_ROOT / 'app.config.json'
     try:
         values = json.loads(path.read_text(encoding='utf-8'))
@@ -20,3 +26,9 @@ def load_configuration():
         raise ValueError('app.config.json must contain a JSON object of string settings')
     for name, value in values.items():
         os.environ.setdefault(name, value)
+    # Old non-secret dotenv entries must not override JSON settings or fallbacks.
+    credentials = dotenv_values(PROJECT_ROOT / '.env')
+    for name in CREDENTIAL_SETTINGS:
+        value = credentials.get(name)
+        if value is not None:
+            os.environ.setdefault(name, value)

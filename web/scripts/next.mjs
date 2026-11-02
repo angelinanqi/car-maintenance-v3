@@ -8,7 +8,12 @@ loadConfiguration();
 
 const args = [command, ...process.argv.slice(3)];
 if (command === "start") {
-  args.push("--port", process.env.FRONTEND_PORT || "3000");
+  if (!args.some(arg => arg === "--port" || arg === "-p" || arg.startsWith("--port="))) {
+    args.push("--port", process.env.FRONTEND_PORT || "3000");
+  }
+  if (!args.some(arg => arg === "--hostname" || arg === "-H" || arg.startsWith("--hostname="))) {
+    args.push("--hostname", process.env.FRONTEND_HOST || "127.0.0.1");
+  }
 }
 
 const child = spawn(process.execPath, ["node_modules/next/dist/bin/next", ...args], {
