@@ -19,6 +19,9 @@ class ChunkMetadata:
 
     src: list[str]
     table_data: list[dict] | None = None
+    document_title: str | None = None
+    section_chunk_index: int = 1
+    section_chunk_count: int = 1
 
 
 @dataclass

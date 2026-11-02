@@ -21,6 +21,7 @@ class DocumentNode:
     alt: str | None = None
     caption: str | None = None
     ordered: bool | None = None
+    start: int = 1
     rowspan: int = 1
     colspan: int = 1
     children: list[DocumentNode] = field(default_factory=list)
@@ -75,6 +76,7 @@ class DocumentNode:
                 alt=item.get("alt_text", item.get("alt")),
                 caption=item.get("caption"),
                 ordered=item.get("ordered"),
+                start=item.get("start", 1),
                 rowspan=item.get("rowspan", 1),
                 colspan=item.get("colspan", 1),
             )

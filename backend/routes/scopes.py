@@ -3,15 +3,17 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import Field
 from backend import auth, db
-from backend.models import InputModel
+from shared.models import InputModel
 from backend.services import scopes
 from backend.services.documents import referencing_schedules
 from backend.locks import content_lock
+from backend.services.admin_maintenance import create_once
 
 router = APIRouter(prefix="/knowledge", tags=["Knowledge scopes"])
 
 
 class VehicleInput(InputModel):
+    id: UUID | None = None
     code: str = Field(pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
     name: str = Field(min_length=1)
     year: str = ""
@@ -59,7 +61,7 @@ def create_vehicle(request: VehicleInput):
         if (len(request.year) != 4 or not request.year.isascii() or not request.year.isdigit()
                 or not 1900 <= int(request.year) <= 2100):
             raise HTTPException(422, "Provide a single model year between 1900 and 2100.")
-    return db.insert("knowledge_vehicles", request.model_dump(mode="json"))
+    return create_once('knowledge_vehicles', request.id, request.model_dump(mode='json', exclude={'id'}))
 
 
 @router.patch("/vehicles/{vehicle_id}", dependencies=[Depends(auth.require_admin)])
@@ -74,7 +76,7 @@ def edit_vehicle(vehicle_id: UUID, request: VehicleInput):
         if (len(request.year) != 4 or not request.year.isascii() or not request.year.isdigit()
                 or not 1900 <= int(request.year) <= 2100):
             raise HTTPException(422, "Provide a single model year between 1900 and 2100.")
-    return db.update("knowledge_vehicles", vehicle_id, request.model_dump(mode="json"))
+    return db.update("knowledge_vehicles", vehicle_id, request.model_dump(mode="json", exclude={'id'}))
 
 
 @router.delete("/vehicles/{vehicle_id}", status_code=204, dependencies=[Depends(auth.require_admin)])

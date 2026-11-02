@@ -8,7 +8,8 @@ from pydantic import Field, model_validator
 
 from backend import db, settings
 from backend.locks import content_lock
-from backend.models import Document, InputModel
+from backend.models import Document
+from shared.models import InputModel
 from backend.services.documents import now
 
 

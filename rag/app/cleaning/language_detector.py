@@ -5,7 +5,7 @@ from lingua import Language, LanguageDetectorBuilder
 class LanguageDetector:
     """
     Detects English and Malay text using Lingua.
-    Only confident Malay text is considered removable.
+    Only confident, single-language Malay text is considered removable.
     """
 
     def __init__(self, malay_threshold: float = MALAY_CONFIDENCE_THRESHOLD) -> None:
@@ -27,4 +27,11 @@ class LanguageDetector:
             Language.MALAY,
         )
 
-        return confidence >= self.malay_threshold
+        if confidence < self.malay_threshold:
+            return False
+
+        # A dominant-language score can hide a short English instruction.
+        # Keep the whole block when the detector finds mixed or unknown spans;
+        # span boundaries are not reliable enough to use for deleting text.
+        spans = self.detector.detect_multiple_languages_of(text)
+        return bool(spans) and all(span.language == Language.MALAY for span in spans)

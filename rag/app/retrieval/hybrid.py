@@ -1,8 +1,9 @@
 """Scoped BM25S ranking and rank fusion over the current Chroma records."""
 from dataclasses import replace
 from functools import lru_cache
-import re
 from threading import Lock
+import logging
+import re
 
 from rag.app.retrieval.search import RetrievalResult, build_results
 from rag.config import settings
@@ -11,8 +12,21 @@ from rag.config import settings
 TOKEN_PATTERN = r"(?u)\b[\w]+(?:[./-][\w]+)*\b"
 
 
+def _expand_compound(match):
+    """Retain exact compounds and expose their word components to BM25."""
+    token = match.group()
+    parts = re.split(r"[./-]", token)
+    # Avoid adding fragments from numbers, mixed codes or short abbreviations.
+    if len(parts) > 1 and all(len(part) > 1 and part.isalpha() for part in parts):
+        return " ".join([token, *parts])
+    return token
+
+
 def tokenize(texts):
     import bm25s
+    # Apply the same representation to documents and queries. BM25S removes
+    # stopwords from the added components as well as the original terms.
+    texts = [re.sub(TOKEN_PATTERN, _expand_compound, text) for text in texts]
     return bm25s.tokenize(texts, stopwords="en", token_pattern=TOKEN_PATTERN,
                          return_ids=False, show_progress=False)
 
@@ -41,8 +55,19 @@ def document_filter(document_ids):
     return {"document_name": {"$in": ids}}
 
 
-def lexical_search(query, records, top_k):
+@lru_cache(maxsize=8)
+def lexical_index(texts):
+    """Reuse immutable text snapshots; changed/revoked records never reuse metadata."""
     import bm25s
+    tokens = tokenize(list(texts))
+    if not any(tokens):
+        return None
+    index = bm25s.BM25()
+    index.index(tokens, show_progress=False)
+    return index
+
+
+def lexical_search(query, records, top_k):
     if top_k < 1:
         raise ValueError("top_k must be greater than 0")
     if not records:
@@ -50,11 +75,9 @@ def lexical_search(query, records, top_k):
     query_tokens = tokenize([query])
     if not any(query_tokens):
         return []
-    tokens = tokenize([r.text for r in records])
-    if not any(tokens):
+    index = lexical_index(tuple(r.text for r in records))
+    if index is None:
         return []
-    index = bm25s.BM25()
-    index.index(tokens, show_progress=False)
     ids, scores = index.retrieve(query_tokens, k=min(top_k, len(records)),
                                  show_progress=False)
     return [replace(records[int(i)], rank=rank)
@@ -75,19 +98,13 @@ def fuse(dense, lexical, *, k=60, dense_weight=1.0, lexical_weight=1.0):
     return [replace(records[identity], rank=rank) for rank, identity in enumerate(ordered, 1)]
 
 
-def adaptive_weights(query):
-    # Experimental only; fixed fusion remains the default.
-    exact = re.search(r"\b(?:[A-Z]{1,4}\d{2,}|\d\.\d|(?:19|20)\d{2}|O/D|ABS|[A-Z]\d-[A-Z]{2})\b", query)
-    return (1.0, 1.5) if exact else (1.0, 1.0)
-
-
 _rerank_lock = Lock()
 
 
 @lru_cache(maxsize=1)
 def reranker():
     from sentence_transformers import CrossEncoder
-    return CrossEncoder(settings.RERANK_MODEL, max_length=512)
+    return CrossEncoder(settings.RERANK_MODEL, max_length=512, device=settings.MODEL_DEVICE)
 
 
 def rerank(query, records):
@@ -119,12 +136,15 @@ def search(store, query, embedding, document_ids, *, top_k=5, mode=None,
         dense = build_results(store.search(embedding, top_k=limit,
                                                       document_ids=document_ids, content_type=content_type))
     lexical = lexical_search(query, records, limit) if mode != "dense" else []
-    weights = adaptive_weights(query) if mode == "adaptive" else (1.0, 1.0)
+    # The legacy adaptive setting now uses the same fixed hybrid fusion.
     ranked = dense if mode == "dense" else lexical if mode == "lexical" else fuse(
-        dense, lexical, k=settings.RAG_RRF_K, dense_weight=weights[0], lexical_weight=weights[1])
+        dense, lexical, k=settings.RAG_RRF_K)
     rerank_enabled = settings.RAG_RERANK if use_reranker is None else use_reranker
     if rerank_enabled:
-        ranked = rerank(query, ranked[:limit])
+        try:
+            ranked = rerank(query, ranked[:limit])
+        except Exception as error:
+            logging.getLogger(__name__).warning("Semantic reranking unavailable; retaining hybrid rank (%s)", type(error).__name__)
     allowed = set(document_ids)
     if any(r.metadata.get("document_name") not in allowed for r in ranked):
         raise ValueError("Retrieval returned a record outside its document scope")

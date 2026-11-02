@@ -3,71 +3,8 @@ from pathlib import Path
 import json
 from rag.app.models.document_tree import DocumentNode
 from rag.app.models.chunk import Chunk, ChunkMetadata
-from rag.app.chunking.table_formatter import format_table, structured_table
 
-from rag.config.settings import CHUNK_SIZE, CHUNK_OVERLAP, EMBEDDING_MAX_TOKENS
-
-
-def split_text(
-    text: str,
-    chunk_size: int,
-) -> list[str]:
-    """
-    Split text by words while keeping each part under chunk_size.
-    """
-
-    text = text.strip()
-
-    if not text:
-        return []
-
-    if len(text) <= chunk_size:
-        return [text]
-
-    if chunk_size <= 0:
-        raise ValueError("chunk_size must be positive")
-    # preserve complete lines whenever possible; only wrap an oversized line.
-    if "\n" in text:
-        chunks = []
-        current = ""
-        for line in text.splitlines():
-            pieces = split_text(line, chunk_size) if len(line) > chunk_size else [line]
-            for piece in pieces:
-                candidate = current + "\n" + piece if current else piece
-                if current and len(candidate) > chunk_size:
-                    chunks.append(current.rstrip())
-                    current = piece
-                else:
-                    current = candidate
-        if current.strip():
-            chunks.append(current.rstrip())
-        return chunks
-
-    words = text.split()
-
-    chunks: list[str] = []
-    current_words: list[str] = []
-    current_length = 0
-
-    for word in words:
-        extra_length = len(word)
-
-        if current_words:
-            extra_length += 1
-
-        if current_words and current_length + extra_length > chunk_size:
-            chunks.append(" ".join(current_words))
-            current_words = [word]
-            current_length = len(word)
-
-        else:
-            current_words.append(word)
-            current_length += extra_length
-
-    if current_words:
-        chunks.append(" ".join(current_words))
-
-    return chunks
+from rag.config.settings import CHUNK_SIZE
 
 
 def build_section_path(
@@ -128,7 +65,7 @@ def format_list(
     node: DocumentNode,
 ) -> str:
     items: list[str] = []
-    for index, child in enumerate(node.children, start=1):
+    for index, child in enumerate(node.children, start=node.start):
         if child.doctype != "ListItem":
             continue
 
@@ -171,7 +108,7 @@ def render_content_node(
         return "\n".join(parts)
 
     if node.doctype == "Table":
-        return format_table(node)
+        raise ValueError('Table reached prose chunking; classify it as a source element first')
 
     if node.doctype == "List":
         return format_list(node)
@@ -285,7 +222,6 @@ def create_chunk(
                 src for node in source_nodes for src in collect_image_sources(node)
             )
         ),
-        table_data=[structured_table(node) for node in source_nodes if node.doctype == "Table"] or None,
     )
 
     text = build_context_text(
@@ -307,10 +243,14 @@ def split_section_content(
     chunk_size: int,
 ) -> list[tuple[str, list[DocumentNode]]]:
     """
-    Build chunks from section content.
-    Content is accumulated in semantic order. When the combined text becomes too large, a new chunk begins. Individual oversized content nodes are split by words.
-    """
+    Pack complete source blocks in order, using chunk_size as a soft target.
 
+    An oversized block stays whole. The embedder checks its actual token length;
+    generation either includes it whole or reports its omission. We cannot infer
+    safe internal boundaries for a paragraph or procedure from its words.
+    """
+    if chunk_size <= 0:
+        raise ValueError("chunk_size must be positive")
     groups: list[tuple[str, list[DocumentNode]]] = []
 
     current_parts: list[str] = []
@@ -329,52 +269,6 @@ def split_section_content(
             raise ValueError('Table reached prose chunking; classify it as a source element first')
 
         content_length = len(content)
-
-        # A single large node needs to be split.
-        if content_length > chunk_size:
-            if current_parts:
-                groups.append(
-                    (
-                        "\n\n".join(current_parts),
-                        current_nodes.copy(),
-                    )
-                )
-
-                current_parts = []
-                current_nodes = []
-                current_length = 0
-
-            # A numbered procedure remains intact or processing fails with
-            # an actionable message instead of indexing incomplete steps.
-            if node.doctype == "List":
-                if len(content) > EMBEDDING_MAX_TOKENS * 3:
-                    raise ValueError("Procedure exceeds embedding budget; split the source at a safe boundary")
-                groups.append((content, [node]))
-                continue
-            overlap = min(CHUNK_OVERLAP, chunk_size // 4)
-            pieces = split_text(content, chunk_size - overlap)
-            previous = ""
-            overlapping = []
-            for piece in pieces:
-                prefix_words = []
-                for word in reversed(previous.split()):
-                    if len(" ".join([word] + prefix_words)) > overlap:
-                        break
-                    prefix_words.insert(0, word)
-                prefix = " ".join(prefix_words)
-                overlapping.append(prefix + "\n" + piece if prefix else piece)
-                previous = piece
-            pieces = overlapping
-
-            for piece in pieces:
-                groups.append(
-                    (
-                        piece,
-                        [node],
-                    )
-                )
-
-            continue
 
         extra_length = content_length
 
@@ -427,29 +321,18 @@ def chunk_section(
         chunk_size=CHUNK_SIZE,
     )
 
-    # Repeat explicit precautions from the same section after a structural
-    # split. A warning remains source text, with its original node identity.
-    import re
-    warnings = [(text, node) for text, node in zip(content_parts, source_nodes)
-                if node.doctype in {"Paragraph", "List"} and re.search(r"\b(warning|caution|never|do not|before)\b|engine.*cold|park.*level", text, re.I)]
-    for i, (content, nodes) in enumerate(groups):
-        missing = [(text, node) for text, node in warnings if node not in nodes]
-        if missing:
-            content += "\n\nPrerequisites and warnings from this section:\n" + "\n\n".join(text for text, _ in missing)
-            nodes = nodes + [node for _, node in missing]
-            if len(content) > EMBEDDING_MAX_TOKENS * 3:
-                raise ValueError("Chunk and its source warnings exceed the embedding budget")
-            groups[i] = (content, nodes)
-
-    return [
-        create_chunk(
+    chunks = []
+    for index, (content, nodes) in enumerate(groups, start=1):
+        chunk = create_chunk(
             document_name=document_name,
             section_path=section_path,
             content=content,
             source_nodes=nodes,
         )
-        for content, nodes in groups
-    ]
+        chunk.metadata.section_chunk_index = index
+        chunk.metadata.section_chunk_count = len(groups)
+        chunks.append(chunk)
+    return chunks
 
 
 def chunk_non_section_content(
@@ -501,7 +384,7 @@ def collect_chunks(
 
     chunks: list[Chunk] = []
 
-    if node.doctype == "Section":
+    if node.doctype in {"Document", "Section"}:
         chunks.extend(
             chunk_section(
                 section=node,
@@ -550,12 +433,18 @@ def collect_chunks(
 
 def chunk_document(
     document: DocumentNode,
+    document_title: str | None = None,
 ) -> list[Chunk]:
-    return collect_chunks(
+    chunks = collect_chunks(
         node=document,
         document_name=document.document_name,
         section_path=[],
     )
+    title = document_title or document.document_name
+    for chunk in chunks:
+        chunk.metadata.document_title = title
+        chunk.text = build_context_text(title, chunk.metadata.section_path, chunk.source_content)
+    return chunks
 
 
 def chunk_to_dict(
@@ -569,6 +458,9 @@ def chunk_to_dict(
             "source_content": chunk.source_content,
             "table_data": chunk.metadata.table_data,
             "document_name": (chunk.metadata.document_name),
+            "document_title": chunk.metadata.document_title,
+            "section_chunk_index": chunk.metadata.section_chunk_index,
+            "section_chunk_count": chunk.metadata.section_chunk_count,
             "node_ids": [str(node_id) for node_id in chunk.metadata.node_ids],
             "parent_id": (
                 str(chunk.metadata.parent_id)

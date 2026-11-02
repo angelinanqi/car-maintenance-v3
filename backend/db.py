@@ -1,6 +1,9 @@
 """Server-only Supabase access. No credentials are exposed to the browser."""
 from functools import lru_cache
+from math import ceil
+import time
 
+import httpx
 from fastapi import HTTPException
 from supabase import create_client
 from supabase.client import ClientOptions
@@ -17,13 +20,26 @@ def client():
         options=ClientOptions(
             auto_refresh_token=False, persist_session=False,
             postgrest_client_timeout=settings.SUPABASE_TIMEOUT,
-            storage_client_timeout=settings.SUPABASE_TIMEOUT,
+            storage_client_timeout=ceil(settings.SUPABASE_TIMEOUT),
+            httpx_client=httpx.Client(http2=True, timeout=settings.SUPABASE_TIMEOUT),
         ),
     )
 
 
+def read_rows(query):
+    # Retrying a read is safe when a pooled connection closes unexpectedly.
+    # Writes stay explicit: a lost response does not establish whether they ran.
+    for attempt in range(3):
+        try:
+            return query.execute().data
+        except httpx.TransportError:
+            if attempt == 2:
+                raise
+            time.sleep(0.2 * (attempt + 1))
+
+
 def get(table, record_id):
-    rows = client().table(table).select("*").eq("id", str(record_id)).execute().data
+    rows = read_rows(client().table(table).select("*").eq("id", str(record_id)))
     if not rows:
         raise HTTPException(404, "Record not found.")
     return rows[0]
@@ -36,7 +52,7 @@ def list_rows(table, *, offset=0, limit=None, order_by=("created_at", "id"), **f
         query = query.order(field)
     for field, value in filters.items():
         query = query.in_(field, value) if isinstance(value, list) else query.eq(field, value)
-    return query.range(offset, offset + limit - 1).execute().data
+    return read_rows(query.range(offset, offset + limit - 1))
 
 
 def all_rows(table, **filters):

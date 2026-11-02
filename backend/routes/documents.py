@@ -3,15 +3,29 @@ import logging
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
-from pydantic import ValidationError
+from pydantic import ValidationError, Field
 from urllib.parse import quote
 
 from backend import auth, db
 from backend.models import Document, DocumentEdit, DocumentPatch, ProcessBatch, ProcessResult, ReviewConfirmation
 from backend.services import documents
 from backend import settings
+from backend.services.source_assets import extraction, element, image_bytes
+from shared.models import InputModel
+from shared.visual_identity import VisualIdentity
+from backend.services import document_review, review_questions, extraction_corrections
 
 router = APIRouter(prefix="/documents", tags=["Documents"])
+
+
+class WebsiteArticle(InputModel):
+    url: str = Field(min_length=1, max_length=2048)
+
+
+@router.post("/website", response_model=Document, status_code=201, dependencies=[Depends(auth.require_admin)])
+def add_website_article(request: WebsiteArticle):
+    from backend.services import website_articles
+    return website_articles.create(request.url)
 
 
 @router.get("", response_model=list[Document], dependencies=[Depends(auth.require_admin)])
@@ -90,7 +104,8 @@ def stage_replacement(document_id: UUID, file: UploadFile = File(...)):
 
 @router.post("/{document_id}/publish", response_model=Document, dependencies=[Depends(auth.require_admin)])
 def publish_document(document_id: UUID, request: ReviewConfirmation):
-    with documents.document_lock(document_id):
+    with documents.document_lock("schedule-sources"), documents.document_lock(document_id):
+        review_questions.check_document(document_id)
         row = documents.editable(document_id)
         if row.get("superseded_by_id"):
             raise HTTPException(409, "This document has been superseded. Publish a replacement of the current revision instead.")
@@ -103,12 +118,23 @@ def publish_document(document_id: UUID, request: ReviewConfirmation):
 
 
 @router.get("/{document_id}/original", dependencies=[Depends(auth.require_admin)])
-def original_document(document_id: UUID):
+def original_document(document_id: UUID, revision: UUID | None = None):
     row = db.get("documents", document_id)
+    if revision is not None and row["source_revision"] != str(revision):
+        raise HTTPException(409, "The original document changed. Reload the current review.")
     data = db.bucket(settings.SUPABASE_DOCUMENT_BUCKET).download(row["storage_path"])
+    if row['source_type'] == 'md':
+        from shared.article_snapshot import decode
+        _, markdown, _ = decode(data.decode('utf-8-sig'))
+        data = markdown.encode('utf-8')
     return Response(data, media_type="application/pdf" if row["source_type"] == "pdf" else "text/plain", headers={
-        "X-Content-Type-Options": "nosniff", "Content-Disposition": "inline",
+        "X-Content-Type-Options": "nosniff", "Content-Disposition": "inline", "Cache-Control": "no-store",
     })
+
+
+@router.get("/{document_id}/usage", dependencies=[Depends(auth.require_admin)])
+def document_usage(document_id: UUID):
+    return review_questions.document_usage(document_id)
 
 
 @router.post("/{document_id}/process", response_model=Document, status_code=202, dependencies=[Depends(auth.require_admin)])
@@ -122,7 +148,11 @@ def process_document(document_id: UUID, background: BackgroundTasks, force: bool
 @router.get("/{document_id}/download")
 def download_document(document_id: UUID, request: Request):
     row = db.get("documents", document_id)
-    if not (row.get("mobile_visible", False) and row.get("published", False)):
+    from backend.services import manuals
+    public_download = row.get('mobile_visible', False) and row.get('published', False)
+    if row.get('document_type') == 'owners_manual':
+        public_download = manuals.available(row)
+    if not public_download:
         try:
             auth.require_draft_access(request)
         except HTTPException as error:
@@ -149,3 +179,81 @@ def download_extraction(document_id: UUID):
         "X-Content-Type-Options": "nosniff",
         "Content-Disposition": f'attachment; filename="{document_id}-extraction.zip"',
     })
+
+
+@router.get("/{document_id}/review")
+def review_document(document_id: UUID, revision: UUID, identity=Depends(auth.require_admin)):
+    # The extraction cache validates its exact revision. Parallel read requests
+    # need not contend with one another for the mutation lock.
+    row = document_review.current_document(document_id, revision)
+    changes = document_review.corrections_for(row)
+    blocks = document_review.blocks_for(row)
+    progress = document_review.progress(row, identity["user"]["id"])
+    document_review.current_document(document_id, revision)
+    with extraction(row) as archive:
+        article = json.loads(archive.read('metadata/article.json')) if 'metadata/article.json' in archive.namelist() else None
+    return {"document_id": str(document_id), "source_revision": row["source_revision"],
+            "blocks": blocks, "article": article,
+            "corrections": [document_review.correction_preview(change) for change in changes[-20:]],
+            "correction_count": len(changes), "progress": progress}
+
+
+@router.put("/{document_id}/review/progress")
+def save_review_progress(document_id: UUID, request: document_review.ReviewProgressInput,
+                         identity=Depends(auth.require_admin)):
+    with documents.document_lock(document_id):
+        row = document_review.current_document(document_id, request.source_revision)
+        return document_review.save_progress(row, identity["user"]["id"], request)
+
+
+@router.post("/{document_id}/corrections", response_model=Document, status_code=202)
+def correct_extraction(document_id: UUID, request: extraction_corrections.CorrectionInput,
+                       identity=Depends(auth.require_admin)):
+    return extraction_corrections.save(str(document_id), request, identity)
+
+
+class ImageReview(VisualIdentity):
+    element_id: str = Field(pattern=r'^image-\d{5,}$')
+    approved: bool
+    title: str = Field(default='', max_length=200)
+
+
+class ImageReviews(InputModel):
+    source_revision: UUID
+    reviews: list[ImageReview] = Field(min_length=1, max_length=1000)
+
+
+@router.get('/{document_id}/visuals', dependencies=[Depends(auth.require_admin)])
+def review_visuals(document_id: UUID, revision: UUID):
+    with documents.document_lock(document_id):
+        row = db.get('documents', document_id)
+        if row['source_revision'] != str(revision):
+            raise HTTPException(409, 'The source changed. Reload its images.')
+        with extraction(row) as archive:
+            records = json.loads(archive.read('elements.json'))['elements']
+            return [{'element_id': e['element_id'], 'caption': e.get('caption', ''),
+                     'section_path': e.get('section_path', []), 'pages': e.get('pages', []),
+                     'review': e.get('identity_review'),
+                     'generated_identity': e.get('generated_identity'),
+                     'available': e.get('asset_path') in archive.namelist()}
+                    for e in records if e['kind'] == 'image']
+
+
+@router.get('/{document_id}/visuals/{element_id}', dependencies=[Depends(auth.require_admin)])
+def review_visual_image(document_id: UUID, element_id: str, revision: UUID):
+    row = db.get('documents', document_id)
+    if row['source_revision'] != str(revision):
+        raise HTTPException(409, 'The source changed. Reload its images.')
+    with extraction(row) as archive:
+        data, mime = image_bytes(archive, element(archive, element_id))
+    return Response(data, media_type=mime, headers={'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff'})
+
+
+@router.post('/{document_id}/visuals', response_model=Document)
+def save_visual_reviews(document_id: UUID, request: ImageReviews, background: BackgroundTasks,
+                        reviewer=Depends(auth.require_admin)):
+    from backend.services import visual_reviews
+    result = visual_reviews.save(str(document_id), request, reviewer)
+    if result["status"] == "processing":
+        background.add_task(documents.process, str(document_id))
+    return result

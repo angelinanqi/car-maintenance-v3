@@ -1,26 +1,16 @@
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from backend.settings import CHAT_MAX_MESSAGE_LENGTH, CHAT_HISTORY_LIMIT
+from shared.models import InputModel, MechanicQuestionDraft
+from backend.companion_models import Exploration, ActivityReference
 
 Vehicle = str
 DocumentType = Literal["owners_manual", "maintenance_booklet", "service_manual", "other_reference"]
 DocumentStatus = Literal["uploaded", "processing", "awaiting_index", "processed", "failed"]
-
-
-class InputModel(BaseModel):
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
-
-
-class MechanicQuestion(InputModel):
-    question: str = Field(min_length=1, max_length=300)
-    reason: str = Field(min_length=1, max_length=300)
-
-
-class MechanicQuestionDraft(InputModel):
-    concern_summary: str = Field(min_length=1, max_length=600)
-    questions: list[MechanicQuestion] = Field(min_length=3, max_length=5)
 
 
 class MechanicPreparationRequest(InputModel):
@@ -28,39 +18,13 @@ class MechanicPreparationRequest(InputModel):
     vehicle_id: str | None = Field(default=None, max_length=200)
     session_id: UUID | None = None
     session_token: str | None = Field(default=None, max_length=128)
+    plan_id: UUID | None = None
 
 
 class MechanicPreparation(MechanicQuestionDraft):
     vehicle_summary: str
     details_to_note: list[str]
     tailored: bool = False
-
-
-class PersonalVehicleProfile(InputModel):
-    """Private, database-loaded context; never accepted from a mobile client."""
-    vehicle_id: str = Field(min_length=1, max_length=200)
-    catalogue_id: UUID
-    name: str = Field(max_length=200)
-    plate_number: str = Field(max_length=40)
-    mileage_km: int = Field(ge=0, le=2147483647)
-    catalogue_name: str
-    manufacturer: str | None = None
-    model: str | None = None
-    year: str
-    engine: str
-    variant: str
-    powertrain: Literal['petrol', 'diesel']
-    updated_at: datetime
-
-
-class SourceAttachmentReference(BaseModel):
-    """Private RAG descriptors; display content is resolved by the backend."""
-    model_config = ConfigDict(extra='forbid')
-    kind: Literal['table', 'image']
-    element_id: str = Field(pattern=r'^(table|image)-\d{5,}$', max_length=80)
-    document_id: UUID
-    source_revision: UUID
-    source_fidelity_verified: bool = False
 
 
 class DocumentEdit(InputModel):
@@ -137,6 +101,17 @@ class GuideInput(InputModel):
     reading_minutes: int | None = Field(default=None, gt=0, le=2147483647)
     related_lesson_ids: list[UUID] = Field(default_factory=list)
     maintenance_item_ids: list[UUID] = Field(default_factory=list)
+    beginner_friendly: bool = False
+    featured_in_companion: bool = False
+    learning_outcomes: list[str] = Field(default_factory=list, max_length=8)
+    exploration: Exploration | None = None
+
+    @field_validator('learning_outcomes')
+    @classmethod
+    def valid_outcomes(cls, values):
+        if any(not text.strip() or len(text) > 300 for text in values):
+            raise ValueError('Learning outcomes must contain 1 to 300 characters.')
+        return values
 
     @field_validator('related_lesson_ids', 'maintenance_item_ids')
     @classmethod
@@ -156,28 +131,36 @@ class Guide(GuideInput):
 
 class Step(InputModel):
     id: UUID = Field(default_factory=uuid4)
-    title: str = Field(min_length=1)
-    description: str = Field(min_length=1)
-    imageUrl: str = ""
+    title: str = Field(min_length=1, max_length=200)
+    description: str = Field(min_length=1, max_length=20000)
+    imageUrl: str = Field(default="", max_length=2048)
 
     @field_validator("imageUrl")
     @classmethod
     def image_url(cls, value):
-        if value and not value.startswith(("https://", "http://")):
-            raise ValueError("Image URL must use http or https")
+        from urllib.parse import urlsplit
+        if value:
+            try:
+                url = urlsplit(value)
+                valid = url.scheme in {"https", "http"} and bool(url.hostname) and not url.username and not url.password
+                url.port
+            except ValueError:
+                valid = False
+            if not valid or any(character.isspace() for character in value):
+                raise ValueError("Image URL must be a complete http(s) URL without credentials")
         return value
 
 
 class PlaybookInput(InputModel):
-    title: str = Field(min_length=1)
+    title: str = Field(min_length=1, max_length=200)
     display_order: int = Field(default=0, ge=0, le=2147483647)
-    steps: list[Step] = Field(default_factory=list)
-    scenario_key: str | None = Field(default=None, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-    source: str = ""
+    steps: list[Step] = Field(default_factory=list, max_length=100)
+    scenario_key: str | None = Field(default=None, max_length=100, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+    source: str = Field(default="", max_length=10000)
     status: Literal["draft"] | None = None
-    category: str = ""
-    description: str = ""
-    safety_warnings: str = ""
+    category: str = Field(default="", max_length=200)
+    description: str = Field(default="", max_length=20000)
+    safety_warnings: str = Field(default="", max_length=20000)
 
     @field_validator("steps")
     @classmethod
@@ -194,6 +177,8 @@ class Playbook(PlaybookInput):
     updated_at: datetime
     status: Literal["draft", "published"] = "draft"
     reviewed_at: datetime | None = None
+    # Public responses may prepend two compatibility introduction steps.
+    steps: list[Step] = Field(default_factory=list, max_length=102)
 
 
 class ReviewConfirmation(InputModel):
@@ -208,10 +193,10 @@ class ReviewConfirmation(InputModel):
 
 
 class ContactInput(InputModel):
-    name: str = Field(min_length=1)
-    description: str = ""
+    name: str = Field(min_length=1, max_length=200)
+    description: str = Field(default="", max_length=10000)
     display_order: int = Field(default=0, ge=0, le=2147483647)
-    phone: str = Field(min_length=3, pattern=r"^[+0-9\s().-]+$")
+    phone: str = Field(min_length=3, max_length=100, pattern=r"^[+0-9\s().-]+$")
 
     @field_validator("phone")
     @classmethod
@@ -237,6 +222,7 @@ class DocumentPatch(InputModel):
     variant: str | None = None
     vehicle_independent: bool | None = None
     source_fidelity_verified: bool | None = None
+    reviewed_revision: UUID | None = None
     document_type: DocumentType | None = None
     published: Literal[False] | None = None
 
@@ -258,6 +244,10 @@ class GuidePatch(InputModel):
     reading_minutes: int | None = Field(default=None, gt=0, le=2147483647)
     related_lesson_ids: list[UUID] | None = None
     maintenance_item_ids: list[UUID] | None = None
+    beginner_friendly: bool | None = None
+    featured_in_companion: bool | None = None
+    learning_outcomes: list[str] | None = Field(default=None, max_length=8)
+    exploration: Exploration | None = None
 
     @field_validator("title", "display_order", "content", "status", "description", "related_lesson_ids", "maintenance_item_ids")
     @classmethod
@@ -305,3 +295,60 @@ class Dashboard(BaseModel):
     playbooks: int
     steps: int
     contacts: int
+
+
+class ChatMessage(InputModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=CHAT_MAX_MESSAGE_LENGTH)
+
+
+class ChatRequest(InputModel):
+    request_id: UUID | None = None
+    message: str = Field(min_length=1, max_length=CHAT_MAX_MESSAGE_LENGTH)
+    car_model: str | None = None
+    conversation: list[ChatMessage] = Field(default_factory=list, max_length=CHAT_HISTORY_LIMIT)
+    scope_type: Literal["vehicle", "category"] | None = None
+    scope_id: str | None = None
+    session_id: str | None = Field(default=None, max_length=36)
+    session_token: str | None = Field(default=None, max_length=128)
+    activity: ActivityReference | None = None
+    assistance: Literal['explain', 'simplify'] | None = None
+
+    @model_validator(mode='after')
+    def paired_scope(self):
+        if self.request_id and not self.session_id:
+            raise ValueError('Create a chat session before sending a retryable question.')
+        if bool(self.scope_type) != bool(self.scope_id):
+            raise ValueError('Supply both scope_type and scope_id, or omit both for automatic chat.')
+        return self
+
+
+class Rule(InputModel):
+    type: Literal["recurring", "milestone", "informational"] = "recurring"
+    distanceKm: int | None = Field(default=None, gt=0)
+    months: int | None = Field(default=None, gt=0)
+    distanceMilestones: list[int] = Field(default_factory=list)
+    monthMilestones: list[int] = Field(default_factory=list)
+    vehicleStartDate: date | None = None
+    conditions: str = ""
+    notes: str = ""
+    sourceDocumentId: UUID | None = None
+    sourcePage: int | None = Field(default=None, gt=0)
+    sourceRevision: UUID | None = None
+    sourceTableId: str | None = Field(default=None, max_length=80)
+    sourceSuggestionId: str | None = Field(default=None, max_length=120)
+
+    @model_validator(mode="after")
+    def check_structure(self):
+        for values in (self.distanceMilestones, self.monthMilestones):
+            if any(value <= 0 for value in values) or values != sorted(set(values)):
+                raise ValueError("Milestones must be unique positive numbers in ascending order")
+        if self.type != "recurring" and (self.distanceKm or self.months):
+            raise ValueError("Only recurring rules may contain intervals")
+        if self.type != "milestone" and (self.distanceMilestones or self.monthMilestones):
+            raise ValueError("Only milestone rules may contain milestones")
+        if (self.sourceTableId or self.sourceSuggestionId) and not (self.sourceDocumentId and self.sourceRevision):
+            raise ValueError("Assisted source references require a document and revision")
+        if self.sourceSuggestionId and not self.sourceTableId:
+            raise ValueError("A source suggestion requires its table reference")
+        return self
