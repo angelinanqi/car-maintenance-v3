@@ -19,14 +19,32 @@ logger = logging.getLogger(__name__)
 
 
 def render_pages(source, directory, pages):
-    subprocess.run([sys.executable, str(settings.PROJECT_ROOT / 'scripts/render_pdf_pages.py'),
-                    '--source', str(source), '--output', str(directory),
-                    '--pages', *[str(page) for page in pages]],
-                   check=True, timeout=settings.MINERU_TIMEOUT)
+    directory.mkdir(parents=True, exist_ok=True)
+    log_path = directory / 'render.log'
+    # Keep diagnostics even if the backend exits before it can record failure.
+    with log_path.open('wb') as log:
+        try:
+            subprocess.run([sys.executable, str(settings.PROJECT_ROOT / 'scripts/render_pdf_pages.py'),
+                            '--source', str(source), '--output', str(directory),
+                            '--pages', *[str(page) for page in pages]],
+                           check=True, timeout=settings.MINERU_TIMEOUT,
+                           stdout=log, stderr=subprocess.STDOUT)
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+            log.flush()
+            with log_path.open('rb') as saved_log:
+                saved_log.seek(max(0, log_path.stat().st_size - 1400))
+                details = saved_log.read().decode('utf-8', errors='replace').strip()
+            reason = (f'timed out after {settings.MINERU_TIMEOUT:g} seconds'
+                      if isinstance(error, subprocess.TimeoutExpired)
+                      else f'failed with exit code {error.returncode}')
+            logger.error('PDF page rendering %s. Log: %s\n%s', reason, log_path, details)
+            # record_failure limits saved errors to 2000 characters. Keep the
+            # traceback tail so the final exception survives that cap.
+            raise RuntimeError(f'PDF page rendering {reason}.\n{details}\nLog: {log_path}') from error
     return json.loads((directory / 'pages.json').read_text(encoding='utf-8'))
 
 
-def prepare_source_pages(elements, source, extraction, directory):
+def prepare_source_pages(elements, source, extraction, directory, *, stop=None):
     """Package deduplicated pages for answer-time evidence without model calls."""
     numbers = set()
     for element in elements['elements']:
@@ -46,6 +64,9 @@ def prepare_source_pages(elements, source, extraction, directory):
     if rendered['source_sha256'] != digest:
         raise ValueError('Page renders do not belong to this source PDF')
     for item in rendered['pages']:
+        if stop and stop.is_set():
+            from backend.services.ocr_client import ProcessingStopped
+            raise ProcessingStopped()
         # The renderer emits basenames, never paths outside its source-keyed cache.
         if Path(item['path']).name != item['path'] or item['page'] not in numbers:
             raise ValueError('Invalid rendered source page')
@@ -77,7 +98,7 @@ def prepare_source_pages(elements, source, extraction, directory):
         raise ValueError('Source-page rendering is incomplete')
 
 
-def describe_pdf(elements, source, extraction, directory):
+def describe_pdf(elements, source, extraction, directory, *, stop=None):
     """Require an exact single-page match; never guess a page from element order."""
     images = [item for item in elements['elements'] if item['kind'] == 'image']
     source_digest = sha256(source.read_bytes()).hexdigest()
@@ -115,6 +136,9 @@ def describe_pdf(elements, source, extraction, directory):
     with httpx.Client(timeout=settings.RAG_SERVICE_TIMEOUT, follow_redirects=False,
                       headers={'Authorization': 'Bearer ' + settings.RAG_SERVICE_TOKEN}) as client:
         for image in mapped:
+            if stop and stop.is_set():
+                from backend.services.ocr_client import ProcessingStopped
+                raise ProcessingStopped()
             asset = extraction / image_path(image['asset_path'])
             page = pages[image['pages'][0]]
             page_path = page_directory / page['path']

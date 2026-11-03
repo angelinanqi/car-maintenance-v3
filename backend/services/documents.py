@@ -25,6 +25,7 @@ from pypdf.errors import PyPdfError
 
 logger = logging.getLogger(__name__)
 ocr_lock = Lock()
+preparation_lock = Lock()
 
 
 def now():
@@ -78,9 +79,11 @@ def storage_path(document_id, source_type):
 def upload_source(document_id, source_type, data):
     path = storage_path(document_id, source_type)
     mime = "application/pdf" if source_type == "pdf" else "text/markdown"
-    db.bucket(settings.SUPABASE_DOCUMENT_BUCKET).upload(
+    # The ID, path and bytes stay fixed across attempts. Upserting the same
+    # source is safe even when Storage saved it but its response was lost.
+    retry_connection(lambda: db.bucket(settings.SUPABASE_DOCUMENT_BUCKET).upload(
         path, data, {"content-type": mime, "upsert": "true"},
-    )
+    ))
     return path
 
 
@@ -246,7 +249,7 @@ def queue(document_id, force=False):
         return db.update("documents", document_id, values), True
 
 
-def package_extraction(row, markdown, directory, *, describe_visuals=False, include_source_pages=False):
+def package_extraction(row, markdown, directory, *, describe_visuals=False, include_source_pages=False, stop=None):
     archive = directory / "extraction.zip"
     manifest = {"format_version": FORMAT_VERSION, "document_id": row["id"], "source_revision": row["source_revision"],
                 "markdown": "document.md", "original_filename": row["original_filename"], "source_type": row["source_type"]}
@@ -339,10 +342,10 @@ def package_extraction(row, markdown, directory, *, describe_visuals=False, incl
         # Local repackaging tools can still opt out when comparing configurations.
         if include_source_pages and row['source_type'] == 'pdf' and source_path.is_file():
             from backend.services.visual_descriptions import prepare_source_pages
-            prepare_source_pages(elements, source_path, markdown.parent, directory)
+            prepare_source_pages(elements, source_path, markdown.parent, directory, stop=stop)
         if describe_visuals and row['source_type'] == 'pdf':
             from backend.services.visual_descriptions import describe_pdf
-            elements['visual_description_report'] = describe_pdf(elements, source_path, markdown.parent, directory)
+            elements['visual_description_report'] = describe_pdf(elements, source_path, markdown.parent, directory, stop=stop)
             # Full usage/raw descriptions live in the metadata report, not twice
             # in the element manifest.
             elements['visual_description_report'] = {
@@ -390,14 +393,38 @@ def package_extraction(row, markdown, directory, *, describe_visuals=False, incl
     return archive
 
 
-def process(document_id, *, stop=None):
-    # MinerU uses substantial GPU memory; execute one OCR job at a time.
+def preparation_checkpoint(row):
+    """A revision-bound, durable handoff from OCR to the preparation worker."""
+    path = work_directory(row['id']) / 'pending-preparation.json'
     try:
-        with ocr_lock, document_lock(document_id):
+        saved = json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(saved, dict) or any(saved.get(key) != row[key] for key in (
+            'source_revision', 'storage_path', 'source_type')):
+        return None
+    return saved
+
+
+def process(document_id, *, stop=None, stage='ocr'):
+    # Each stage has one worker. Slow preparation never holds the OCR lock.
+    if stage not in {'ocr', 'preparation'}:
+        raise ValueError('Unknown document processing stage')
+    try:
+        with (ocr_lock if stage == 'ocr' else preparation_lock), document_lock(document_id):
             row = db.get("documents", document_id)
             if row["status"] != "processing" or (stop and stop.is_set()):
                 return
             directory = work_directory(document_id)
+            if (directory / 'pending-extraction.json').is_file():
+                return  # Completed extraction handoffs have their own recovery loop.
+            ready = preparation_checkpoint(row)
+            if stage == 'preparation':
+                if ready:
+                    prepare_document(row, ready, stop=stop)
+                return
+            if ready:
+                return
             source = directory / f"{document_id}.{row['source_type']}"
             bucket = db.bucket(settings.SUPABASE_DOCUMENT_BUCKET)
             data = bucket.download(row["storage_path"])
@@ -414,22 +441,15 @@ def process(document_id, *, stop=None):
             if reviews and reviews.get('source_sha256') == sha256(data).hexdigest():
                 review_path.write_text(json.dumps(reviews), encoding='utf-8')
             markdown = run_ocr(source, directory / "ocr", stop=stop) if row["source_type"] == "pdf" else source
-            if stop and stop.is_set():
-                return
             if not markdown.read_text(encoding="utf-8-sig").strip():
                 raise ValueError("Extraction produced no text.")
-            archive = package_extraction(row, markdown, directory, describe_visuals=True,
-                                         include_source_pages=True)
-            # Persist the handoff before the network writes. A restart can resume it.
-            checkpoint = directory / "pending-extraction.tmp"
+            checkpoint = directory / 'pending-preparation.tmp'
             checkpoint.write_text(json.dumps({
-                "source_revision": row["source_revision"], "completed_at": now(),
-            }), encoding="utf-8")
-            checkpoint.replace(directory / "pending-extraction.json")
-            try:
-                finish_extraction(document_id)
-            except httpx.TransportError:
-                logger.warning("Extraction saved locally for %s; upload/status save will retry automatically", document_id)
+                **{key: row[key] for key in ('source_revision', 'storage_path', 'source_type')},
+                'source_sha256': sha256(data).hexdigest(),
+            }), encoding='utf-8')
+            checkpoint.replace(directory / 'pending-preparation.json')
+            logger.info('Document %s: OCR complete; queued for preparation', document_id)
     except ProcessingStopped:
         pass  # Keep the durable queue entry and task checkpoint for restart.
     except httpx.TransportError:
@@ -448,8 +468,34 @@ def process(document_id, *, stop=None):
         record_failure(document_id, error)
 
 
+def prepare_document(row, ready, *, stop=None):
+    document_id = row['id']
+    directory = work_directory(document_id)
+    source = directory / f"{document_id}.{row['source_type']}"
+    if sha256(source.read_bytes()).hexdigest() != ready.get('source_sha256'):
+        raise ValueError('Prepared source no longer matches the OCR handoff')
+    markdown = (directory / 'ocr' / str(document_id) / f'{document_id}.md'
+                if row['source_type'] == 'pdf' else source)
+    logger.info('Document %s: preparing pages and illustrations', document_id)
+    package_extraction(row, markdown, directory, describe_visuals=True,
+                       include_source_pages=True, stop=stop)
+    if stop and stop.is_set():
+        raise ProcessingStopped()
+    # Persist the upload handoff before clearing the preparation handoff.
+    checkpoint = directory / 'pending-extraction.tmp'
+    checkpoint.write_text(json.dumps({
+        'source_revision': row['source_revision'], 'completed_at': now(),
+    }), encoding='utf-8')
+    checkpoint.replace(directory / 'pending-extraction.json')
+    (directory / 'pending-preparation.json').unlink(missing_ok=True)
+    try:
+        finish_extraction(document_id)
+    except httpx.TransportError:
+        logger.warning('Extraction saved locally for %s; upload/status save will retry automatically', document_id)
+
+
 def retry_connection(operation):
-    # Only use for reads and idempotent, revision-checked handoff writes.
+    # Only use for reads, fixed-path source upserts and revision-checked handoffs.
     for attempt in range(3):
         try:
             return operation()
@@ -507,8 +553,8 @@ def retry_pending_extractions():
             logger.exception("Could not resume extraction for %s", document_id)
 
 
-def run_queue_pass(stop):
-    """The persisted processing rows are the queue; one backend worker owns OCR.
+def run_queue_pass(stop, *, stage='ocr'):
+    """Independent OCR and preparation workers share the persisted queue.
 
     Retain the same source revision and local OCR task checkpoint on restart.
     Failed documents need an explicit retry, rather than an endless retry loop.
@@ -523,4 +569,7 @@ def run_queue_pass(stop):
         document_id = str(row["id"])
         if (work_directory(document_id) / "pending-extraction.json").is_file():
             continue  # The handoff recovery loop owns this completed extraction.
-        process(document_id, stop=stop)
+        ready = preparation_checkpoint(row)
+        if (stage == 'ocr' and ready) or (stage == 'preparation' and not ready):
+            continue
+        process(document_id, stop=stop, stage=stage)

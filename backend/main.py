@@ -51,20 +51,21 @@ async def lifespan(app):
     retry_task = asyncio.create_task(resume_extractions(stop_retries))
     stop_queue = Event()
     queue_task = asyncio.create_task(resume_document_queue(stop_queue))
+    preparation_task = asyncio.create_task(resume_document_queue(stop_queue, stage='preparation'))
     try:
         yield
     finally:
         stop_queue.set()
         stop_retries.set()
-        await asyncio.gather(queue_task, retry_task)
+        await asyncio.gather(queue_task, preparation_task, retry_task)
 
 
-async def resume_document_queue(stop):
+async def resume_document_queue(stop, *, stage='ocr'):
     while not stop.is_set():
         try:
-            await run_in_threadpool(run_queue_pass, stop)
+            await run_in_threadpool(run_queue_pass, stop, stage=stage)
         except Exception:
-            logging.getLogger(__name__).exception("Document queue unavailable; will retry")
+            logging.getLogger(__name__).exception("Document %s queue unavailable; will retry", stage)
         if not stop.is_set():
             await asyncio.sleep(3)
 

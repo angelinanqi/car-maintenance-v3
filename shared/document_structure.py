@@ -121,9 +121,11 @@ def reconcile_headings(markdown, content_list, outline, page_count):
     edits = []
     previous_scope = []
     changes = []
+    heading_pages = []
     for heading, entry in zip(headings, source_headings):
         index = bisect_right(starts, entry['page_idx']) - 1
         if index < 0:
+            heading_pages.append(entry['page_idx'] + 1)
             continue
         paths = groups[starts[index]]
         # A shared destination does not identify which sibling owns the text.
@@ -144,8 +146,10 @@ def reconcile_headings(markdown, content_list, outline, page_count):
                                for depth, title in enumerate(prefix, start=1))
             if inserted:
                 edits.append((line_start, line_start, inserted))
+                heading_pages.extend([entry['page_idx'] + 1] * len(prefix))
             previous_scope = scope
         edits.append((heading.start(1), heading.end(1), '#' * level))
+        heading_pages.append(entry['page_idx'] + 1)
         changes.append({'page': entry['page_idx'] + 1, 'title': heading[2].strip(),
                         'source_level': len(heading[1]), 'processing_level': level,
                         'outline_path': scope})
@@ -155,5 +159,5 @@ def reconcile_headings(markdown, content_list, outline, page_count):
     report.update(status='applied', headings=len(headings),
                   empty_metadata_titles=sum(not entry['text'] for entry in source_headings),
                   shared_destination_pages=[page + 1 for page, paths in groups.items() if len(paths) > 1],
-                  headings_review=changes)
+                  headings_review=changes, heading_pages=heading_pages)
     return derived, report

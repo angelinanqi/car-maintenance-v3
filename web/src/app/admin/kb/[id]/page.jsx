@@ -375,8 +375,9 @@ function DocumentWorkspace() {
                       {document.error && (
                         <Box mt={3}>
                           <Text role="alert">
-                            The document needs attention. Try preparing it
-                            again. If the problem continues, use a clearer copy.
+                            Preparation could not finish. Try preparing it
+                            again. If the problem continues, check the details
+                            below with your administrator.
                           </Text>
                           <Box as="details" mt={2}>
                             <Box as="summary">Problem Details</Box>

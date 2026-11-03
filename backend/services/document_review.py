@@ -1,5 +1,7 @@
 """Revision-bound, private document review checklists and source navigation."""
 import json
+import re
+from collections import defaultdict
 from typing import Literal
 from uuid import NAMESPACE_URL, UUID, uuid5
 from zipfile import BadZipFile
@@ -10,6 +12,7 @@ from pydantic import Field
 from backend import db
 from backend.services.source_assets import extraction
 from shared.models import InputModel
+from shared.document_structure import escape_literal_headings, reconcile_headings
 from shared.source_elements import ELEMENT_PATTERN, HEADING_PATTERN, build_elements, plain, sanitize_table
 
 TABLE = "document_review_progress"
@@ -102,6 +105,108 @@ def build_blocks(text, elements, *, source_type, assets):
     return blocks
 
 
+def add_text_pages(blocks, metadata):
+    """Match complete extracted paragraphs, never pages from nearby media.
+
+    Repeated paragraphs need an exact, unique match of their surrounding source
+    text too. Unmatched or ambiguous content retains the manual page control.
+    """
+    def normalized(value):
+        return " ".join(re.sub(r"(?m)^[ \t]*#{1,6}[ \t]+", "", value).split())
+
+    paragraphs = []
+    for index, block in enumerate(blocks):
+        if block["kind"] == "text":
+            paragraphs.extend((normalized(part), index) for part in re.split(r"\n\s*\n", block["text"])
+                              if part.strip())
+        else:
+            # A match must not cross a table or illustration omitted from prose.
+            paragraphs.append(("\x00", index))
+    corpus = " ".join(value for value, _ in paragraphs)
+    starts, ends = {}, {}
+    by_first_word = defaultdict(list)
+    offset = 0
+    for value, index in paragraphs:
+        starts[offset] = index
+        ends[offset + len(value)] = index
+        if value:
+            by_first_word[value.split(" ", 1)[0]].append(offset)
+        offset += len(value) + 1
+    pages = defaultdict(set)
+    for data in metadata:
+        if not isinstance(data, list):
+            continue
+        records = []
+        for item in data:
+            if (isinstance(item, dict) and item.get("type") == "text"
+                    and isinstance(item.get("text"), str) and item["text"].strip()
+                    and type(item.get("page_idx")) is int and item["page_idx"] >= 0):
+                records.append((normalized(item["text"]), item["page_idx"] + 1))
+            else:
+                records.append(("\x00", None))
+        # Check both source-side and Markdown-side uniqueness. A paragraph
+        # removed by a correction must not inherit another occurrence's page.
+        for before, after in ((0, 0), (1, 0), (0, 1), (1, 1)):
+            contexts = defaultdict(list)
+            for index, (value, page) in enumerate(records):
+                if page is None or index < before or index + after >= len(records):
+                    continue
+                context = records[index - before:index + after + 1]
+                if any(number is None for _, number in context):
+                    continue
+                key = " ".join(text for text, _ in context)
+                prefix = sum(len(text) + 1 for text, _ in context[:before])
+                contexts[key].append((prefix, len(value), page))
+            for key, matches in contexts.items():
+                if len(matches) != 1:
+                    continue
+                positions = []
+                for candidate in by_first_word[key.split(" ", 1)[0]]:
+                    if candidate + len(key) in ends and corpus.startswith(key, candidate):
+                        positions.append(candidate)
+                        if len(positions) > 1:
+                            break
+                if len(positions) != 1:
+                    continue
+                position = positions[0]
+                prefix, length, page = matches[0]
+                left, right = position + prefix, position + prefix + length
+                if (position not in starts or position + len(key) not in ends
+                        or left not in starts or right not in ends):
+                    continue
+                for index in range(starts[left], ends[right] + 1):
+                    if blocks[index]["kind"] == "text":
+                        pages[index].add(page)
+    for index, block in enumerate(blocks):
+        if block["kind"] == "text":
+            block["pages"] = sorted(pages[index])
+
+
+def add_heading_pages(blocks, text, original, metadata, outline):
+    """Replay the validated structure transform to locate repeated/added headings.
+
+    Replaying also supports archives prepared before heading pages were saved.
+    Corrected text must still match exactly before these coordinates are used.
+    """
+    if len(metadata) != 1 or not isinstance(metadata[0], list):
+        return
+    records = metadata[0]
+    page_count = max((item["page_idx"] + 1 for item in records if isinstance(item, dict)
+                      and type(item.get("page_idx")) is int and item["page_idx"] >= 0), default=0)
+    original, _ = escape_literal_headings(original, records)
+    derived, report = reconcile_headings(original, records, outline, page_count)
+    if derived != text or report["status"] != "applied":
+        return
+    headings = list(HEADING_PATTERN.finditer(text))
+    pages = report["heading_pages"]
+    if len(headings) != len(pages):
+        return
+    by_offset = {heading.start(): page for heading, page in zip(headings, pages)}
+    for block in blocks:
+        if block["kind"] == "text" and block["start_offset"] in by_offset:
+            block["pages"] = sorted(set(block["pages"] + [by_offset[block["start_offset"]]]))
+
+
 def blocks_for(document):
     try:
         with extraction(document) as archive:
@@ -117,8 +222,18 @@ def blocks_for(document):
             for key, expected in (("document_id", document["id"]), ("source_revision", document["source_revision"])):
                 if manifest.get(key) and manifest[key] != expected:
                     raise HTTPException(409, "The extracted content belongs to another revision. Prepare the current document again.")
-            return build_blocks(text, manifest["elements"], source_type=document["source_type"],
-                                assets=set(archive.namelist()))
+            blocks = build_blocks(text, manifest["elements"], source_type=document["source_type"],
+                                  assets=set(files))
+            if document["source_type"] == "pdf":
+                metadata = [json.loads(archive.read(name)) for name in files
+                            if name.startswith("metadata/") and name.endswith("_content_list.json")]
+                add_text_pages(blocks, metadata)
+                if "metadata/structure-review.json" in files:
+                    structure = json.loads(archive.read("metadata/structure-review.json"))
+                    if structure.get("status") == "applied":
+                        add_heading_pages(blocks, text, archive.read("document.md").decode("utf-8-sig"),
+                                          metadata, structure["outline"])
+            return blocks
     except (ValueError, KeyError, TypeError, UnicodeError, BadZipFile):
         raise HTTPException(422, "The prepared document could not be opened. Try preparing it again.") from None
 

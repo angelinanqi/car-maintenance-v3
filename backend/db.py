@@ -21,7 +21,9 @@ def client():
             auto_refresh_token=False, persist_session=False,
             postgrest_client_timeout=settings.SUPABASE_TIMEOUT,
             storage_client_timeout=ceil(settings.SUPABASE_TIMEOUT),
-            httpx_client=httpx.Client(http2=True, timeout=settings.SUPABASE_TIMEOUT),
+            # Isolate concurrent uploads, Auth checks and database reads instead
+            # of sharing HTTP/2 streams that can all fail on one connection reset.
+            httpx_client=httpx.Client(http2=False, timeout=settings.SUPABASE_TIMEOUT),
         ),
     )
 
