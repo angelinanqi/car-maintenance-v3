@@ -10,6 +10,7 @@ import '../widgets/design_widgets.dart';
 import '../widgets/car_model_view.dart';
 import 'workshop_mode.dart';
 import '../widgets/sign_in_prompt.dart';
+import '../widgets/maintenance_spending_summary.dart';
 import 'service_forms.dart';
 import 'vehicle_profile.dart';
 
@@ -664,6 +665,15 @@ class _MyCarState extends State<MyCar> {
                         ),
                     ],
                     if (vehicle != null && !_schedule) ...[
+                      Text(
+                        vehicle.name,
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      MaintenanceSpendingSummary(
+                        records: records,
+                        vehicleId: vehicle.id,
+                      ),
+                      const SizedBox(height: AppSpacing.standard),
                       TextField(
                         decoration: const InputDecoration(
                           hintText: 'Search history',
@@ -1156,9 +1166,16 @@ Future<void> _recordDetail(
                   if (record.workshopName.isNotEmpty)
                     Text('Workshop: ${record.workshopName}'),
                   Text(
+                    'Performed by: ${switch (record.performedBy) {
+                      'self' => 'You',
+                      'mechanic' => 'Mechanic',
+                      _ => 'Not recorded',
+                    }}',
+                  ),
+                  Text(
                     record.cost == null
                         ? 'Cost not recorded'
-                        : 'Cost: RM ${record.cost!.toStringAsFixed(2)}',
+                        : 'Cost: ${formatMyr(record.cost!)}',
                   ),
                   if (record.notes.isNotEmpty) ...[
                     const ModuleSection(title: 'Notes'),

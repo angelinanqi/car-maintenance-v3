@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from 'react';
-import { Box, Button, Field, Flex, Heading, Input, Spinner, Stack, Text, Textarea } from '@chakra-ui/react';
+import { Box, Button, Field, Flex, Heading, Input, NativeSelect, Spinner, Stack, Text, Textarea } from '@chakra-ui/react';
 import { listAll, request as api } from '@/api/client.mjs';
 import TipTapEditor from '@/components/editor/TipTapEditor';
 import ChatNotes from './ChatNotes';
@@ -147,7 +147,7 @@ export default function ChatTools({ request, restoredActivity, snapshot, session
           {item.status.nextKm != null && <Text>Due mileage: {item.status.nextKm} km</Text>}{item.status.nextDate && <Text>Due date: {item.status.nextDate}</Text>}
           {item.rule?.notes && <Text>{item.rule.notes}</Text>}{item.rule?.conditions && <Text>{item.rule.conditions}</Text>}
           <Flex gap={2}>{item.lesson_ids?.[0] && <Button variant="outline" disabled={busy || loading} onClick={() => perform(() => openGuide(item.lesson_ids[0]))}>Understand this maintenance</Button>}
-            <Button variant="outline" disabled={plan.stale || busy || loading} onClick={() => setRecord({ id: crypto.randomUUID(), item, date: new Date().toISOString().slice(0, 10), mileage: String(plan.snapshot.mileage), notes: '' })}>Record completed work</Button></Flex>
+            <Button variant="outline" disabled={plan.stale || busy || loading} onClick={() => setRecord({ id: crypto.randomUUID(), item, date: new Date().toISOString().slice(0, 10), mileage: String(plan.snapshot.mileage), notes: '', performedBy: 'self', cost: '' })}>Record completed work</Button></Flex>
         </Stack>)}
       </Box>)}
       <Flex gap={2} wrap="wrap">
@@ -165,14 +165,28 @@ export default function ChatTools({ request, restoredActivity, snapshot, session
     </Stack>}
     {record && <Stack as="form" borderWidth="1px" p={4} onSubmit={event => { event.preventDefault(); perform(async () => {
       if (!/^\d+$/.test(record.mileage) || !record.date) throw new Error('Enter the service date and whole-number mileage.');
+      const cost = record.cost.trim();
+      if (record.performedBy === 'mechanic' && !cost) throw new Error('Enter the mechanic service cost in RM. Enter 0 if it was free.');
+      if (cost && (!/^\d+(\.\d{1,2})?$/.test(cost) || !Number.isFinite(Number(cost)))) throw new Error('Enter RM 0 or more, with up to two decimal places.');
       await api(`/mobile/me/records/${record.id}`, { method: 'PUT', body: { id: record.id, vehicleId, taskId: record.item.task_id,
-        title: record.item.title, mileage: Number(record.mileage), date: record.date + 'T00:00:00', notes: record.notes } });
+        title: record.item.title, category: snapshot.tasks.find(task => task.id === record.item.task_id)?.category || '',
+        mileage: Number(record.mileage), date: record.date + 'T00:00:00', notes: record.notes,
+        performedBy: record.performedBy, cost: cost ? Number(cost) : null } });
       setRecord(null); setStatus('Service record saved.');
       try { await onSnapshot(); await openPlan(); } catch { throw new Error('Service record saved, but its updated proposal could not refresh. Refresh the plan.'); }
     }); }}>
       <Text>Record {record.item.title}</Text>
       <Field.Root><Field.Label>Service date</Field.Label><Input type="date" value={record.date} disabled={loading || busy} onChange={event => setRecord({ ...record, date: event.target.value })} /></Field.Root>
       <Field.Root><Field.Label>Service mileage (km)</Field.Label><Input value={record.mileage} disabled={loading || busy} onChange={event => setRecord({ ...record, mileage: event.target.value })} /></Field.Root>
+      <Field.Root><Field.Label>Who performed the maintenance?</Field.Label><NativeSelect.Root>
+        <NativeSelect.Field value={record.performedBy} disabled={loading || busy} onChange={event => setRecord({ ...record, performedBy: event.target.value })}>
+          <option value="self">I did it myself</option><option value="mechanic">A mechanic</option>
+        </NativeSelect.Field><NativeSelect.Indicator />
+      </NativeSelect.Root></Field.Root>
+      <Field.Root><Field.Label>Cost in RM ({record.performedBy === 'mechanic' ? 'required' : 'optional'})</Field.Label>
+        <Input inputMode="decimal" value={record.cost} disabled={loading || busy} onChange={event => setRecord({ ...record, cost: event.target.value })} />
+        <Field.HelperText>{record.performedBy === 'mechanic' ? 'Enter 0 only if this service was free.' : 'Leave blank if unknown. Enter 0 if free.'}</Field.HelperText>
+      </Field.Root>
       <Field.Root><Field.Label>Service notes</Field.Label><Textarea maxLength={10000} value={record.notes} disabled={loading || busy} onChange={event => setRecord({ ...record, notes: event.target.value })} /></Field.Root>
       <Button type="submit" disabled={loading || busy}>Save service record</Button><Button variant="outline" disabled={loading || busy} onClick={() => setRecord(null)}>Cancel service record</Button>
     </Stack>}

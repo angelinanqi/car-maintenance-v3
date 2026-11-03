@@ -19,6 +19,7 @@ class WorkshopMode extends StatefulWidget {
 class _WorkshopModeState extends State<WorkshopMode> {
   final _form = GlobalKey<FormState>();
   final _notes = TextEditingController(), _workshop = TextEditingController();
+  final Map<String, TextEditingController> _costs = {};
   late final TextEditingController _mileage;
   late final String? _owner;
   final Set<String> _work = {}, _confirmed = {};
@@ -79,6 +80,11 @@ class _WorkshopModeState extends State<WorkshopMode> {
         _mileage.text = '${records.first.mileage}';
         _notes.text = records.first.notes;
         _workshop.text = records.first.workshopName;
+        for (final record in records) {
+          _costs[record.id] = TextEditingController(
+            text: record.cost?.toString() ?? '',
+          );
+        }
         _error =
             'An unfinished save was restored. Retry to finish saving these records.';
       }
@@ -100,6 +106,7 @@ class _WorkshopModeState extends State<WorkshopMode> {
 
   Future<void> _save() async {
     if (_busy || !_sameOwner) return;
+    if (!_form.currentState!.validate()) return;
     final batchId = DateTime.now().microsecondsSinceEpoch;
     final selectedTasks = widget.state
         .tasksFor(widget.vehicle.id)
@@ -117,6 +124,8 @@ class _WorkshopModeState extends State<WorkshopMode> {
           date: DateTime(_date.year, _date.month, _date.day),
           notes: _notes.text.trim(),
           workshopName: _workshop.text.trim(),
+          performedBy: 'mechanic',
+          cost: double.parse(_costs[entry.value.id]!.text.trim()),
         ),
     ];
     if (_pending!.isEmpty) {
@@ -127,6 +136,25 @@ class _WorkshopModeState extends State<WorkshopMode> {
       });
       return;
     }
+    // Restored drafts may predate cost tracking. Keep confirmed writes intact,
+    // and collect costs for only the records still waiting to be saved.
+    for (final record in _pending!) {
+      _costs.putIfAbsent(
+        record.id,
+        () => TextEditingController(text: record.cost?.toString() ?? ''),
+      );
+    }
+    _pending = [
+      for (final record in _pending!)
+        if (_confirmed.contains(record.id))
+          record
+        else
+          ServiceRecord.fromJson({
+            ...record.toJson(),
+            'performedBy': 'mechanic',
+            'cost': double.parse(_costs[record.id]!.text.trim()),
+          }),
+    ];
     setState(() {
       _busy = true;
       _error = null;
@@ -220,6 +248,9 @@ class _WorkshopModeState extends State<WorkshopMode> {
 
   @override
   void dispose() {
+    for (final controller in _costs.values) {
+      controller.dispose();
+    }
     _notes.dispose();
     _workshop.dispose();
     _mileage.dispose();
@@ -324,7 +355,10 @@ class _WorkshopModeState extends State<WorkshopMode> {
                       'Work done',
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
-                    for (final task in tasks)
+                    const Text(
+                      'Enter the cost for each selected item. Split a combined bill between the items; do not enter the full bill for every item. Enter 0 for a free item.',
+                    ),
+                    for (final task in tasks) ...[
                       CheckboxListTile(
                         contentPadding: EdgeInsets.zero,
                         title: Text(task.title),
@@ -333,11 +367,18 @@ class _WorkshopModeState extends State<WorkshopMode> {
                         onChanged: (value) => setState(() {
                           if (value == true) {
                             _work.add(task.id);
+                            _costs.putIfAbsent(
+                              task.id,
+                              () => TextEditingController(),
+                            );
                           } else {
                             _work.remove(task.id);
                           }
                         }),
                       ),
+                      if (_work.contains(task.id))
+                        _costField(task.id, task.title),
+                    ],
                     TextButton.icon(
                       onPressed: _addItem,
                       icon: const Icon(Icons.add),
@@ -384,18 +425,27 @@ class _WorkshopModeState extends State<WorkshopMode> {
                         ListTile(
                           contentPadding: EdgeInsets.zero,
                           title: Text(task.title),
-                          subtitle: Text(maintenanceActionLabel(task.action)),
+                          subtitle: Text(
+                            '${maintenanceActionLabel(task.action)} · ${formatMyr(double.parse(_costs[task.id]!.text.trim()))}',
+                          ),
                         ),
                     if (_pending != null)
-                      for (final record in _pending!)
+                      for (final record in _pending!) ...[
                         ListTile(
                           contentPadding: EdgeInsets.zero,
                           title: Text(record.title),
-                          subtitle: Text(record.category),
+                          subtitle: Text(
+                            _confirmed.contains(record.id)
+                                ? '${record.category} · ${record.cost == null ? 'Cost not recorded' : formatMyr(record.cost!)}'
+                                : record.category,
+                          ),
                           trailing: _confirmed.contains(record.id)
                               ? const Icon(Icons.check)
                               : null,
                         ),
+                        if (!_confirmed.contains(record.id))
+                          _costField(record.id, record.title),
+                      ],
                     if (_notes.text.trim().isNotEmpty) Text(_notes.text.trim()),
                     const Text(
                       'Check this matches the work performed. Each item is saved to your account and updates its maintenance history.',
@@ -432,5 +482,21 @@ class _WorkshopModeState extends State<WorkshopMode> {
         ),
       );
     },
+  );
+
+  Widget _costField(String id, String title) => Padding(
+    padding: const EdgeInsets.only(bottom: AppSpacing.standard),
+    child: TextFormField(
+      key: ValueKey('cost-$id'),
+      controller: _costs[id],
+      enabled: !_busy,
+      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      decoration: InputDecoration(
+        labelText: 'Cost for $title (required)',
+        prefixText: 'RM ',
+        helperText: 'Cost for this item only. Enter 0 if free.',
+      ),
+      validator: (value) => validateMaintenanceCost(value, required: true),
+    ),
   );
 }

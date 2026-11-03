@@ -24,7 +24,7 @@ def record_view(row):
     return {'id': row['id'], 'vehicleId': row['vehicle_id'], 'taskId': row.get('task_id'),
             'title': row['title'], 'category': row['category'], 'mileage': row['mileage'],
             'date': row['performed_at'], 'notes': row['notes'], 'cost': row.get('cost'),
-            'workshopName': row.get('workshop_name', '')}
+            'workshopName': row.get('workshop_name', ''), 'performedBy': row.get('performed_by')}
 
 
 def personal_schedules(vehicles):

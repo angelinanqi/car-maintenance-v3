@@ -15,6 +15,15 @@ built in, so no application extensions need to be installed.
 
 ## Historical scripts and existing installations
 
+For maintenance cost tracking, apply
+[`migrations/20261103_maintenance_costs.sql`](migrations/20261103_maintenance_costs.sql)
+before deploying the updated backend, mobile app and admin web client. It adds nullable
+`service_records.performed_by` (`self` or `mechanic`). Historical attribution and
+missing costs remain unknown; no costs are backfilled. New records must specify
+who performed the work, and mechanic records require a non-negative RM cost
+(including zero) on create and edit. Fresh installations include the column in
+`init.sql`. The migration has no automatic startup runner.
+
 For persistent website-to-PDF imports, apply
 [`migrations/20261103_website_pdf_imports.sql`](migrations/20261103_website_pdf_imports.sql)
 once in the SQL Editor **before starting the updated app**. It adds the server-only

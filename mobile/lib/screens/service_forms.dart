@@ -27,6 +27,7 @@ class _ServiceLogDialogState extends State<ServiceLogDialog> {
   final _cost = TextEditingController(), _notes = TextEditingController();
   final _workshop = TextEditingController();
   late String _category;
+  String? _performedBy;
   late final String? _owner;
   late final String _recordId;
   DateTime _date = DateTime.now();
@@ -52,6 +53,7 @@ class _ServiceLogDialogState extends State<ServiceLogDialog> {
     _notes.text = record?.notes ?? '';
     _workshop.text = record?.workshopName ?? '';
     _cost.text = record?.cost?.toString() ?? '';
+    _performedBy = record == null ? 'self' : record.performedBy;
   }
 
   @override
@@ -96,6 +98,7 @@ class _ServiceLogDialogState extends State<ServiceLogDialog> {
           date: DateTime(_date.year, _date.month, _date.day),
           notes: _notes.text.trim(),
           workshopName: _workshop.text.trim(),
+          performedBy: _performedBy,
           cost: double.tryParse(_cost.text.trim()),
         ),
       );
@@ -288,10 +291,27 @@ class _ServiceLogDialogState extends State<ServiceLogDialog> {
                 return null;
               },
             ),
-            const ModuleSection(
-              title: 'Additional details',
-              description: 'Optional',
+            const ModuleSection(title: 'Service cost'),
+            DropdownButtonFormField<String>(
+              initialValue: _performedBy,
+              isExpanded: true,
+              decoration: const InputDecoration(
+                labelText: 'Who performed the maintenance?',
+                helperText: 'Mechanic services need a cost, even if free.',
+              ),
+              items: const [
+                DropdownMenuItem(value: 'self', child: Text('I did it myself')),
+                DropdownMenuItem(value: 'mechanic', child: Text('A mechanic')),
+              ],
+              onChanged: _busy
+                  ? null
+                  : (value) => setState(() => _performedBy = value),
             ),
+            if (widget.record != null && _performedBy == null)
+              const Text(
+                'Who performed this older service was not recorded. You can leave it unknown.',
+              ),
+            const SizedBox(height: 16),
             TextFormField(
               controller: _cost,
               enabled: !_busy,
@@ -299,19 +319,24 @@ class _ServiceLogDialogState extends State<ServiceLogDialog> {
                 decimal: true,
               ),
               textInputAction: TextInputAction.next,
-              decoration: const InputDecoration(
-                labelText: 'Cost',
+              decoration: InputDecoration(
+                labelText: _performedBy == 'mechanic'
+                    ? 'Cost (required)'
+                    : 'Cost (optional)',
                 prefixText: 'RM ',
+                helperText: _performedBy == 'mechanic'
+                    ? 'Enter 0 only if this service was free.'
+                    : 'Leave blank if the cost is unknown. Enter 0 if free.',
               ),
-              validator: (v) {
-                if (v == null || v.trim().isEmpty) return null;
-                final cost = double.tryParse(v.trim());
-                return cost == null || !cost.isFinite || cost < 0
-                    ? 'Enter a valid amount of zero or more'
-                    : null;
-              },
+              validator: (v) => validateMaintenanceCost(
+                v,
+                required: _performedBy == 'mechanic',
+              ),
             ),
-            const SizedBox(height: 16),
+            const ModuleSection(
+              title: 'Additional details',
+              description: 'Optional',
+            ),
             TextFormField(
               controller: _notes,
               enabled: !_busy,

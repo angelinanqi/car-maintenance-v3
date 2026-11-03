@@ -87,6 +87,7 @@ class ServiceRecord {
   final double? cost;
   final String? taskId;
   final String workshopName;
+  final String? performedBy;
 
   const ServiceRecord({
     required this.id,
@@ -99,6 +100,7 @@ class ServiceRecord {
     this.cost,
     this.taskId,
     this.workshopName = '',
+    this.performedBy,
   });
 
   factory ServiceRecord.fromJson(Map<String, dynamic> json) => ServiceRecord(
@@ -112,6 +114,7 @@ class ServiceRecord {
     cost: (json['cost'] as num?)?.toDouble(),
     taskId: json['taskId'] as String?,
     workshopName: json['workshopName'] as String? ?? '',
+    performedBy: json['performedBy'] as String?,
   );
 
   Map<String, dynamic> toJson() => {
@@ -125,6 +128,7 @@ class ServiceRecord {
     'cost': cost,
     'taskId': taskId,
     'workshopName': workshopName,
+    'performedBy': performedBy,
   };
 }
 
@@ -215,6 +219,25 @@ const maintenanceCategories = [
 ];
 
 String formatDate(DateTime date) => '${date.day}/${date.month}/${date.year}';
+
+String formatMyr(double amount) => 'RM ${amount.toStringAsFixed(2)}';
+
+String? validateMaintenanceCost(String? value, {required bool required}) {
+  final text = value?.trim() ?? '';
+  if (text.isEmpty) {
+    return required
+        ? 'Enter the mechanic service cost. Enter 0 if it was free.'
+        : null;
+  }
+  final amount = double.tryParse(text);
+  if (!RegExp(r'^\d+(\.\d{1,2})?$').hasMatch(text) ||
+      amount == null ||
+      !amount.isFinite ||
+      amount < 0) {
+    return 'Enter RM 0 or more, with up to two decimal places.';
+  }
+  return null;
+}
 
 String maintenanceActionLabel(String action) => switch (action) {
   'inspect' => 'Check / inspect',

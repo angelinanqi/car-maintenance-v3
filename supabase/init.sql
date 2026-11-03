@@ -366,6 +366,7 @@ create table public.service_records (
     performed_at date not null,
     notes text not null default '',
     workshop_name text not null default '' check (length(workshop_name) <= 200),
+    performed_by text check (performed_by in ('self', 'mechanic')),
     cost numeric check (cost >= 0 and cost <> 'NaN'::numeric and cost <> 'Infinity'::numeric),
     created_at timestamptz not null default now(),
     updated_at timestamptz not null default now(),

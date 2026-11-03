@@ -1,5 +1,6 @@
 """Account-owned mobile persistence."""
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 from typing import Literal
 from uuid import UUID
 
@@ -71,7 +72,22 @@ class RecordInput(InputModel):
     date: datetime
     notes: str = Field(default='', max_length=10000)
     workshopName: str | None = Field(default=None, max_length=200)
+    performedBy: Literal['self', 'mechanic'] | None = None
     cost: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+
+    @field_validator('cost', mode='before')
+    @classmethod
+    def valid_cost(cls, value):
+        if value is None:
+            return value
+        try:
+            amount = Decimal(str(value))
+            valid = amount.is_finite() and amount >= 0 and amount == amount.quantize(Decimal('0.01'))
+        except InvalidOperation:
+            raise ValueError('Enter a valid cost in RM, with up to two decimal places.')
+        if not valid:
+            raise ValueError('Enter a cost of RM 0 or more, with up to two decimal places.')
+        return value
 
     @field_validator('id', 'vehicleId', 'taskId')
     @classmethod
@@ -235,6 +251,11 @@ def save_record(record_id: str, request: RecordInput, user=Depends(auth.require_
         old = owned('service_records', user['id'], record_id, optional=True)
         if old and (old['vehicle_id'] != request.vehicleId or old.get('task_id') != request.taskId):
             raise HTTPException(409, 'A service record cannot be moved to another vehicle or item.')
+        performed_by = request.performedBy or (old.get('performed_by') if old else None)
+        if not old and performed_by is None:
+            raise HTTPException(422, 'Choose whether you or a mechanic performed this maintenance.')
+        if performed_by == 'mechanic' and request.cost is None:
+            raise HTTPException(422, 'Enter the cost of this mechanic service in RM. Enter 0 if it was free.')
         task = owned('user_tasks', user['id'], request.taskId) if request.taskId else None
         if (task and task['vehicle_id'] != request.vehicleId) or (not task and not old):
             raise HTTPException(422, 'Select an item belonging to this vehicle.')
@@ -260,7 +281,7 @@ def save_record(record_id: str, request: RecordInput, user=Depends(auth.require_
         row = put('service_records', user['id'], record_id, {'vehicle_id': request.vehicleId, 'task_id': request.taskId,
             'title': title, 'category': request.category,
             'mileage': request.mileage, 'performed_at': request.date.date().isoformat(), 'notes': request.notes,
-            'cost': request.cost, 'workshop_name': workshop_name})
+            'cost': request.cost, 'workshop_name': workshop_name, 'performed_by': performed_by})
         return record_view(row)
 
 
