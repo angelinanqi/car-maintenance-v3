@@ -182,6 +182,7 @@ export default function DocumentCoverage({
             </Text>
             <Stack gap={3} maxH="200px" overflowY="auto" p={1}>
               {knowledge.categories
+                .filter((category) => !category.archived || draft.category_ids.includes(category.id))
                 .filter((category) => matches(category.name))
                 .map((category) => (
                   <Checkbox
@@ -189,7 +190,7 @@ export default function DocumentCoverage({
                     checked={draft.category_ids.includes(category.id)}
                     onCheckedChange={() => toggle("category_ids", category.id)}
                   >
-                    {category.name}
+                    {category.name}{category.archived ? " (Archived)" : ""}
                   </Checkbox>
                 ))}
               {!knowledge.categories.length && (

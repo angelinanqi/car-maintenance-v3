@@ -24,6 +24,13 @@ export function documentJourney(document, knowledge) {
       next: "Check availability",
       color: "green",
     };
+  if (document.status === "awaiting_confirmation")
+    return {
+      stage: "review",
+      label: "Corrections awaiting confirmation",
+      next: "Continue corrections",
+      color: "orange",
+    };
   if (document.status === "awaiting_index" && document.error)
     return {
       stage: "problem",

@@ -248,13 +248,15 @@ export function ContentProvider({ children, emergencyOnly = false }) {
         saveCategory: (id, body) =>
           mutate(
             () => categoriesApi.saveCategory(id, body),
-            ["categories", "cards"],
+            ["categories", "cards", "knowledge"],
           ),
-        deleteCategory: (id) =>
+        deleteCategory: (id, body) =>
           mutate(
-            () => categoriesApi.deleteCategory(id),
-            ["categories", "cards"],
+            () => categoriesApi.deleteCategory(id, body),
+            ["categories", "cards", "knowledge", "dashboard"],
           ),
+        archiveCategory: (id) => mutate(() => categoriesApi.archiveCategory(id), ["categories", "cards", "knowledge"]),
+        restoreCategory: (id) => mutate(() => categoriesApi.restoreCategory(id), ["categories", "cards", "knowledge"]),
         savePlaybook: (id, body) =>
           mutateEmergency(() => emergencyApi.savePlaybook(id, body), "sops", id),
         publishPlaybook: (id, updatedAt) =>

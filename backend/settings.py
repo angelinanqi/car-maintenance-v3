@@ -70,3 +70,15 @@ for name in ('RAG_SERVICE_URL', 'MINERU_API_URL'):
             raise ValueError(f"{name} must be an http(s) service URL without credentials, query or fragment")
 if RAG_SERVICE_TOKEN and len(RAG_SERVICE_TOKEN.encode()) < 32:
     raise ValueError("RAG_SERVICE_TOKEN must contain at least 32 bytes")
+
+# Browser imports run in their own worker; PDF/OCR uploads remain available when disabled.
+WEBSITE_IMPORT_ENABLED = os.getenv('WEBSITE_IMPORT_ENABLED', 'true').lower() == 'true'
+WEBSITE_IMPORT_WORK_DIR = path_setting('WEBSITE_IMPORT_WORK_DIR', str(OUTPUT_DIR / 'website-imports'))
+PLAYWRIGHT_BROWSERS_PATH = path_setting('PLAYWRIGHT_BROWSERS_PATH', str(OUTPUT_DIR / 'playwright'))
+WEBSITE_CAPTURE_TIMEOUT = int(os.getenv('WEBSITE_CAPTURE_TIMEOUT') or '120')
+WEBSITE_CAPTURE_MAX_PAGES = int(os.getenv('WEBSITE_CAPTURE_MAX_PAGES') or '50')
+WEBSITE_CAPTURE_NETWORK_BYTES = int(os.getenv('WEBSITE_CAPTURE_NETWORK_BYTES') or str(100 * 1024 * 1024))
+if not 15 <= WEBSITE_CAPTURE_TIMEOUT <= 300 or not 1 <= WEBSITE_CAPTURE_MAX_PAGES <= 500:
+    raise ValueError('Website capture timeout must be 15–300 seconds and page limit 1–500')
+if not 1024 * 1024 <= WEBSITE_CAPTURE_NETWORK_BYTES <= 512 * 1024 * 1024:
+    raise ValueError('Website capture network budget must be 1–512 MiB')

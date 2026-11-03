@@ -3,7 +3,7 @@
 [`init.sql`](init.sql) is the single complete fresh-install database definition.
 The existing `supabase/` directory is reused instead of adding `database/`.
 Run the entire file once in a fresh Supabase project's SQL Editor. It creates
-33 application tables, constraints, indexes, functions, triggers, permissions,
+34 application tables, constraints, indexes, functions, triggers, permissions,
 Storage bucket definitions and initial presets in one transaction.
 
 This is a manual fresh-install script, not an upgrade or reset. It does not run
@@ -14,6 +14,26 @@ Storage, schemas and roles must already exist. The retained column-specific
 built in, so no application extensions need to be installed.
 
 ## Historical scripts and existing installations
+
+For persistent website-to-PDF imports, apply
+[`migrations/20261103_website_pdf_imports.sql`](migrations/20261103_website_pdf_imports.sql)
+once in the SQL Editor **before starting the updated app**. It adds the server-only
+`website_import_jobs` queue, document `source_metadata`, fenced job claims and
+transactional document finalization. Existing documents are preserved. The script
+reloads the PostgREST schema cache; `init.sql` includes the same definitions for
+fresh installations. Do not run `init.sql` on an existing database.
+
+Before using deferred correction indexing on an existing installation, run
+[`migrations/20261103_deferred_correction_indexing.sql`](migrations/20261103_deferred_correction_indexing.sql)
+in the Supabase SQL Editor. It extends the document status constraint with
+`awaiting_confirmation` without changing document records. Fresh installs already
+include it in `init.sql`.
+
+For category archiving and safe removal, also run
+[`migrations/20261103_category_removal.sql`](migrations/20261103_category_removal.sql).
+It adds the archive flag and server-only functions for removal previews and
+transactional guide reassignment/deletion. It does not archive, move or delete
+existing content. Fresh installs include the same definitions in `init.sql`.
 
 The 12 additive migrations, original `initial_schema.sql` and previous
 `fresh_schema.sql` are archived unchanged under

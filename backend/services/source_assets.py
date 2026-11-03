@@ -88,7 +88,7 @@ def resolve_manual_sources(sources, scope, session_id, user, *, browse=False):
             raise HTTPException(409, 'The manual source changed. Retry the question.')
         result = {'document_id': identity, 'source_revision': document['source_revision'],
                   'document_title': document['name']}
-        if document.get('source_type') == 'md' or document.get('original_filename', '').startswith('website-'):
+        if document.get('source_metadata') or document.get('source_type') == 'md' or document.get('original_filename', '').startswith('website-'):
             with extraction(document) as archive:
                 article = json.loads(archive.read('metadata/article.json')) if 'metadata/article.json' in archive.namelist() else None
             if article:

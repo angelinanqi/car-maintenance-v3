@@ -1,8 +1,10 @@
 from uuid import UUID
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from backend import auth, db
 from backend.models import Category, CategoryInput
 from backend import settings
+from backend.locks import content_lock
+from backend.services import categories
 
 router = APIRouter(prefix="/categories", tags=["Categories"])
 
@@ -22,10 +24,28 @@ def create_category(request: CategoryInput):
 
 @router.patch("/{category_id}", response_model=Category, dependencies=[Depends(auth.require_admin)])
 def edit_category(category_id: UUID, request: CategoryInput):
-    return db.update("guide_categories", category_id, request.model_dump())
+    with content_lock("guide-links"), content_lock(category_id):
+        row = db.get("guide_categories", category_id)
+        if row.get("archived") and request.published:
+            raise HTTPException(409, "Restore this archived category before publishing it.")
+        return db.update("guide_categories", category_id, request.model_dump())
+
+
+@router.get("/{category_id}/removal-impact", dependencies=[Depends(auth.require_admin)])
+def category_removal_impact(category_id: UUID):
+    return categories.removal_impact(category_id)
+
+
+@router.post("/{category_id}/archive", response_model=Category, dependencies=[Depends(auth.require_admin)])
+def archive_category(category_id: UUID):
+    return categories.archive(category_id)
+
+
+@router.post("/{category_id}/restore", response_model=Category, dependencies=[Depends(auth.require_admin)])
+def restore_category(category_id: UUID):
+    return categories.restore(category_id)
 
 
 @router.delete("/{category_id}", status_code=204, dependencies=[Depends(auth.require_admin)])
-def delete_category(category_id: UUID):
-    # The database FK rejects deletion while a guide references this category.
-    db.delete("guide_categories", category_id)
+def delete_category(category_id: UUID, request: categories.CategoryRemovalInput):
+    categories.remove(category_id, request)

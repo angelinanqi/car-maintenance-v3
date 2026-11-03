@@ -28,6 +28,10 @@ class CorrectionInput(InputModel):
     confirm_source: bool = False
 
 
+class ConfirmCorrectionsInput(InputModel):
+    source_revision: UUID
+
+
 def read_bundle(document):
     with extraction(document) as archive:
         return {entry.filename: archive.read(entry) for entry in archive.infolist() if not entry.is_dir()}
@@ -118,7 +122,7 @@ def rebuild_elements(old, text, document, previous_text):
     return {**old, **fresh, "document_id": document["id"], "source_revision": document["source_revision"]}
 
 
-def commit(document, files):
+def commit(document, files, *, defer_indexing=False):
     """Upload into the inactive slot, then atomically select a fresh index revision."""
     revision = str(uuid4())
     package = json.loads(files["manifest.json"])
@@ -144,7 +148,8 @@ def commit(document, files):
     path = f"documents/{document['id']}/{slot}"
     db.bucket(settings.SUPABASE_DOCUMENT_BUCKET).upload(path, data, {"content-type": "application/zip", "upsert": "true"})
     return db.update("documents", document["id"], {
-        **documents.reset_processing(), "source_revision": revision, "status": "awaiting_index",
+        **documents.reset_processing(), "source_revision": revision,
+        "status": "awaiting_confirmation" if defer_indexing else "awaiting_index",
         "extraction_storage_path": path, "extraction_completed_at": documents.now(),
     })
 
@@ -192,4 +197,15 @@ def save(document_id, request, reviewer):
                       "elements.json": json.dumps(elements, ensure_ascii=False).encode(),
                       HISTORY: json.dumps(changes, ensure_ascii=False).encode()})
         files.pop("metadata/processing.md", None)
-        return commit(row, files)
+        return commit(row, files, defer_indexing=True)
+
+
+def confirm(document_id, request):
+    """Release exactly the saved revision the administrator has confirmed."""
+    with documents.document_lock("schedule-sources"), documents.document_lock(document_id):
+        row = document_review.current_document(document_id, request.source_revision)
+        if row.get("published") or row.get("superseded_by_id"):
+            raise HTTPException(409, "This document is no longer available for corrections.")
+        if row["status"] in {"awaiting_index", "processed"}:
+            return row  # A repeated confirmation must not start another rebuild.
+        return db.update("documents", document_id, {"status": "awaiting_index", "error": None})

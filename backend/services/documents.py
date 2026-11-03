@@ -169,11 +169,11 @@ def replace(document_id, file):
         # A failed write leaves the old source authoritative and the staged slot retryable.
         saved = db.update("documents", document_id, dict(
             reset_processing(), storage_path=path, source_type=source_type,
-            original_filename=filename, size_bytes=len(data),
+            original_filename=filename, size_bytes=len(data), source_metadata=None,
         ))
         try:
             remove_artifacts(document_id)
-            bucket.remove([item for item in source_paths(document_id) if item != path] + [extraction_path(document_id)])
+            bucket.remove([item for item in set(source_paths(document_id) + [row["storage_path"]]) if item != path] + [extraction_path(document_id)])
             return saved
         except Exception as error:
             # The deterministic slots remain discoverable for retry/delete after a partial failure.
@@ -199,7 +199,7 @@ def delete(document_id):
             raise HTTPException(409, "Document revision history references this source. Remove an unpublished staged replacement first, or retain the original for traceability.")
         db.update("documents", document_id, dict(status="failed", error="Deletion in progress; retry deletion if interrupted.", chunk_count=0, processed_at=None, mobile_visible=False, published=False, indexed_revision=None, indexed_at=None))
         remove_artifacts(document_id)
-        db.bucket(settings.SUPABASE_DOCUMENT_BUCKET).remove(source_paths(document_id) + [extraction_path(document_id)])
+        db.bucket(settings.SUPABASE_DOCUMENT_BUCKET).remove(list(set(source_paths(document_id) + [row["storage_path"], extraction_path(document_id)])))
         db.delete("documents", document_id)
 
 
@@ -214,6 +214,8 @@ def record_failure(document_id, error):
 def queue(document_id, force=False):
     with document_lock(document_id):
         row = editable(document_id)
+        if row["status"] == "awaiting_confirmation":
+            raise HTTPException(409, "Finish correcting the document, then confirm changes to rebuild its index.")
         indexed = row.get("indexed_revision") and row.get("indexed_revision") == row.get("source_revision")
         if not force and (row["status"] == "awaiting_index" or (row["status"] == "processed" and indexed)):
             return row, False
@@ -265,6 +267,13 @@ def package_extraction(row, markdown, directory, *, describe_visuals=False, incl
             target = markdown.parent / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(data)
+    if row.get('source_metadata'):
+        from shared.website_metadata import validate_metadata
+        article = validate_metadata(row['source_metadata'])
+        pdf_path = directory / f"{row['id']}.pdf"
+        if row['source_type'] != 'pdf' or sha256(pdf_path.read_bytes()).hexdigest() != article['pdf_sha256']:
+            raise ValueError('Website provenance does not match the source PDF')
+        article['content_sha256'] = sha256(original.encode('utf-8')).hexdigest()
     processing = original
     provenance = markdown.parent / 'metadata'
     metadata = []

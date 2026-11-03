@@ -258,6 +258,8 @@ def run_app(services, without_rag, no_browser):
             raise ValueError('RAG_INDEX_WORKER_MODE must be embedded or external')
     services.start("backend", [sys.executable, "-m", "backend"])
     services.wait_http("Backend", backend_url + "/health")
+    if os.getenv('WEBSITE_IMPORT_ENABLED', 'true').lower() == 'true':
+        services.start('website-import-worker', [sys.executable, '-m', 'backend.website_import_worker'])
     if not without_rag:
         services.start("rag", [sys.executable, "-m", "rag.service"])
         services.wait_http("RAG API", rag_url + "/openapi.json", timeout=rag_startup_timeout)

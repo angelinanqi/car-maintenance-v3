@@ -222,9 +222,9 @@ function GuideForm({ guide }) {
               onChange={(e) => setCategory(e.target.value)}
             >
               <option value="">Uncategorized</option>
-              {categories.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
+              {categories.filter((item) => !item.archived || item.id === category).map((item) => (
+                <option key={item.id} value={item.id} disabled={item.archived}>
+                  {item.name}{item.archived ? " (Archived)" : ""}
                 </option>
               ))}
             </AdminSelect>

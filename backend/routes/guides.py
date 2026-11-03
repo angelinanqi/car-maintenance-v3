@@ -29,6 +29,8 @@ def validate_guide(values, guide_id=None):
         raise HTTPException(422, "A guide cannot link to itself as a related lesson.")
     if values["category_id"]:
         category = db.get("guide_categories", values["category_id"])
+        if category.get("archived") and (not guide_id or db.get("guides", guide_id)["category_id"] != values["category_id"]):
+            raise HTTPException(422, "Restore this archived category before assigning a guide to it.")
         if values["status"] == "published" and not category.get("published", True):
             raise HTTPException(422, "Publish the learning category before publishing this guide.")
     for guide_id in values.get("related_lesson_ids", []):

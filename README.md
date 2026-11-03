@@ -180,7 +180,7 @@ For credential names and forwarding details, see [Configuration reference](docs/
 
 Use the admin dashboard to add manuals, website articles, and supported reference content. Review extracted text, tables, and images before approving and publishing them.
 
-For a website article, open **Reference Library → Add website article**, paste its URL, and follow the review steps. Public articles, guides and reference pages with readable HTML are read directly on the Mac; they do not use Windows OCR. Blog pages do not need special article tags. Headings, lists and tables are preserved within identified content containers; unavailable images and embedded media are flagged for review. Pages requiring login, JavaScript rendering, or payment, and sites that block automated access, need a PDF upload. Compare the extracted content with the original before publishing.
+For websites, open **Reference Library → Import website**. Browser PDF capture saves a persistent job; open its completed document to preview the PDF and use the existing Process/review flow. Direct text import and manual PDF upload with source attribution are also available. Existing installations must apply `supabase/migrations/20261103_website_pdf_imports.sql` first and install Playwright's matching Chromium on the Mac. See [website import setup and recovery](docs/operations.md#website-pdf-imports).
 
 For database setup, administrator accounts, and recovery tasks, see the [operations guide](docs/operations.md).
 

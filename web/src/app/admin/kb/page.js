@@ -15,6 +15,7 @@ import {
 } from "@chakra-ui/react";
 import AdminLayout from "@/components/layouts/AdminLayout";
 import FileModal from "@/components/modals/FileModal";
+import WebsiteImportJobs from "@/components/admin/WebsiteImportJobs";
 import WebsiteArticleModal from "@/components/admin/WebsiteArticleModal";
 import DocumentTestSummary from "@/components/admin/DocumentTestSummary";
 import { AdminSelect } from "@/components/admin/NativeControls";
@@ -36,6 +37,8 @@ function DocumentLibrary() {
   const [uploadOpen, setUploadOpen] = useState(search.get("add") === "1");
   const [query, setQuery] = useState("");
   const [articleOpen, setArticleOpen] = useState(false);
+  const [articleJobId, setArticleJobId] = useState(null);
+  const [importRefresh, setImportRefresh] = useState(0);
   const [filter, setFilter] = useState("current");
   const preferredVehicle = search.get("vehicle") || "";
   const testFilter = filter.startsWith("tests:") ? filter.slice(6) : "";
@@ -86,7 +89,7 @@ function DocumentLibrary() {
               Refresh
             </Button>
             <Button onClick={() => setUploadOpen(true)}>Add document</Button>
-            <Button variant="outline" onClick={() => setArticleOpen(true)}>Add website article</Button>
+            <Button variant="outline" onClick={() => { setArticleJobId(null); setArticleOpen(true); }}>Import website</Button>
           </Flex>
         </Flex>
         <Flex gap={4} align="end" wrap="wrap">
@@ -117,6 +120,7 @@ function DocumentLibrary() {
             </AdminSelect>
           </Box>
         </Flex>
+        <WebsiteImportJobs refreshKey={importRefresh} onOpen={id => { setArticleJobId(id); setArticleOpen(true); }} />
         {!loading && !documents.length && (
           <Box bg="white" p={8} borderRadius="12px">
             <Heading size="lg">Add Your First Reference</Heading>
@@ -229,7 +233,7 @@ function DocumentLibrary() {
           }}
         />
       )}
-      {articleOpen && <WebsiteArticleModal onClose={() => setArticleOpen(false)} onAdded={async (document) => {
+      {articleOpen && <WebsiteArticleModal initialJobId={articleJobId} onJobChanged={() => setImportRefresh(value => value + 1)} onClose={() => setArticleOpen(false)} onAdded={async (document) => {
         await refresh({ resources: ['documents'] });
         setArticleOpen(false);
         router.push(`/admin/kb/${document.id}${preferredVehicle ? `?vehicle=${encodeURIComponent(preferredVehicle)}` : ""}`);

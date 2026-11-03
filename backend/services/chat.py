@@ -335,7 +335,8 @@ def resume(session_id, user, message_id=None):
     from backend.services.personal_records import owned
     row = owned('chat_sessions', user['id'], session_id)
     scope = automatic_scope(row, user) if row.get('automatic') else scopes.resolve(
-        'vehicle' if row.get('vehicle_id') else 'category', row.get('vehicle_id') or row.get('category_id'))
+        'vehicle' if row.get('vehicle_id') else 'category', row.get('vehicle_id') or row.get('category_id'),
+        require_available=bool(row.get('vehicle_id')))
     if not row.get('automatic'):
         enforce_vehicle(user, scope['scope_type'], scope['scope_id'], row.get('user_vehicle_id'))
     if session_id in _active:

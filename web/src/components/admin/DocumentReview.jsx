@@ -27,9 +27,10 @@ export default function DocumentReview({ document, onLoaded, onUpdated }) {
   const [asking, setAsking] = useState(null);
   const [saved, setSaved] = useState(false);
   const [correctionDirty, setCorrectionDirty] = useState(false);
+  const [visualDirty, setVisualDirty] = useState(false);
   const savingRef = useRef(false);
   const mounted = useRef(true);
-  useUnsavedChanges(Boolean(pending || saving || correctionDirty));
+  useUnsavedChanges(Boolean(pending || saving || correctionDirty || visualDirty));
 
   useEffect(() => {
     mounted.current = true;
@@ -51,9 +52,9 @@ export default function DocumentReview({ document, onLoaded, onUpdated }) {
   }, [document.id, document.source_revision, attempt]);
 
   useEffect(() => {
-    onLoaded(Boolean(review && !pending && !saving && !stale && !correctionDirty));
+    onLoaded(Boolean(review && !pending && !saving && !stale && !correctionDirty && !visualDirty));
     return () => onLoaded(false);
-  }, [review, pending, saving, stale, correctionDirty, onLoaded]);
+  }, [review, pending, saving, stale, correctionDirty, visualDirty, onLoaded]);
 
   const progress = pending || review?.progress;
   const blocks = review?.blocks || [];
@@ -74,7 +75,7 @@ export default function DocumentReview({ document, onLoaded, onUpdated }) {
   const page = progress?.source_page ?? selected?.pages[0] ?? null;
   const original = `${originalDocumentUrl(document.id, document.source_revision)}${document.source_type === "pdf" && page ? `#page=${page}` : ""}`;
   const reviewDisabled = saving || Boolean(pending) || stale;
-  const disabled = reviewDisabled || correctionDirty;
+  const disabled = reviewDisabled || correctionDirty || visualDirty;
 
   async function save(next) {
     if (savingRef.current || stale) return;
@@ -121,7 +122,7 @@ export default function DocumentReview({ document, onLoaded, onUpdated }) {
   }
 
   function reload() {
-    if (saving || ((pending || correctionDirty) && !window.confirm("Reload saved progress? Unsaved checklist changes and extraction corrections will be discarded."))) return;
+    if (saving || ((pending || correctionDirty || visualDirty) && !window.confirm("Reload saved progress? Unsaved checklist changes, extraction corrections and illustration reviews will be discarded."))) return;
     setAttempt((value) => value + 1);
   }
 
@@ -228,7 +229,7 @@ export default function DocumentReview({ document, onLoaded, onUpdated }) {
             </Box>
             {selected.kind === "image" && <Text fontSize="sm" color="muted">Checking this entry records your comparison. Use illustration identity review below to approve its identity for chatbot selection.</Text>}
             {["text", "table"].includes(selected.kind) && <ExtractionCorrection key={`${selected.element_id}:${attempt}`}
-              document={document} block={selected} disabled={reviewDisabled} onDirty={setCorrectionDirty}
+              document={document} block={selected} disabled={reviewDisabled || visualDirty} onDirty={setCorrectionDirty}
               onSaved={async (message) => { onLoaded(false); await onUpdated?.(message); }} />}
             <Flex gap={2} wrap="wrap">
               <Button disabled={disabled} onClick={() => decide("checked", true)}>Mark checked{index >= 0 && index < visible.length - 1 ? " and next" : ""}</Button>
@@ -260,8 +261,9 @@ export default function DocumentReview({ document, onLoaded, onUpdated }) {
       </Box>}
       <Box as="details" borderTopWidth="1px" pt={4}>
         <Box as="summary" cursor="pointer">Illustration Identity Review</Box>
-        <Box as="fieldset" disabled={disabled} mt={4} p={0} minW={0} border={0}>
-          <VisualReview document={document} onSaved={async () => { onLoaded(false); await onUpdated?.(); }} />
+        <Box as="fieldset" disabled={reviewDisabled || correctionDirty} mt={4} p={0} minW={0} border={0}>
+          <VisualReview key={attempt} document={document} onDirty={setVisualDirty}
+            onSaved={async (message) => { onLoaded(false); await onUpdated?.(message); }} />
         </Box>
       </Box>
     </>}

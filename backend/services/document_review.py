@@ -30,7 +30,7 @@ def current_document(document_id, revision):
     row = db.get("documents", document_id)
     if row["source_revision"] != str(revision):
         raise HTTPException(409, "This document revision changed. Reload the current document before continuing your review.")
-    if not row.get("extraction_storage_path") or row["status"] not in {"awaiting_index", "processed"}:
+    if not row.get("extraction_storage_path") or row["status"] not in {"awaiting_confirmation", "awaiting_index", "processed"}:
         raise HTTPException(409, "The document is not ready to check yet.")
     return row
 

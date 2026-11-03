@@ -95,6 +95,24 @@ If an existing administrator needs their confirmed Supabase identity linked to t
 
 On Windows, use `.\.venv\Scripts\python.exe` instead of `.venv/bin/python`.
 
+## Archive or remove learning topics
+
+In **Learning Topics**, select **Remove** to see the guides (including drafts),
+document assignments, video links and saved history attached to a topic.
+**Archive topic** hides it and its guides from drivers, disables it in the
+chatbot, and preserves content, assignments and history. Select **Show archived
+topics**, then **Restore**, to bring it back as a draft. Publish the topic and
+enable its chatbot setting separately when ready.
+
+For permanent deletion, choose **Review permanent deletion**. Move any guides
+to another active topic; published guides require a published destination.
+The move and deletion happen in one transaction. Original documents and stored
+files remain; only their topic assignments and video links are removed.
+Topics with saved chats or learning recaps must be archived instead. If the
+topic changes while the dialog is open, refresh its removal details before
+confirming. Existing databases require the
+[category management upgrade](../supabase/migrations/20261103_category_removal.sql).
+
 ## Restore document search
 
 Use this when moving to a fresh Mac environment with existing processed documents in Supabase. Existing publication status does not mean the new Mac already has local search indexes.
@@ -132,6 +150,26 @@ This rebuilds local search artifacts from saved extraction ZIPs, including corre
 Missing extractions, older formats, or chunk-count mismatches need review through the admin workflow. Do not reset records with SQL. If fresh OCR is needed, upload a new document or deliberately unpublish and reprocess an existing one. Retry/sync YouTube channels through the admin dashboard when rebuilding their local collection.
 
 ## AI service and memory
+
+### Correct several entries before indexing
+
+In the document workspace, use **Save correction as draft** for each text or
+table edit. Saved corrections have status `awaiting_confirmation` and remain
+available for review and further edits after a reload or restart. The index
+worker skips these drafts, including during `--restore-processed` recovery.
+When all edits are saved, select **Confirm changes and rebuild index** below
+the document review. This releases the latest saved revision for one rebuild.
+Final source approval and publication remain blocked until indexing succeeds.
+Illustration identity reviews follow the same flow. Check images and use
+**Mark checked and next** to continue without saving or refreshing the document.
+**Save all illustration reviews as draft** submits the whole review batch once,
+preserving prepared text and tables without rerunning OCR. Then use **Confirm
+changes and rebuild index** when all corrections and illustration reviews are
+ready. Unsaved illustration edits must be saved or discarded before confirming
+or making another text correction.
+An older indexing pass already in progress may finish, but cannot confirm a
+superseded revision. New installations include the draft status; existing
+databases need the [status constraint upgrade](../supabase/migrations/20261103_deferred_correction_indexing.sql).
 
 The normal launcher runs the backend, Next.js dashboard, and one RAG process. With `RAG_INDEX_WORKER_MODE` set to `"embedded"`, indexing shares the RAG process and cached model. `RAG_INDEX_POLL_SECONDS` controls the polling interval; the current JSON value is 15 seconds.
 
@@ -191,3 +229,67 @@ Finish active processing before shutdown. The launcher waits up to 120 seconds p
 The Mac extracts supported public HTML articles directly. The saved snapshot includes text, supported images, source metadata, and a content hash. Identical snapshots are rejected; changed content creates a new source instead of overwriting the previous one. Review the old source's publication status when importing an update.
 
 The importer does not run JavaScript or crawl linked pages. Login/paywall pages and inaccessible or blocked sources are rejected. Video, interactive media, and SVG/canvas diagrams are not captured. Review the result against the original before publishing. An authorized PDF can use the normal PDF upload workflow if needed.
+
+
+## Website PDF imports
+
+Apply `supabase/migrations/20261103_website_pdf_imports.sql` once to the existing
+Supabase database before running the new worker. It does not modify existing
+source files, processing queues or publication state.
+
+From the repository root on the Mac:
+
+```sh
+.venv/bin/python -m pip install -r backend/requirements.txt
+PLAYWRIGHT_BROWSERS_PATH=output/playwright .venv/bin/python -m playwright install chromium
+npm --prefix web run build
+```
+
+Then stop and restart the Mac app with the usual launcher. The launcher starts
+`backend.website_import_worker` and logs to `output/logs/website-import-worker.log`.
+For a manually launched backend, start `.venv/bin/python -m backend.website_import_worker` separately. Windows OCR continues to run as before.
+Do not run multiple backend instances.
+
+In Reference Library choose **Import website → Webpage as PDF**. Accepted jobs
+are visible in the Website imports panel after closing the dialog or refreshing.
+Open a completed document, preview its captured PDF, assign coverage, and use the
+existing Process and review workflow. Capturing never publishes a document.
+Direct text import remains available. For sites requiring login or a browser
+challenge, use **Upload a saved PDF with its website URL**, or attach a saved PDF
+to a failed/cancelled import. Manual PDFs are labelled as user-supplied sources.
+
+Capture jobs survive restarts in Supabase. Completed local captures and source
+checksums live in `output/website-imports/`; retain this directory across updates.
+A graceful stop releases its job immediately. A killed worker's lease expires
+within three minutes. A lost upload/finalization acknowledgement is reconciled
+against the original artifact/document ID instead of creating another document.
+Capture retry stops after three unsuccessful attempts; Retry in the UI resets
+that budget. Captures interrupted by graceful shutdown do not consume it.
+
+Settings in `app.config.json`:
+
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| `WEBSITE_IMPORT_ENABLED` | `true` | Start the capture worker and accept automated captures |
+| `WEBSITE_CAPTURE_TIMEOUT` | `120` | Rendering deadline per attempt, seconds |
+| `WEBSITE_CAPTURE_MAX_PAGES` | `50` | Maximum captured/manual PDF pages |
+| `WEBSITE_CAPTURE_NETWORK_BYTES` | `104857600` | Total proxied bytes per attempt, both directions |
+| `WEBSITE_IMPORT_WORK_DIR` | `output/website-imports` | Recovery artifacts and renderer logs |
+| `PLAYWRIGHT_BROWSERS_PATH` | `output/playwright` | Matching browser installation |
+
+Chromium runs with its sandbox enabled in a credential-free child process.
+Its HTTP/HTTPS traffic uses a proxy that validates DNS results and pins public
+TCP destinations; private subresources and non-web requests are blocked, service
+workers and WebSockets are blocked, and non-proxied WebRTC UDP/QUIC are disabled.
+Fresh browser contexts contain no personal browser sessions. Large images are
+resized to a bounded print resolution before PDF generation, and warnings are
+shown for missing images or potentially omitted content. No CAPTCHA/login bypass
+or automatic consent-button clicking is implemented. A successful PDF is still
+reviewed against its original before approval.
+
+Disable new automated captures with `WEBSITE_IMPORT_ENABLED=false` and restart
+the launcher. Existing documents, saved imports and manual PDF uploads remain
+available. The schema is additive; do not drop the queue or source metadata to
+roll back application code. Local capture files are retained for recovery and
+inspection; they can be archived after confirming the associated document is
+saved in private Storage. Do not delete checkpoints for active or retrying jobs.

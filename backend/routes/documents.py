@@ -168,7 +168,7 @@ def download_document(document_id: UUID, request: Request):
 def download_extraction(document_id: UUID):
     with documents.document_lock(document_id):
         row = db.get("documents", document_id)
-        if not row.get("extraction_storage_path") or row["status"] not in {"awaiting_index", "processed"}:
+        if not row.get("extraction_storage_path") or row["status"] not in {"awaiting_confirmation", "awaiting_index", "processed"}:
             raise HTTPException(409, "Process this document before downloading its extraction.")
         data = db.bucket(settings.SUPABASE_DOCUMENT_BUCKET).download(row["extraction_storage_path"])
     return Response(data, media_type="application/zip", headers={
@@ -206,6 +206,12 @@ def save_review_progress(document_id: UUID, request: document_review.ReviewProgr
 def correct_extraction(document_id: UUID, request: extraction_corrections.CorrectionInput,
                        identity=Depends(auth.require_admin)):
     return extraction_corrections.save(str(document_id), request, identity)
+
+
+@router.post("/{document_id}/corrections/confirm", response_model=Document, status_code=202,
+             dependencies=[Depends(auth.require_admin)])
+def confirm_corrections(document_id: UUID, request: extraction_corrections.ConfirmCorrectionsInput):
+    return extraction_corrections.confirm(str(document_id), request)
 
 
 class ImageReview(VisualIdentity):

@@ -16,18 +16,20 @@ import {
 } from "@chakra-ui/react";
 import AdminLayout from "@/components/layouts/AdminLayout";
 import { useContent } from "@/components/ContentProvider";
-import DeleteConfirmModal from "@/components/modals/DeleteConfirmModal";
+import CategoryRemovalDialog from "@/components/admin/CategoryRemovalDialog";
 
 const empty = { name: "", description: "", display_order: 0, published: false };
 export default function CategoriesPage() {
-  const { categories, saveCategory, deleteCategory } = useContent();
+  const { categories, saveCategory, deleteCategory, archiveCategory, restoreCategory } = useContent();
   const [draft, setDraft] = useState(empty);
   const [editing, setEditing] = useState(null);
   const [deleting, setDeleting] = useState(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
-  const pagination = usePagination([...categories].sort((a, b) => a.display_order - b.display_order));
+  const [showArchived, setShowArchived] = useState(false);
+  const pagination = usePagination(categories.filter((category) => showArchived || !category.archived)
+    .sort((a, b) => a.display_order - b.display_order), String(showArchived));
   async function save(event) {
     event.preventDefault();
     if (busy) return;
@@ -121,13 +123,23 @@ export default function CategoriesPage() {
             {error}
           </Text>
         )}
+        <Checkbox checked={showArchived} onCheckedChange={(event) => setShowArchived(event.checked === true)}>Show archived topics</Checkbox>
         {pagination.items.map((category) => (
             <Flex key={category.id} gap={3} align="center" wrap="wrap">
               <Text flex={1}>
                 {category.display_order} · {category.name} ·{" "}
-                {category.published ? "Published" : "Draft"}
+                {category.archived ? "Archived" : category.published ? "Published" : "Draft"}
               </Text>
-              <Button
+              {category.archived ? <Button disabled={busy} variant="outline" onClick={async () => {
+                setBusy(true);
+                setError("");
+                setNotice("");
+                try {
+                  await restoreCategory(category.id);
+                  setNotice("Topic restored as a draft. Publish it and enable it in the chatbot when ready.");
+                } catch (cause) { setError(cause.message); }
+                finally { setBusy(false); }
+              }}>Restore</Button> : <Button
                 disabled={busy}
                 variant="outline"
                 onClick={() => {
@@ -141,7 +153,7 @@ export default function CategoriesPage() {
                 }}
               >
                 Edit
-              </Button>
+              </Button>}
               <Button
                 disabled={busy}
                 variant="outline"
@@ -155,21 +167,20 @@ export default function CategoriesPage() {
         <Pagination {...pagination} label="Learning Topics" />
         {!categories.length && <Text>No categories yet.</Text>}
       </Stack>
-      <DeleteConfirmModal
-        isOpen={Boolean(deleting)}
-        itemName={deleting?.name}
+      {deleting && <CategoryRemovalDialog
+        key={deleting.id}
+        category={deleting}
+        categories={categories}
+        archiveCategory={archiveCategory}
+        deleteCategory={deleteCategory}
         onClose={() => setDeleting(null)}
-        onConfirm={async () => {
-          try {
-            await deleteCategory(deleting.id);
-            setDeleting(null);
-            setError("");
-          } catch (e) {
-            setError(e.message);
-            setDeleting(null);
-          }
+        onComplete={(message) => {
+          if (editing === deleting.id) { setEditing(null); setDraft(empty); }
+          setDeleting(null);
+          setError("");
+          setNotice(message);
         }}
-      />
+      />}
     </AdminLayout>
   );
 }

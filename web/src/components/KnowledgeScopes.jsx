@@ -79,7 +79,9 @@ export default function KnowledgeScopes() {
               <Box>
                 <Text fontWeight="600">{category.name}</Text>
                 <Text fontSize="sm" color="muted">
-                  {!category.published
+                  {category.archived
+                    ? "Archived. Restore this learning topic before enabling it."
+                    : !category.published
                     ? "Make the learning topic available first."
                     : category.knowledge_published
                       ? "Enabled in the chatbot; needs published content."

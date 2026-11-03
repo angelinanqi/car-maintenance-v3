@@ -61,7 +61,7 @@ export default function ExtractionCorrection({ document, block, disabled, onDirt
         replacement, reason, confirm_source: confirmed,
       } });
       setSaved(true);
-      await onSaved("Correction saved. Indexing is pending; you can continue correcting other entries. Review the latest extraction before final approval.");
+      await onSaved("Correction saved as a draft. Continue correcting other entries, then select Confirm changes and rebuild index when you are done.");
     } catch (cause) {
       setError(cause.message);
     } finally {
@@ -76,9 +76,9 @@ export default function ExtractionCorrection({ document, block, disabled, onDirt
 
   return <Stack gap={4} borderWidth="1px" borderColor="brand.200" borderRadius="8px" p={4}>
     <Text fontWeight="600">Correct extracted {isTable ? "table" : "text"}</Text>
-    <Text fontSize="sm">Copy what the original says, including its units and conditions. Saving keeps the original extraction and edit history, rebuilds the knowledge index, and starts a new document review. Existing schedule drafts keep their previous references and need checking again.</Text>
+    <Text fontSize="sm">Copy what the original says, including its units and conditions. Save each correction as a draft, then confirm all changes to rebuild the knowledge index once. The original extraction and edit history are kept. Existing schedule drafts keep their previous references and need checking again.</Text>
     {error && <Text role="alert">{saved ? "The correction was saved, but refreshing the document failed. Reload the document to continue. " : ""}{error}</Text>}
-    {saved ? <Text role="status">Correction saved. The latest extraction is queued for indexing. Reload the document to continue correcting or reviewing entries.</Text> : <>
+    {saved ? <Text role="status">Correction saved as a draft. Reload the document to continue correcting entries, then confirm all changes to rebuild the index.</Text> : <>
       {!isTable ? <FormField label="Corrected section text"><Textarea value={text} minH="260px" maxLength={200000} disabled={busy || disabled}
         onChange={(event) => { setText(event.target.value); setConfirmed(false); }} /></FormField>
         : html !== null ? <FormField label="Corrected table HTML" hint="Use one table with tr, th and td cells. Rowspan and colspan preserve merged cells. All rows must cover the same number of columns.">
@@ -106,7 +106,7 @@ export default function ExtractionCorrection({ document, block, disabled, onDirt
         I checked this correction against the original document.
       </Checkbox>
       <Flex gap={3} wrap="wrap">
-        <Button loading={busy} disabled={disabled || !changed || !replacement.trim() || !reason.trim() || !confirmed} onClick={save}>Save correction and rebuild index</Button>
+        <Button loading={busy} disabled={disabled || !changed || !replacement.trim() || !reason.trim() || !confirmed} onClick={save}>Save correction as draft</Button>
         <Button variant="outline" disabled={busy} onClick={cancel}>Cancel correction</Button>
       </Flex>
     </>}

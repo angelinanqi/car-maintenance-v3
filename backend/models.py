@@ -10,7 +10,7 @@ from backend.companion_models import Exploration, ActivityReference
 
 Vehicle = str
 DocumentType = Literal["owners_manual", "maintenance_booklet", "service_manual", "other_reference"]
-DocumentStatus = Literal["uploaded", "processing", "awaiting_index", "processed", "failed"]
+DocumentStatus = Literal["uploaded", "processing", "awaiting_confirmation", "awaiting_index", "processed", "failed"]
 
 
 class MechanicPreparationRequest(InputModel):
@@ -44,6 +44,7 @@ class Document(DocumentEdit):
     original_filename: str
     source_type: Literal["pdf", "md"]
     storage_path: str
+    source_metadata: dict | None = None
     size_bytes: int
     status: DocumentStatus
     error: str | None = None
@@ -86,6 +87,7 @@ class CategoryInput(InputModel):
 
 class Category(CategoryInput):
     model_config = ConfigDict(extra="ignore")
+    archived: bool = False
     id: UUID
     created_at: datetime
     updated_at: datetime
@@ -278,6 +280,7 @@ class DocumentCounts(BaseModel):
     total: int = 0
     uploaded: int = 0
     processing: int = 0
+    awaiting_confirmation: int = 0
     awaiting_index: int = 0
     processed: int = 0
     failed: int = 0

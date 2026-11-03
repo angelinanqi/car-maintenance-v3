@@ -86,7 +86,11 @@ def delete_vehicle(vehicle_id: UUID):
 
 @router.patch("/categories/{category_id}/publication", dependencies=[Depends(auth.require_admin)])
 def publish_category(category_id: UUID, request: Publication):
-    return db.update("guide_categories", category_id, {"knowledge_published": request.published})
+    with content_lock(category_id):
+        row = db.get("guide_categories", category_id)
+        if row.get("archived") and request.published:
+            raise HTTPException(409, "Restore this archived category before enabling it in the chatbot.")
+        return db.update("guide_categories", category_id, {"knowledge_published": request.published})
 
 
 @router.get("/documents/{document_id}/associations", dependencies=[Depends(auth.require_admin)])
@@ -106,7 +110,10 @@ def set_associations(document_id: UUID, request: Associations):
             raise HTTPException(409, "A maintenance schedule references this document for a vehicle. Keep its source association for traceability.")
         for kind, table in (("vehicle", "knowledge_vehicles"), ("category", "guide_categories")):
             for identity in getattr(request, kind + "_ids"):
-                db.get(table, identity)
+                scope = db.get(table, identity)
+                if kind == "category" and scope.get("archived") and not db.all_rows(
+                        "document_categories", document_id=str(document_id), category_id=str(identity)):
+                    raise HTTPException(409, "Restore an archived category before assigning another document to it.")
         for kind, table in (("vehicle", "document_vehicles"), ("category", "document_categories")):
             desired = {str(i) for i in getattr(request, kind + "_ids")}
             existing = db.all_rows(table, document_id=str(document_id))

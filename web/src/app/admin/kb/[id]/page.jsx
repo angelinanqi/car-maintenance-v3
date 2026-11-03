@@ -33,6 +33,7 @@ import {
 } from "@/lib/adminJourney.mjs";
 import {
   downloadDocumentUrl,
+  originalDocumentUrl,
   publishDocument,
   unpublishDocument,
   stageReplacement,
@@ -105,11 +106,12 @@ function DocumentWorkspace() {
   const hasCoverage =
     coverage.vehicle_ids.length + coverage.category_ids.length > 0;
   const isPreparing = ["processing", "awaiting_index"].includes(document.status);
+  const correctionsPending = document.status === "awaiting_confirmation";
   const ready =
     document.status === "processed" &&
     document.indexed_revision === document.source_revision &&
     document.chunk_count > 0;
-  const reviewAvailable = ready || (document.status === "awaiting_index" && document.extraction_storage_path);
+  const reviewAvailable = ready || (["awaiting_confirmation", "awaiting_index"].includes(document.status) && document.extraction_storage_path);
   const previous = documents.find(
     (row) => row.id === document.replacement_for_id,
   );
@@ -128,6 +130,8 @@ function DocumentWorkspace() {
         : 3;
   const nextTask = !hasCoverage || coverageDirty
     ? { title: "Confirm which vehicles or topics this document covers", label: "Review coverage", target: "document-coverage" }
+    : correctionsPending
+      ? { title: "Finish your corrections, then confirm changes to rebuild the index", label: "Continue corrections", target: "document-review" }
     : !ready
       ? { title: isPreparing ? "Document preparation is running" : "Prepare this document for review", label: isPreparing ? "View progress" : "Continue preparation", target: "document-preparation" }
       : !document.source_fidelity_verified
@@ -184,6 +188,13 @@ function DocumentWorkspace() {
               ))}
           </Flex>
         </Flex>
+        {document.source_metadata && <Box borderWidth="1px" borderRadius="12px" p={4}>
+          <Text fontWeight="600">Website PDF snapshot</Text>
+          <Button asChild size="sm" variant="outline" my={2}><a href={originalDocumentUrl(document.id, document.source_revision)} target="_blank" rel="noopener noreferrer">Preview captured PDF</a></Button>
+          <Text as="a" href={document.source_metadata.original_url} target="_blank" rel="noopener noreferrer" color="blue.700" overflowWrap="anywhere">{document.source_metadata.original_url}</Text>
+          <Text fontSize="sm" color="muted">{document.source_metadata.capture_method === 'manual_pdf' ? 'Imported' : 'Captured'} {new Date(document.source_metadata.retrieved_at).toLocaleString()}. Preview the PDF before processing.</Text>
+          {document.source_metadata.warnings?.map(warning => <Text key={warning} fontSize="sm" color="orange.700">{warning}</Text>)}
+        </Box>}
         {error && <Text role="alert">{error}</Text>}
         {notice && <Text role="status">{notice}</Text>}
         {document.superseded_by_id ? (
@@ -326,7 +337,7 @@ function DocumentWorkspace() {
                   preferredVehicle={search.get("vehicle") || ""}
                   onDirty={handleCoverageDirty}
                   disabled={busy || isPreparing}
-                  prepare={!document.published && !ready && !isPreparing}
+                  prepare={!document.published && !ready && !isPreparing && !correctionsPending}
                   onSaved={() => setEditingCoverage(false)}
                 />
               )}
@@ -364,6 +375,8 @@ function DocumentWorkspace() {
                         your attention”.
                       </Text>
                     </>
+                  ) : correctionsPending ? (
+                    <Text role="status">Your corrections are saved as drafts. Continue editing below, then select “Confirm changes and rebuild index”. Indexing will wait until you confirm.</Text>
                   ) : ready ? (
                     <Text>The document is ready to check below.</Text>
                   ) : (
@@ -422,8 +435,11 @@ function DocumentWorkspace() {
                     </Heading>
                     {document.source_fidelity_verified && <Button variant="outline" size="sm" disabled={reviewExpanded && !reviewLoaded} onClick={() => setReviewExpanded((value) => !value)}>{reviewExpanded ? "Hide review" : "Reopen review"}</Button>}
                     </Flex>
-                    {!ready && <Text role="status" fontSize="sm" mb={4}>Indexing is pending. You can continue checking and correcting the extraction. Final approval will be available when the latest revision finishes indexing.</Text>}
+                    {!ready && <Text role="status" fontSize="sm" mb={4}>{correctionsPending
+                      ? "Corrections are saved. Indexing is on hold until you confirm all changes. You can leave this page and return to continue editing."
+                      : "Indexing is pending. You can continue checking and correcting the extraction. Final approval will be available when the latest revision finishes indexing."}</Text>}
                     {(!document.source_fidelity_verified || reviewExpanded) && <>
+                    <Box as="fieldset" disabled={busy} border={0} p={0} minW={0}>
                     <DocumentReview
                       key={document.source_revision}
                       document={document}
@@ -433,7 +449,15 @@ function DocumentWorkspace() {
                         return refresh({ documentsOnly: true });
                       }}
                     />
+                    </Box>
                     </>}
+                    {correctionsPending && <Stack gap={2} mt={5}>
+                      <Text fontSize="sm">Save or cancel any open edits before confirming. This will index the latest saved corrections together.</Text>
+                      <Button alignSelf="start" loading={busy} disabled={busy || !reviewLoaded || coverageDirty || testDirty}
+                        onClick={() => act(() => request(`/documents/${document.id}/corrections/confirm`, {
+                          method: "POST", body: { source_revision: document.source_revision },
+                        }), "Changes confirmed. The latest corrections are queued for indexing.")}>Confirm changes and rebuild index</Button>
+                    </Stack>}
                     {document.source_fidelity_verified ? (
                       <Text role="status" mt={4}>
                         The document has been marked as checked.
