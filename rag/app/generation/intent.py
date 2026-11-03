@@ -1,4 +1,5 @@
 """One semantic interpretation of a turn, shared by retrieval and answering."""
+from shared.observability import observed
 import json
 from typing import Literal
 
@@ -25,6 +26,7 @@ class Intent(BaseModel):
     personal_context: Literal['none', 'profile', 'maintenance'] = 'maintenance'
 
 
+@observed('intent_analysis')
 def interpret(question, history, scope, client):
     prompt = (
         "Interpret the latest turn for a vehicle assistant. Return the requested JSON, not an answer. "

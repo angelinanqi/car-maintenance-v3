@@ -1,4 +1,5 @@
 from __future__ import annotations
+from shared.observability import observed
 from pathlib import Path
 import json
 from rag.app.models.document_tree import DocumentNode
@@ -431,6 +432,7 @@ def collect_chunks(
     return chunks
 
 
+@observed('chunking')
 def chunk_document(
     document: DocumentNode,
     document_title: str | None = None,

@@ -23,6 +23,11 @@ from shared.models import PersonalVehicleProfile, PersonalMaintenanceContext, So
 from shared.schedule_drafting import ScheduleDraftRequest, ScheduleDraftResponse
 from shared.document_testing import DocumentTestRequest, DocumentTestReply
 
+from shared.observability import configure, ready, shutdown, request_monitor
+
+configure("rag")
+
+
 @asynccontextmanager
 async def lifespan(app):
     # Model imports and cached weights can take several minutes on a cold start.
@@ -52,6 +57,7 @@ async def lifespan(app):
     if os.getenv('RAG_INDEX_WORKER_MODE', 'external') == 'embedded':
         from rag.index_worker import start_embedded
         worker = start_embedded()
+    ready()
     try:
         yield
     finally:
@@ -60,9 +66,11 @@ async def lifespan(app):
             stop.set()
             startup_logger.info('Waiting for the current indexing pass to finish before shutdown')
             await asyncio.to_thread(thread.join)
+        shutdown()
 
 
 app = FastAPI(lifespan=lifespan)
+app.middleware("http")(request_monitor)
 app.add_exception_handler(RequestValidationError, validation_error)
 app.add_exception_handler(StarletteHTTPException, http_error)
 logger = logging.getLogger(__name__)

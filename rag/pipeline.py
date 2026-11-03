@@ -1,4 +1,5 @@
 """Index extracted Markdown supplied by the production document worker."""
+from shared.observability import observed
 from pathlib import Path
 from contextlib import closing
 import json
@@ -18,6 +19,7 @@ from rag.app.chunking.chunker import chunk_document, save_chunks
 from rag.config.settings import CHROMA_PATH, OUTPUT_DIR
 
 
+@observed('index_pipeline')
 def run_pipeline(
     input_path: str | Path,
     output_dir: str | Path = OUTPUT_DIR,

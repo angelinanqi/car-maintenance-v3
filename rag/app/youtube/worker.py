@@ -1,4 +1,5 @@
 """Run one admin-requested channel sync in the private RAG service."""
+from shared.observability import observed
 import logging
 import os
 from threading import Lock
@@ -12,6 +13,7 @@ logger = logging.getLogger(__name__)
 sync_lock = Lock()
 
 
+@observed('youtube_sync', job_arg='sync_id')
 def sync_channel(channel_id, sync_id):
     # Serialize admin requests without blocking document indexing or the API.
     with sync_lock:

@@ -1,4 +1,5 @@
 """Private source storage and Windows OCR. Indexing belongs to the RAG service."""
+from shared.observability import observed, emit, mark_outcome
 from datetime import datetime, timezone
 import json
 import logging
@@ -87,9 +88,11 @@ def upload_source(document_id, source_type, data):
     return path
 
 
+@observed('document_upload')
 def create(file, metadata):
     filename, source_type, data = validate_upload(file)
     document_id = str(uuid4())
+    emit('document_received', 'received', job_id=document_id)
     path = upload_source(document_id, source_type, data)
     try:
         return db.insert("documents", dict(
@@ -204,6 +207,8 @@ def delete(document_id):
 
 
 def record_failure(document_id, error):
+    mark_outcome('failed')
+    emit('document_job', 'failed', level='ERROR', job_id=str(document_id), error_type=type(error).__name__)
     logger.exception("Document operation failed: %s", document_id)
     try:
         db.update("documents", document_id, dict(status="failed", error=str(error)[:2000], processed_at=None, chunk_count=0, published=False, mobile_visible=False, indexed_revision=None, indexed_at=None))
@@ -211,6 +216,7 @@ def record_failure(document_id, error):
         logger.exception("Could not persist failure state for document %s", document_id)
 
 
+@observed('document_queued', job_arg='document_id')
 def queue(document_id, force=False):
     with document_lock(document_id):
         row = editable(document_id)
@@ -251,6 +257,7 @@ def queue(document_id, force=False):
         return db.update("documents", document_id, values), True
 
 
+@observed('extraction_packaging', job_arg='row', job_key='id')
 def package_extraction(row, markdown, directory, *, describe_visuals=False, include_source_pages=False, stop=None):
     archive = directory / "extraction.zip"
     manifest = {"format_version": FORMAT_VERSION, "document_id": row["id"], "source_revision": row["source_revision"],
@@ -415,6 +422,7 @@ def preparation_checkpoint(row):
     return saved
 
 
+@observed('document_queue_attempt', job_arg='document_id')
 def process(document_id, *, stop=None, stage='ocr'):
     # Each stage has one worker. Slow preparation never holds the OCR lock.
     if stage not in {'ocr', 'preparation'}:
@@ -458,25 +466,35 @@ def process(document_id, *, stop=None, stage='ocr'):
                 'source_sha256': sha256(data).hexdigest(),
             }), encoding='utf-8')
             checkpoint.replace(directory / 'pending-preparation.json')
+            emit('document_preparation', 'queued', job_id=str(document_id))
             logger.info('Document %s: OCR complete; queued for preparation', document_id)
     except ProcessingStopped:
+        mark_outcome('deferred')
+        emit('document_job', 'deferred', level='WARNING', job_id=str(document_id))
         pass  # Keep the durable queue entry and task checkpoint for restart.
     except httpx.TransportError:
+        mark_outcome('deferred')
+        emit('document_job', 'deferred', level='WARNING', job_id=str(document_id))
         logger.warning("Document %s remains queued after a connection failure", document_id)
     except httpx.HTTPStatusError as error:
         if error.response.status_code == 429 or error.response.status_code >= 500:
+            mark_outcome('deferred')
+            emit('document_job', 'deferred', level='WARNING', job_id=str(document_id))
             logger.warning("Document %s remains queued after HTTP %s", document_id, error.response.status_code)
         else:
             record_failure(document_id, error)
     except HTTPException as error:
         if error.status_code != 409:
             record_failure(document_id, error)
+        else:
+            mark_outcome('deferred')
         # A queue/review request may still own this document's mutation lock.
         # Leave its saved processing request for the next worker pass.
     except Exception as error:
         record_failure(document_id, error)
 
 
+@observed('document_preparation', job_arg='row', job_key='id')
 def prepare_document(row, ready, *, stop=None):
     document_id = row['id']
     directory = work_directory(document_id)
@@ -514,6 +532,7 @@ def retry_connection(operation):
             time.sleep(attempt + 1)
 
 
+@observed('extraction_handoff', job_arg='document_id')
 def finish_extraction(document_id):
     """Resume a completed extraction without OCR, including after a lost response."""
     directory = work_directory(document_id)
@@ -542,6 +561,7 @@ def finish_extraction(document_id):
         .eq("id", str(document_id)).eq("source_revision", checkpoint["source_revision"])
         .eq("status", "processing").execute())
     pending.unlink(missing_ok=True)
+    emit('document_index', 'queued', job_id=str(document_id))
 
 
 def retry_pending_extractions():

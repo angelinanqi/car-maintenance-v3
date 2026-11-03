@@ -1,4 +1,5 @@
 """Interpret the conversation, retrieve scoped evidence, generate a cited answer."""
+from shared.observability import observed
 import asyncio
 from dataclasses import replace
 import json
@@ -28,6 +29,7 @@ TABLE_EVIDENCE_LIMIT = 2
 logger = logging.getLogger(__name__)
 
 
+@observed('query_preparation')
 def prepare_retrieval(query):
     from rag.app.embedding.embedder import embed_query
     return embed_query(query)
@@ -51,6 +53,7 @@ def retrieve_manual(query_embedding, top_k, *, scope, query):
             for r in results]
 
 
+@observed('chat_query', failure_field='response_type', failure_values=('generation_error', 'retrieval_error'))
 async def handle_query(query, *, scope, history=None, vehicle_profile=None,
                        maintenance_context=None, activity_context=None, assistance=None, top_k=settings.RAG_TOP_K,
                        admin_trace=None):

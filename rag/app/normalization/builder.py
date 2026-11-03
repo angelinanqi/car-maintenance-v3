@@ -1,3 +1,4 @@
+from shared.observability import observed
 import json
 from pathlib import Path
 from uuid import NAMESPACE_URL, uuid5
@@ -158,6 +159,7 @@ class SemanticBuilder:
             )
 
 
+@observed('metadata_normalization')
 def normalize_file(
     input_file: Path,
     output_file: Path,

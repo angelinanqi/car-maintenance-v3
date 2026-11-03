@@ -1,3 +1,4 @@
+from shared.observability import observed
 from rag.config.settings import EMBEDDING_BATCH_SIZE
 from threading import Lock
 
@@ -25,6 +26,7 @@ class SharedEmbedder:
         return embed_query(query)
 
 
+@observed('query_embedding')
 def embed_query(query: str) -> list[float]:
     """Reuse one query encoder per process; serialize initialization and inference.
 
@@ -38,6 +40,7 @@ def embed_query(query: str) -> list[float]:
         return _query_embedder.embed_query(query)
 
 
+@observed('document_embedding')
 def embed_documents(texts: list[str] | tuple[str, ...]) -> list[list[float]]:
     """Share weights, releasing the inference lock between bounded batches."""
     global _query_embedder

@@ -1,7 +1,6 @@
 import logging
 import asyncio
 from threading import Event
-from uuid import uuid4
 from contextlib import asynccontextmanager
 
 import httpx
@@ -42,6 +41,11 @@ from backend.settings import CORS_ORIGINS
 from shared.http_errors import http_error, validation_error
 
 
+from shared.observability import configure, ready, shutdown, request_monitor
+
+configure("backend")
+
+
 @asynccontextmanager
 async def lifespan(app):
     try:
@@ -53,12 +57,14 @@ async def lifespan(app):
     stop_queue = Event()
     queue_task = asyncio.create_task(resume_document_queue(stop_queue))
     preparation_task = asyncio.create_task(resume_document_queue(stop_queue, stage='preparation'))
+    ready()
     try:
         yield
     finally:
         stop_queue.set()
         stop_retries.set()
         await asyncio.gather(queue_task, preparation_task, retry_task)
+        shutdown()
 
 
 async def resume_document_queue(stop, *, stage='ocr'):
@@ -97,8 +103,7 @@ app.include_router(configuration.router)
 
 @app.middleware("http")
 async def prevent_response_caching(request, call_next):
-    request.state.request_id = str(uuid4())
-    response = await call_next(request)
+    response = await request_monitor(request, call_next)
     response.headers["Cache-Control"] = "no-store"
     response.headers["X-Request-ID"] = request.state.request_id
     return response

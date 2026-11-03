@@ -1,4 +1,5 @@
 """Scoped evidence, grounded generation and small deterministic integrity checks."""
+from shared.observability import observed
 import json
 import re
 import unicodedata
@@ -44,6 +45,7 @@ def table_data(record):
     return json.loads(data) if isinstance(data, str) else data
 
 
+@observed('evidence_filtering')
 def applicable(question, records, scope, *, intent=None):
     """Check source integrity and declared compatibility, never word overlap."""
     eligible, excluded = [], []
@@ -200,6 +202,7 @@ def numeric_error(text, source, *, specification=False):
     return None
 
 
+@observed('answer_generation')
 def generate(question, records, client, *, scope, risk, vehicle_profile=None,
              maintenance_context=None, diagnostics=None, intent=None, history=None,
              references=None, latest_message=None, images=None, image_sources=None,

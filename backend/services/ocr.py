@@ -1,3 +1,4 @@
+from shared.observability import observed
 from backend.settings import MINERU_BACKEND, MINERU_TIMEOUT, MINERU_API_URL, EXTRACTION_MAX_BYTES
 import logging
 import os
@@ -26,6 +27,7 @@ def _complete(markdown: Path) -> bool:
     )
 
 
+@observed('ocr_extraction')
 def run_ocr(
     pdf_path: str | Path,
     output_dir: str | Path = OUTPUT_DIR / "ocr",

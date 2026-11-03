@@ -1,4 +1,5 @@
 """Scoped BM25S ranking and rank fusion over the current Chroma records."""
+from shared.observability import observed
 from dataclasses import replace
 from functools import lru_cache
 from threading import Lock
@@ -67,6 +68,7 @@ def lexical_index(texts):
     return index
 
 
+@observed('keyword_retrieval')
 def lexical_search(query, records, top_k):
     if top_k < 1:
         raise ValueError("top_k must be greater than 0")
@@ -84,6 +86,7 @@ def lexical_search(query, records, top_k):
             for rank, (i, score) in enumerate(zip(ids[0], scores[0]), 1) if score > 0]
 
 
+@observed('result_merging')
 def fuse(dense, lexical, *, k=60, dense_weight=1.0, lexical_weight=1.0):
     scores, records = {}, {}
     for ranking, weight in ((dense, dense_weight), (lexical, lexical_weight)):
@@ -107,6 +110,7 @@ def reranker():
     return CrossEncoder(settings.RERANK_MODEL, max_length=512, device=settings.MODEL_DEVICE)
 
 
+@observed('reranking')
 def rerank(query, records):
     if not records:
         return []
@@ -116,6 +120,7 @@ def rerank(query, records):
     return [replace(record, rank=i) for i, (_, record) in enumerate(ordered, 1)]
 
 
+@observed('hybrid_retrieval')
 def search(store, query, embedding, document_ids, *, top_k=5, mode=None,
            use_reranker=None, content_type=None):
     mode = mode or settings.RAG_RETRIEVAL_MODE

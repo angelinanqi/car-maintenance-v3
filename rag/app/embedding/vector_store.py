@@ -1,3 +1,4 @@
+from shared.observability import observed
 from rag.config.settings import RAG_TOP_K
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,7 @@ class IndexConfigurationError(ValueError):
 
 
 class VectorStore:
+    @observed('vector_open')
     def __init__(
         self,
         database_path: Path = CHROMA_PATH,
@@ -60,6 +62,7 @@ class VectorStore:
                 "the ingestion settings before querying or replacing records."
             )
 
+    @observed('vector_indexing')
     def replace_document(
         self,
         document_name: str,
@@ -115,6 +118,7 @@ class VectorStore:
             metadatas=metadatas,
         )
 
+    @observed('semantic_retrieval')
     def search(
         self,
         query_embedding: list[float],

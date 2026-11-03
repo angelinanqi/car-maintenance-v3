@@ -1,4 +1,5 @@
 """Gemini generation adapter preserving the existing generate(prompt, schema) API."""
+from shared.observability import observed
 import logging
 
 from rag.app.generation.gemini import GeminiClient, GeminiError
@@ -16,6 +17,7 @@ class GenerationClient:
         if timeout is not None:
             self.options["timeout"] = timeout
 
+    @observed('gemini_call')
     def generate(self, prompt: str, *, schema: dict | None = None, images=None) -> str:
         self.provider = self.model = None
         try:

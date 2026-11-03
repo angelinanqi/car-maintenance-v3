@@ -1,4 +1,6 @@
 """Small client for the native MinerU 3.4.5 task API (no OCR imports)."""
+from shared.observability import observed, emit, span
+from urllib.parse import urlsplit
 from hashlib import sha256
 import json
 from pathlib import PurePosixPath
@@ -39,6 +41,7 @@ def unpack_result(archive_path, destination, max_bytes):
                     shutil.copyfileobj(source, output)
 
 
+@observed('remote_ocr')
 def extract_remote(source, destination, checkpoint, *, url, backend, timeout, max_bytes, stop=None):
     """Resume acknowledged tasks; never automatically retry an ambiguous POST.
 
@@ -64,11 +67,12 @@ def extract_remote(source, destination, checkpoint, *, url, backend, timeout, ma
         if stop and stop.is_set():
             raise ProcessingStopped()
         if not state:
-            health = client.get(url + '/health')
-            health.raise_for_status()
-            info = health.json()
-            if info.get('version') != '3.4.5' or info.get('protocol_version') != 2:
-                raise ValueError('Remote OCR requires MinerU 3.4.5 with task protocol 2')
+            with span('mineru_health_check', module=__name__):
+                health = client.get(url + '/health')
+                health.raise_for_status()
+                info = health.json()
+                if info.get('version') != '3.4.5' or info.get('protocol_version') != 2:
+                    raise ValueError('Remote OCR requires MinerU 3.4.5 with task protocol 2')
             if stop and stop.is_set():
                 raise ProcessingStopped()
             state = {**identity, 'submission': 'unconfirmed'}
@@ -80,9 +84,10 @@ def extract_remote(source, destination, checkpoint, *, url, backend, timeout, ma
             data.update(lang_list='ch', backend=backend, parse_method='auto',
                         start_page_id='0', end_page_id='99999',
                         client_side_output_generation='false')
-            with source.open('rb') as handle:
-                response = client.post(url + '/tasks', data=data,
-                    files={'files': (source.name, handle, 'application/pdf')})
+            with span('mineru_submission', module=__name__):
+                with source.open('rb') as handle:
+                    response = client.post(url + '/tasks', data=data,
+                        files={'files': (source.name, handle, 'application/pdf')})
             if response.status_code != 202:
                 # Explicit rejection is safe to retry; unknown transport outcomes are not.
                 if 400 <= response.status_code < 500:
@@ -102,38 +107,55 @@ def extract_remote(source, destination, checkpoint, *, url, backend, timeout, ma
             raise ValueError('Invalid saved MinerU task identifier')
         # Construct URLs locally: API-generated URLs may contain the Windows loopback host.
         task_url = url + '/tasks/' + task_id
-        while time.monotonic() < deadline:
-            if stop and stop.is_set():
-                raise ProcessingStopped()
-            try:
-                response = client.get(task_url)
-                response.raise_for_status()
-            except httpx.TransportError:
+        with span('mineru_wait', module=__name__):
+            previous_status = None
+            disconnected = False
+            while time.monotonic() < deadline:
+                if stop and stop.is_set():
+                    raise ProcessingStopped()
+                try:
+                    response = client.get(task_url)
+                    response.raise_for_status()
+                except httpx.TransportError as error:
+                    if not disconnected:
+                        emit('mineru_connection', 'disconnected', level='WARNING',
+                             worker_host=urlsplit(url).hostname, worker_task_id=task_id, error_type=type(error).__name__)
+                    disconnected = True
+                    time.sleep(min(2, max(0, deadline - time.monotonic())))
+                    continue
+                if disconnected:
+                    emit('mineru_connection', 'connected', worker_host=urlsplit(url).hostname, worker_task_id=task_id)
+                    disconnected = False
+                status = response.json().get('status')
+                if status != previous_status:
+                    emit('mineru_task', status if status in {'pending', 'processing', 'completed'} else 'failed',
+                         level='INFO' if status in {'pending', 'processing', 'completed'} else 'ERROR',
+                         worker_host=urlsplit(url).hostname, worker_task_id=task_id)
+                    previous_status = status
+                if status == 'completed':
+                    break
+                if status not in {'pending', 'processing'}:
+                    raise RuntimeError(f'MinerU task {task_id} ended with status {status!r}. '
+                                       f'Inspect Windows OCR logs; checkpoint: {checkpoint}')
                 time.sleep(min(2, max(0, deadline - time.monotonic())))
-                continue
-            status = response.json().get('status')
-            if status == 'completed':
-                break
-            if status not in {'pending', 'processing'}:
-                raise RuntimeError(f'MinerU task {task_id} ended with status {status!r}. '
-                                   f'Inspect Windows OCR logs; checkpoint: {checkpoint}')
-            time.sleep(min(2, max(0, deadline - time.monotonic())))
-        else:
-            raise TimeoutError(f'MinerU task {task_id} exceeded {timeout:g}s; retry resumes the saved task')
+            else:
+                raise TimeoutError(f'MinerU task {task_id} exceeded {timeout:g}s; retry resumes the saved task')
         archive_path = destination.parent / 'mineru-result.zip'
         total = 0
-        with client.stream('GET', task_url + '/result') as response:
-            response.raise_for_status()
-            if response.status_code != 200 or 'application/zip' not in response.headers.get('content-type', ''):
-                raise ValueError('MinerU did not return a completed ZIP result')
-            with archive_path.open('wb') as handle:
-                for block in response.iter_bytes():
-                    if stop and stop.is_set():
-                        raise ProcessingStopped()
-                    total += len(block)
-                    if total > max_bytes:
-                        raise ValueError('MinerU result download exceeds extraction limits')
-                    if time.monotonic() >= deadline:
-                        raise TimeoutError('MinerU result download exceeded the task deadline; retry to resume')
-                    handle.write(block)
-        unpack_result(archive_path, destination, max_bytes)
+        with span('mineru_result_download', module=__name__):
+            with client.stream('GET', task_url + '/result') as response:
+                response.raise_for_status()
+                if response.status_code != 200 or 'application/zip' not in response.headers.get('content-type', ''):
+                    raise ValueError('MinerU did not return a completed ZIP result')
+                with archive_path.open('wb') as handle:
+                    for block in response.iter_bytes():
+                        if stop and stop.is_set():
+                            raise ProcessingStopped()
+                        total += len(block)
+                        if total > max_bytes:
+                            raise ValueError('MinerU result download exceeds extraction limits')
+                        if time.monotonic() >= deadline:
+                            raise TimeoutError('MinerU result download exceeded the task deadline; retry to resume')
+                        handle.write(block)
+        with span('mineru_result_unpack', module=__name__):
+            unpack_result(archive_path, destination, max_bytes)

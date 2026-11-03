@@ -9,6 +9,11 @@ from backend.services.website_imports import run_once
 
 def main():
     logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(name)s: %(message)s')
+    from shared.observability import configure, ready, shutdown
+    import atexit
+    configure('website-worker')
+    atexit.register(shutdown)
+    ready()
     stop = Event()
     signal.signal(signal.SIGINT, lambda *_: stop.set())
     signal.signal(signal.SIGTERM, lambda *_: stop.set())

@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 import importlib.util
 import json
+from shared.observability import observed
 import logging
 import os
 from pathlib import Path
@@ -122,6 +123,7 @@ def stop_child(process):
         process.wait(timeout=5)
 
 
+@observed('website_pdf_capture', job_arg='job', job_key='id')
 def render(job, token, stop, lost):
     directory = job_directory(job) / str(token)
     directory.mkdir(parents=True, exist_ok=True)
@@ -179,6 +181,7 @@ def recover_capture(job):
     return None
 
 
+@observed('website_document_handoff', job_arg='job', job_key='id')
 def store_capture(job, token, path, metadata):
     metadata = validate_metadata(metadata)
     count, _ = validate_pdf(path, settings.DOCUMENT_MAX_BYTES, settings.WEBSITE_CAPTURE_MAX_PAGES)

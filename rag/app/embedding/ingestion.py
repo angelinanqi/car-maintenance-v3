@@ -1,3 +1,4 @@
+from shared.observability import observed
 import json
 from hashlib import sha256
 from pathlib import Path
@@ -123,6 +124,7 @@ def build_metadata(
     return result
 
 
+@observed('embedding_and_indexing')
 def process_document(
     file_path: Path,
     embedder: Embedder,

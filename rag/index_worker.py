@@ -18,6 +18,7 @@ from zipfile import ZipFile
 import httpx
 from rag.config import settings
 from shared.source_elements import FORMAT_VERSION
+from shared.observability import observed, span
 
 logger = logging.getLogger(__name__)
 MAX_EXTRACTION_BYTES = int(os.getenv('EXTRACTION_MAX_BYTES') or '209715200')
@@ -68,6 +69,7 @@ def unpack(data, document, destination):
     return source
 
 
+@observed('index_catalogue_fetch')
 def list_documents(client):
     rows = []
     while True:
@@ -103,55 +105,56 @@ def run_once(client, work_dir, *, restore_processed=False):
                 continue
             name = index_name(document['id'], document['source_revision'])
             try:
-                indexed = store.collection.get(where={'document_name': name}, include=['metadatas'])
-                source_path = settings.OUTPUT_DIR / 'sources' / f'{name}.json'
-                source_manifest = {}
-                if source_path.is_file():
-                    try:
-                        source_manifest = json.loads(source_path.read_text(encoding='utf-8'))
-                    except (ValueError, UnicodeError):
-                        pass  # An interrupted/corrupt manifest must be rebuilt.
-                if not isinstance(source_manifest, dict):
+                with span('document_index_attempt', module=__name__, job_id=document['id']):
+                    indexed = store.collection.get(where={'document_name': name}, include=['metadatas'])
+                    source_path = settings.OUTPUT_DIR / 'sources' / f'{name}.json'
                     source_manifest = {}
-                ready = (source_manifest.get('format_version') == FORMAT_VERSION
-                         and source_manifest.get('document_id') == document['id']
-                         and source_manifest.get('source_revision') == document['source_revision']
-                         and bool(indexed['ids']) and ledger.get(name, {}).get('format_version') == FORMAT_VERSION and ledger.get(name, {}).get('complete')
-                         and len(indexed['ids']) == ledger[name].get('chunk_count') and
-                         all(m.get('document_id') == document['id'] and m.get('format_version') == FORMAT_VERSION
-                             and m.get('index_revision') == document['source_revision'] for m in indexed['metadatas']))
-                if not ready:
-                    response = client.get(f"/internal/indexing/documents/{document['id']}/extraction",
-                                          params={'source_revision': document['source_revision']})
-                    response.raise_for_status()
-                    if len(response.content) > MAX_EXTRACTION_BYTES:
-                        raise ValueError('Extraction download exceeds configured limits')
-                    # Record ownership before any write so an interrupted index is also reconciled.
-                    ledger[name] = {'document_id': document['id'], 'revision': document['source_revision'], 'complete': False}
-                    write_ledger(ledger_path, ledger)
-                    with tempfile.TemporaryDirectory(dir=work_dir) as directory:
-                        source = unpack(response.content, document, Path(directory))
-                        result = run_pipeline(source, settings.OUTPUT_DIR, settings.CHROMA_PATH,
-                            metadata={'document_id': document['id'], 'index_revision': document['source_revision'],
-                                      'document_title': document['name'],
-                                      'source_fidelity_verified': document.get('source_fidelity_verified', False)})
-                        count = result['documents'][0]['chunks']
-                    if count < 1:
-                        raise ValueError('The pipeline produced no indexable chunks')
-                    if document['status'] == 'processed' and count != document.get('chunk_count'):
-                        raise ValueError('Restored chunk count differs from the published record. '
-                                         'Review this document through the admin reprocessing workflow before using it.')
-                    ledger[name]['complete'] = True
-                    ledger[name]['format_version'] = FORMAT_VERSION
-                    ledger[name]['chunk_count'] = count
-                    write_ledger(ledger_path, ledger)
-                else:
-                    count = len(indexed['ids'])
-                if document['status'] == 'awaiting_index':
-                    response = client.post(f"/internal/indexing/documents/{document['id']}/result", json={
-                        'source_revision': document['source_revision'], 'status': 'indexed', 'chunk_count': count})
-                    response.raise_for_status()
-                logger.info('Indexed %s: %d chunks', name, count)
+                    if source_path.is_file():
+                        try:
+                            source_manifest = json.loads(source_path.read_text(encoding='utf-8'))
+                        except (ValueError, UnicodeError):
+                            pass  # An interrupted/corrupt manifest must be rebuilt.
+                    if not isinstance(source_manifest, dict):
+                        source_manifest = {}
+                    ready = (source_manifest.get('format_version') == FORMAT_VERSION
+                             and source_manifest.get('document_id') == document['id']
+                             and source_manifest.get('source_revision') == document['source_revision']
+                             and bool(indexed['ids']) and ledger.get(name, {}).get('format_version') == FORMAT_VERSION and ledger.get(name, {}).get('complete')
+                             and len(indexed['ids']) == ledger[name].get('chunk_count') and
+                             all(m.get('document_id') == document['id'] and m.get('format_version') == FORMAT_VERSION
+                                 and m.get('index_revision') == document['source_revision'] for m in indexed['metadatas']))
+                    if not ready:
+                        response = client.get(f"/internal/indexing/documents/{document['id']}/extraction",
+                                              params={'source_revision': document['source_revision']})
+                        response.raise_for_status()
+                        if len(response.content) > MAX_EXTRACTION_BYTES:
+                            raise ValueError('Extraction download exceeds configured limits')
+                        # Record ownership before any write so an interrupted index is also reconciled.
+                        ledger[name] = {'document_id': document['id'], 'revision': document['source_revision'], 'complete': False}
+                        write_ledger(ledger_path, ledger)
+                        with tempfile.TemporaryDirectory(dir=work_dir) as directory:
+                            source = unpack(response.content, document, Path(directory))
+                            result = run_pipeline(source, settings.OUTPUT_DIR, settings.CHROMA_PATH,
+                                metadata={'document_id': document['id'], 'index_revision': document['source_revision'],
+                                          'document_title': document['name'],
+                                          'source_fidelity_verified': document.get('source_fidelity_verified', False)})
+                            count = result['documents'][0]['chunks']
+                        if count < 1:
+                            raise ValueError('The pipeline produced no indexable chunks')
+                        if document['status'] == 'processed' and count != document.get('chunk_count'):
+                            raise ValueError('Restored chunk count differs from the published record. '
+                                             'Review this document through the admin reprocessing workflow before using it.')
+                        ledger[name]['complete'] = True
+                        ledger[name]['format_version'] = FORMAT_VERSION
+                        ledger[name]['chunk_count'] = count
+                        write_ledger(ledger_path, ledger)
+                    else:
+                        count = len(indexed['ids'])
+                    if document['status'] == 'awaiting_index':
+                        response = client.post(f"/internal/indexing/documents/{document['id']}/result", json={
+                            'source_revision': document['source_revision'], 'status': 'indexed', 'chunk_count': count})
+                        response.raise_for_status()
+                    logger.info('Indexed %s: %d chunks', name, count)
             except Exception as error:
                 failures.append(name)
                 logger.exception('Index handoff failed for %s', name)
@@ -233,6 +236,8 @@ def worker_loop(stop, *, once=False, restore_processed=False, ready=None):
     with FileLock(str(work_dir / '.worker.lock'), timeout=0), httpx.Client(
             base_url=url, headers={'Authorization': 'Bearer ' + token},
             timeout=settings.SUPABASE_TIMEOUT, follow_redirects=False) as client:
+        from shared.observability import ready as monitor_ready
+        monitor_ready()
         if ready:
             ready.set()
         while not stop.is_set():
@@ -279,7 +284,13 @@ def main():
                         help='Rebuild local indexes from stored extractions without changing processed records')
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO)
-    worker_loop(Event(), once=args.once, restore_processed=args.restore_processed)
+    from shared.observability import configure
+    configure('index-worker')
+    from shared.observability import shutdown
+    try:
+        worker_loop(Event(), once=args.once, restore_processed=args.restore_processed)
+    finally:
+        shutdown()
 
 
 if __name__ == '__main__':

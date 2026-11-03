@@ -1,4 +1,5 @@
 """Server-only Supabase access. No credentials are exposed to the browser."""
+from shared.observability import observed
 from functools import lru_cache
 from math import ceil
 import time
@@ -28,6 +29,7 @@ def client():
     )
 
 
+@observed('database_read')
 def read_rows(query):
     # Retrying a read is safe when a pooled connection closes unexpectedly.
     # Writes stay explicit: a lost response does not establish whether they ran.
@@ -66,10 +68,12 @@ def all_rows(table, **filters):
             return rows
 
 
+@observed('database_insert')
 def insert(table, values):
     return client().table(table).insert(values).execute().data[0]
 
 
+@observed('database_update')
 def update(table, record_id, values):
     rows = client().table(table).update(values).eq("id", str(record_id)).execute().data
     if not rows:
@@ -77,6 +81,7 @@ def update(table, record_id, values):
     return rows[0]
 
 
+@observed('database_delete')
 def delete(table, record_id):
     get(table, record_id)
     client().table(table).delete().eq("id", str(record_id)).execute()
