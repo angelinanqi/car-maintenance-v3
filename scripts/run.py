@@ -400,4 +400,8 @@ if __name__ == "__main__":
     signal.signal(signal.SIGTERM, interrupt)
     if os.name == "nt":
         signal.signal(signal.SIGBREAK, interrupt)
+    else:
+        # Closing Terminal sends SIGHUP. Run the normal cleanup before
+        # exiting because services live in their own process sessions.
+        signal.signal(signal.SIGHUP, interrupt)
     sys.exit(main())
