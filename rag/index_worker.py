@@ -44,25 +44,28 @@ def unpack(data, document, destination):
                     or (entry.external_attr >> 16) & 0o170000 == 0o120000 or entry.filename in names):
                 raise ValueError('Unsafe extraction archive member')
             names.add(entry.filename)
-        if not {'manifest.json', 'document.md', 'elements.json'} <= names:
+        required = {'manifest.json', 'elements.json',
+                    'document.html' if document.get('source_kind') in {'learning_guide', 'emergency_protocol'} else 'document.md'}
+        if not required <= names:
             raise ValueError('Extraction is incomplete. Reprocess the document through the backend.')
         manifest = json.loads(archive.read('manifest.json'))
         if (manifest.get('format_version') != FORMAT_VERSION or manifest.get('document_id') != document['id']
                 or manifest.get('source_revision') != document['source_revision']):
             raise ValueError('Extraction manifest does not match this document revision')
         processing = manifest.get('markdown')
-        if (not isinstance(processing, str) or processing not in {'document.md', 'metadata/processing.md'}
+        allowed_sources = {'document.html'} if document.get('source_kind') in {'learning_guide', 'emergency_protocol'} else {'document.md', 'metadata/processing.md'}
+        if (not isinstance(processing, str) or processing not in allowed_sources
                 or processing not in names):
             raise ValueError('Invalid processing Markdown in extraction manifest')
         for entry in entries:
             if entry.is_dir():
                 continue
-            if entry.filename not in {'manifest.json', 'document.md', 'elements.json'} and not entry.filename.startswith(('images/', 'metadata/')):
+            if entry.filename not in {'manifest.json', 'document.md', 'document.html', 'elements.json'} and not entry.filename.startswith(('images/', 'metadata/')):
                 raise ValueError('Unexpected extraction archive member')
             target = destination / entry.filename
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(archive.read(entry))
-    source = destination / (index_name(document['id'], document['source_revision']) + '.md')
+    source = destination / (index_name(document['id'], document['source_revision']) + ('.html' if processing == 'document.html' else '.md'))
     # A derived structure copy may be supplied by packaging. Keep the original
     # extraction untouched; elements.json was built from this same copy.
     (destination / processing).rename(source)
@@ -72,13 +75,23 @@ def unpack(data, document, destination):
 @observed('index_catalogue_fetch')
 def list_documents(client):
     rows = []
-    while True:
-        response = client.get('/internal/indexing/documents', params={'pending_only': 'false', 'offset': len(rows), 'limit': 100})
-        response.raise_for_status()
-        page = response.json()
-        rows.extend(page)
-        if len(page) < 100:
-            return rows
+    for resource in ('documents', 'guides', 'emergency'):
+        offset = 0
+        while True:
+            response = client.get('/internal/indexing/' + resource,
+                                  params={'pending_only': 'false', 'offset': offset, 'limit': 100})
+            response.raise_for_status()
+            page = response.json()
+            rows.extend(page)
+            offset += len(page)
+            if len(page) < 100:
+                break
+    return rows
+
+
+def handoff_url(document):
+    kind = {'learning_guide': 'guides', 'emergency_protocol': 'emergency'}.get(document.get('source_kind'), 'documents')
+    return f'/internal/indexing/{kind}/{document["id"]}'
 
 
 def write_ledger(path, ledger):
@@ -93,7 +106,9 @@ def run_once(client, work_dir, *, restore_processed=False):
     ledger = json.loads(ledger_path.read_text(encoding='utf-8')) if ledger_path.exists() else {}
     documents = list_documents(client)  # Never reconcile on a failed/partial catalogue fetch.
     eligible = {'awaiting_index', 'processed'} if restore_processed else {'awaiting_index'}
-    if not ledger and not any(d['status'] in eligible and not d.get('superseded_by_id') for d in documents):
+    if not ledger and not any((d['status'] in eligible or (
+            d.get('source_kind') in {'learning_guide', 'emergency_protocol'} and d['status'] == 'processed'))
+            and not d.get('superseded_by_id') for d in documents):
         return  # Empty/idle installations do not initialize Chroma or import model code.
     from rag.pipeline import run_pipeline
     from rag.app.embedding.vector_store import VectorStore
@@ -101,9 +116,11 @@ def run_once(client, work_dir, *, restore_processed=False):
     try:
         failures = []
         for document in documents:
-            if document['status'] not in eligible or document.get('superseded_by_id'):
+            if (document['status'] not in eligible and not (
+                    document.get('source_kind') in {'learning_guide', 'emergency_protocol'} and document['status'] == 'processed')) or document.get('superseded_by_id'):
                 continue
             name = index_name(document['id'], document['source_revision'])
+            warnings = []
             try:
                 with span('document_index_attempt', module=__name__, job_id=document['id']):
                     indexed = store.collection.get(where={'document_name': name}, include=['metadatas'])
@@ -124,8 +141,9 @@ def run_once(client, work_dir, *, restore_processed=False):
                              all(m.get('document_id') == document['id'] and m.get('format_version') == FORMAT_VERSION
                                  and m.get('index_revision') == document['source_revision'] for m in indexed['metadatas']))
                     if not ready:
-                        response = client.get(f"/internal/indexing/documents/{document['id']}/extraction",
-                                              params={'source_revision': document['source_revision']})
+                        response = client.get(handoff_url(document) + '/extraction',
+                                              params={'source_revision': document['source_revision']},
+                                              timeout=300 if document.get('source_kind') in {'learning_guide', 'emergency_protocol'} else settings.SUPABASE_TIMEOUT)
                         response.raise_for_status()
                         if len(response.content) > MAX_EXTRACTION_BYTES:
                             raise ValueError('Extraction download exceeds configured limits')
@@ -134,6 +152,14 @@ def run_once(client, work_dir, *, restore_processed=False):
                         write_ledger(ledger_path, ledger)
                         with tempfile.TemporaryDirectory(dir=work_dir) as directory:
                             source = unpack(response.content, document, Path(directory))
+                            if document.get('source_kind') == 'learning_guide':
+                                from rag.app.youtube.pipeline import ingest_guide_videos
+                                manifest = json.loads((Path(directory) / 'elements.json').read_text(encoding='utf-8'))
+                                try:
+                                    warnings = ingest_guide_videos(manifest.get('guide_videos', []))
+                                except Exception:
+                                    logger.exception('Guide video preparation failed; indexing guide text continues')
+                                    warnings = ['Some YouTube videos could not be prepared. Retry preparation to try again.']
                             result = run_pipeline(source, settings.OUTPUT_DIR, settings.CHROMA_PATH,
                                 metadata={'document_id': document['id'], 'index_revision': document['source_revision'],
                                           'document_title': document['name'],
@@ -151,8 +177,9 @@ def run_once(client, work_dir, *, restore_processed=False):
                     else:
                         count = len(indexed['ids'])
                     if document['status'] == 'awaiting_index':
-                        response = client.post(f"/internal/indexing/documents/{document['id']}/result", json={
-                            'source_revision': document['source_revision'], 'status': 'indexed', 'chunk_count': count})
+                        response = client.post(handoff_url(document) + '/result', json={
+                            'source_revision': document['source_revision'], 'status': 'indexed', 'chunk_count': count,
+                            **({'warnings': warnings} if warnings else {})})
                         response.raise_for_status()
                     logger.info('Indexed %s: %d chunks', name, count)
             except Exception as error:
@@ -161,7 +188,7 @@ def run_once(client, work_dir, *, restore_processed=False):
                 if document['status'] == 'processed':
                     continue  # A local rebuild must never reset authoritative publication/index records.
                 try:
-                    response = client.post(f"/internal/indexing/documents/{document['id']}/result", json={
+                    response = client.post(handoff_url(document) + '/result', json={
                         'source_revision': document['source_revision'], 'status': 'failed',
                         'error': f'{type(error).__name__}: {error}'[:2000]})
                     response.raise_for_status()
@@ -173,6 +200,8 @@ def run_once(client, work_dir, *, restore_processed=False):
         # Each artifact is cached; failures remain independent of index acknowledgements.
         for document in current:
             if document['status'] != 'processed' or document.get('superseded_by_id'):
+                continue
+            if document.get('source_kind') in {'learning_guide', 'emergency_protocol'}:
                 continue
             try:
                 from shared.maintenance_extraction import prepare_safely
@@ -210,6 +239,8 @@ def run_once(client, work_dir, *, restore_processed=False):
                 for directory, suffix in (
                     ('sources', '.json'), ('sources', '.tmp'),
                     ('cleaning', '.md'), ('parse', '.html'),
+                    ('cleaning', '.html'),
+                    ('cleaning', '.removed_malay.json'),
                     ('parse', '_html_tree.json'), ('nodes', '_html_tree.json'),
                     ('chunks', '.json'),
                 ):

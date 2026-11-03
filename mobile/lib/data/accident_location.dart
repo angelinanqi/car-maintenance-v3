@@ -8,7 +8,7 @@ class AccidentLocationException implements Exception {
 }
 
 class AccidentLocation {
-  Future<String> current() async {
+  Future<Position> position() async {
     if (!await Geolocator.isLocationServiceEnabled()) {
       throw const AccidentLocationException(
         'Device location is off. Turn it on and retry, or enter the accident location yourself.',
@@ -28,12 +28,16 @@ class AccidentLocation {
         'Location permission was denied. You can still enter the accident location yourself.',
       );
     }
-    final position = await Geolocator.getCurrentPosition(
+    return Geolocator.getCurrentPosition(
       locationSettings: const LocationSettings(
         accuracy: LocationAccuracy.high,
         timeLimit: Duration(seconds: 20),
       ),
     );
+  }
+
+  Future<String> current() async {
+    final position = await this.position();
     final coordinates =
         '${position.latitude.toStringAsFixed(6)}, ${position.longitude.toStringAsFixed(6)}';
     try {

@@ -16,4 +16,5 @@ def configuration():
             "chat_history_limit": settings.CHAT_HISTORY_LIMIT,
             "api_page_size": settings.API_PAGE_SIZE,
             "image_max_bytes": settings.IMAGE_MAX_BYTES,
+            "emergency_video_max_bytes": settings.DOCUMENT_MAX_BYTES,
             "rag_configured": bool(settings.RAG_SERVICE_URL and settings.RAG_SERVICE_TOKEN)}

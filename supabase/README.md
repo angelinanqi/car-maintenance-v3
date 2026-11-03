@@ -3,7 +3,7 @@
 [`init.sql`](init.sql) is the single complete fresh-install database definition.
 The existing `supabase/` directory is reused instead of adding `database/`.
 Run the entire file once in a fresh Supabase project's SQL Editor. It creates
-34 application tables, constraints, indexes, functions, triggers, permissions,
+application tables, constraints, indexes, functions, triggers, permissions,
 Storage bucket definitions and initial presets in one transaction.
 
 This is a manual fresh-install script, not an upgrade or reset. It does not run
@@ -14,6 +14,23 @@ Storage, schemas and roles must already exist. The retained column-specific
 built in, so no application extensions need to be installed.
 
 ## Historical scripts and existing installations
+
+For guide media metadata and the original emergency image-upload tracking,
+apply [`migrations/20261103_content_media.sql`](migrations/20261103_content_media.sql)
+before deploying the backend, private RAG service, web app, and updated mobile
+app. It adds guide media metadata and storage tracking for emergency image
+uploads. Existing content is preserved. See [the media workflow](../docs/content-media.md)
+for authoring and review instructions. This migration is not run automatically.
+
+For safe deletion of unused manufacturers, models and vehicles, apply
+[`migrations/20261103_catalogue_deletion.sql`](migrations/20261103_catalogue_deletion.sql)
+in the SQL Editor before using the new Delete controls. It adds usage previews,
+transactional deletion with stale-confirmation checks, and database deletion
+guards. Vehicle document/video foreign keys change from cascade to restrict;
+saved document-test scopes and run snapshots also protect their vehicle.
+Existing application rows are preserved. Fresh installs include the same rules
+in `init.sql`. Missing migration functions produce an actionable error in the
+deletion dialog; do not rerun `init.sql` on an existing database.
 
 For maintenance cost tracking, apply
 [`migrations/20261103_maintenance_costs.sql`](migrations/20261103_maintenance_costs.sql)
@@ -249,3 +266,11 @@ Supabase roles. This verifies PostgreSQL schema equivalence in that environment,
 not live Supabase Auth, Storage, PostgREST, backend HTTP workflows or hosted default
 privileges. Those integrations still require a disposable Supabase project and the
 operational checks above. The live project was not accessed or modified.
+
+Emergency step uploads and persistent indexing additionally require
+`migrations/20261103_emergency_media_indexing.sql` after the content-media and
+guide-indexing migrations. Both new tables are service-role-only. Configure the
+existing public content bucket to accept `video/mp4` and the application upload
+limit (50 MiB by default), plus existing image MIME types. See
+[`docs/content-media.md`](../docs/content-media.md) for backend ffprobe validation
+and Flutter offline playback requirements.

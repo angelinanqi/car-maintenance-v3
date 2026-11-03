@@ -12,6 +12,7 @@ class Lesson {
   final bool beginnerFriendly, featured;
   final List<String> outcomes;
   final List<ExplorationSection> sections;
+  final List<Map<String, dynamic>> media;
   const Lesson(
     this.id,
     this.title,
@@ -26,6 +27,7 @@ class Lesson {
     this.featured = false,
     this.outcomes = const [],
     this.sections = const [],
+    this.media = const [],
   });
 
   factory Lesson.fromJson(Map<String, dynamic> data) => Lesson(
@@ -44,6 +46,9 @@ class Lesson {
     featured: data['featured_in_companion'] == true,
     outcomes: (data['learning_outcomes'] as List? ?? []).cast<String>(),
     sections: ExplorationSection.fromGuide(data),
+    media: (data['media'] as List? ?? [])
+        .map((item) => Map<String, dynamic>.from(item as Map))
+        .toList(),
   );
 
   Map<String, dynamic> activityAt(int index) => {
@@ -68,12 +73,14 @@ class EmergencyStep {
   final String description;
   final String imageUrl;
   final String? localImagePath;
+  final List<Map<String, dynamic>> media;
   const EmergencyStep({
     required this.id,
     required this.title,
     required this.description,
     this.imageUrl = '',
     this.localImagePath,
+    this.media = const [],
   });
 
   factory EmergencyStep.fromJson(
@@ -85,12 +92,21 @@ class EmergencyStep {
     description: json['description'] as String,
     imageUrl: json['imageUrl'] as String? ?? '',
     localImagePath: remote ? null : json['localImagePath'] as String?,
+    media: (json['media'] as List? ?? []).map((item) {
+      final media = Map<String, dynamic>.from(item as Map);
+      if (remote) {
+        media.remove('localImagePath');
+        media.remove('localMediaPath');
+      }
+      return media;
+    }).toList(),
   );
   Map<String, dynamic> toJson() => {
     'id': id,
     'title': title,
     'description': description,
     'imageUrl': imageUrl,
+    'media': media,
     if (localImagePath != null) 'localImagePath': localImagePath,
   };
 }

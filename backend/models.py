@@ -7,6 +7,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from backend.settings import CHAT_MAX_MESSAGE_LENGTH, CHAT_HISTORY_LIMIT
 from shared.models import InputModel, MechanicQuestionDraft
 from backend.companion_models import Exploration, ActivityReference
+from shared.document_tags import normalize_tags
+from shared.content_media import ContentMedia, unique_media
 
 Vehicle = str
 DocumentType = Literal["owners_manual", "maintenance_booklet", "service_manual", "other_reference"]
@@ -36,6 +38,11 @@ class DocumentEdit(InputModel):
     vehicle_independent: bool = False
     source_fidelity_verified: bool = False
     document_type: DocumentType = "other_reference"
+
+    @field_validator('tags')
+    @classmethod
+    def unique_tags(cls, values):
+        return normalize_tags(values)
 
 
 class Document(DocumentEdit):
@@ -107,6 +114,9 @@ class GuideInput(InputModel):
     featured_in_companion: bool = False
     learning_outcomes: list[str] = Field(default_factory=list, max_length=8)
     exploration: Exploration | None = None
+    media: list[ContentMedia] = Field(default_factory=list, max_length=30)
+
+    _unique_media = field_validator('media')(unique_media)
 
     @field_validator('learning_outcomes')
     @classmethod
@@ -136,6 +146,15 @@ class Step(InputModel):
     title: str = Field(min_length=1, max_length=200)
     description: str = Field(min_length=1, max_length=20000)
     imageUrl: str = Field(default="", max_length=2048)
+    media: list[ContentMedia] = Field(default_factory=list, max_length=10)
+
+    _unique_media = field_validator('media')(unique_media)
+
+    @model_validator(mode='after')
+    def step_media(self):
+        if any(item.section_id for item in self.media):
+            raise ValueError('Emergency media is linked to its containing step.')
+        return self
 
     @field_validator("imageUrl")
     @classmethod
@@ -169,6 +188,7 @@ class PlaybookInput(InputModel):
     def unique_steps(cls, value):
         if len({step.id for step in value}) != len(value):
             raise ValueError("Step IDs must be unique")
+        unique_media([media for step in value for media in step.media])
         return value
 
 
@@ -228,6 +248,11 @@ class DocumentPatch(InputModel):
     document_type: DocumentType | None = None
     published: Literal[False] | None = None
 
+    @field_validator('tags')
+    @classmethod
+    def unique_tags(cls, values):
+        return normalize_tags(values) if values is not None else values
+
     @field_validator("*")
     @classmethod
     def reject_null(cls, value):
@@ -250,6 +275,7 @@ class GuidePatch(InputModel):
     featured_in_companion: bool | None = None
     learning_outcomes: list[str] | None = Field(default=None, max_length=8)
     exploration: Exploration | None = None
+    media: list[ContentMedia] | None = None
 
     @field_validator("title", "display_order", "content", "status", "description", "related_lesson_ids", "maintenance_item_ids")
     @classmethod

@@ -26,6 +26,7 @@ class ApiClient {
   int maxMessageLength = 4000;
   int pageSize = 100;
   int imageMaxBytes = 10485760;
+  int emergencyVideoMaxBytes = 52428800;
 
   ApiClient({
     this.baseUrl = const String.fromEnvironment('API_BASE_URL'),
@@ -278,6 +279,34 @@ class ApiClient {
     return (await _request('', remote: uri, maxBytes: imageMaxBytes)).bodyBytes;
   }
 
+  Future<Uint8List> emergencyMediaBytes(Map<String, dynamic> media) async {
+    final uri = Uri.tryParse(media['url'] as String? ?? '');
+    final size = media['size_bytes'];
+    final limit = media['kind'] == 'video'
+        ? emergencyVideoMaxBytes
+        : imageMaxBytes;
+    if (uri == null ||
+        !['http', 'https'].contains(uri.scheme) ||
+        uri.host.isEmpty ||
+        uri.userInfo.isNotEmpty ||
+        media['asset_id'] is! String ||
+        size is! int ||
+        size <= 0 ||
+        size > limit ||
+        !RegExp(r'^[a-f0-9]{64}$').hasMatch(media['sha256'] as String? ?? '')) {
+      throw const ApiException('Invalid emergency media reference.');
+    }
+    final bytes = (await _request(
+      '',
+      remote: uri,
+      maxBytes: size,
+      requestTimeout: const Duration(minutes: 2),
+    )).bodyBytes;
+    if (bytes.length != size)
+      throw const ApiException('Emergency media download was incomplete.');
+    return bytes;
+  }
+
   Future<void> loadConfiguration() async {
     final data = await get('/config');
     final scopes = data['vehicle_scopes'];
@@ -306,6 +335,9 @@ class ApiClient {
     maxMessageLength = data['chat_max_message_length'] as int;
     pageSize = data['api_page_size'] as int;
     imageMaxBytes = data['image_max_bytes'] as int;
+    final videoLimit = data['emergency_video_max_bytes'];
+    if (videoLimit is int && videoLimit > 0)
+      emergencyVideoMaxBytes = videoLimit;
   }
 
   void close() => client.close();

@@ -246,6 +246,9 @@ async def send(request, user):
         answer['sources'], answer['manual_links'] = await run_in_threadpool(
             resolve_manual_sources, answer.get('sources', []), current, identity, user,
             browse=answer.get('response_type') == 'insufficient_information')
+        from backend.services.content_sources import resolve_content_media
+        answer['content_media'] = resolve_content_media(answer['sources'], current.get('content_sources', []),
+                                                      emergency=answer.get('route') == 'emergency')
         if answer['attachments'] or answer['sources'] or answer['manual_links']:
             final_scope = await run_in_threadpool(scopes.resolve, scope['scope_type'], scope['scope_id'])
             if final_scope != scope:
@@ -276,7 +279,7 @@ async def send(request, user):
 def optional_emergency_sources():
     from backend.services.content_sources import emergency_sources
     try:
-        return emergency_sources()
+        return emergency_sources(include_indexes=False)
     except Exception as error:
         # Only optional published-content loading is recoverable here. Session,
         # ownership and vehicle failures are never converted into safety replies.
@@ -285,28 +288,31 @@ def optional_emergency_sources():
 
 
 def reviewed_emergency_supplement(question):
-    from backend.services.content_sources import emergency_supplement
-    text, sources = emergency_supplement(question, optional_emergency_sources())
-    if sources:
-        # Recheck the exact revision before returning reviewed protocol text.
-        current = {(source['source_id'], source['revision']) for source in optional_emergency_sources()}
-        if any((source['source_id'], source['revision']) not in current for source in sources):
-            text, sources = '', []
-    return text, sources
+    from backend.services.content_sources import emergency_supplement, resolve_content_media
+    snapshot = optional_emergency_sources()
+    text, citations = emergency_supplement(question, snapshot)
+    if not citations:
+        return '', [], []
+    current = optional_emergency_sources()
+    identities = {(s['source_id'], s['revision']) for s in current}
+    if any((s['source_id'], s['revision']) not in identities for s in citations):
+        return '', [], []
+    return text, citations, resolve_content_media(citations, current, emergency=True)
 
 
 async def emergency_reply(question):
     # Optional protocol reads have one shared, short deadline. A slow content
     # dependency cannot delay basic guidance until its normal database timeout.
-    text, sources = '', []
+    text, sources, media = '', [], []
     try:
-        text, sources = await asyncio.wait_for(
+        text, sources, media = await asyncio.wait_for(
             run_in_threadpool(reviewed_emergency_supplement, question), EMERGENCY_PROTOCOL_TIMEOUT)
     except Exception as error:
         logging.getLogger(__name__).warning('Emergency supplement skipped (%s)', type(error).__name__)
     return {'answer': emergency_guidance(question) + text, 'route': 'emergency',
             'response_type': 'emergency_protocol' if sources else 'emergency',
             'sources': sources, 'videos': [], 'attachments': [], 'manual_links': [],
+            'content_media': media,
             'recommended_guides': [], 'manual_relevant': False, 'external_warning': False}
 
 
@@ -320,6 +326,7 @@ def save_turn(session_id, question, answer, attachment_refs=None, message_id=Non
     reply = deepcopy(answer)
     reply.pop('attachments', None)
     reply.pop('manual_links', None)
+    reply.pop('content_media', None)
     reply['attachment_refs'] = attachment_refs or []
     reply['request_hash'] = fingerprint
     db.client().table("chat_messages").insert([
@@ -390,6 +397,9 @@ def restore_messages(messages, scope, session_id, user):
                 continue
         reply.update(answer=message['content'], sources=valid + resolved, manual_links=links,
                      attachments=restored_attachments, videos=[], message_id=message['id'])
+        from backend.services.content_sources import resolve_content_media
+        reply['content_media'] = resolve_content_media(valid, scope.get('content_sources', []),
+                                                      emergency=reply.get('route') == 'emergency')
         result.append({'id': message['id'], 'role': message['role'], 'content': message['content'],
                        'reply': reply if message['role'] == 'assistant' else None})
     return result

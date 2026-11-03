@@ -12,6 +12,7 @@ from shared.models import MechanicQuestionDraft
 from shared.models import InputModel
 from backend.services import catalogue as catalogue_service
 from backend.services import review_questions
+from backend.services import catalogue_removal
 from backend.services.admin_maintenance import create_once, existing_create, check_revision, change_schedule
 
 router = APIRouter(prefix="/admin", tags=["Admin MVP"], dependencies=[Depends(auth.require_admin)])
@@ -204,6 +205,16 @@ def validate_schedule(values, publishing=False):
 def catalogue():
     return catalogue_service.catalogue()
 
+
+@router.get('/catalogue/{kind}/{record_id}/deletion-preview')
+def catalogue_deletion_preview(kind: catalogue_removal.CatalogueKind, record_id: UUID):
+    return catalogue_removal.removal_impact(kind, record_id)
+
+
+@router.post('/catalogue/{kind}/{record_id}/deactivate')
+def deactivate_catalogue_entry(kind: catalogue_removal.CatalogueKind, record_id: UUID):
+    return catalogue_removal.deactivate(kind, record_id)
+
 @router.post("/manufacturers", status_code=201)
 def create_manufacturer(request: ManufacturerInput):
     return create_once('vehicle_manufacturers', request.id, request.model_dump(mode='json', exclude={'id'}))
@@ -212,6 +223,11 @@ def create_manufacturer(request: ManufacturerInput):
 @router.patch("/manufacturers/{record_id}")
 def edit_manufacturer(record_id: UUID, request: ManufacturerInput):
     return db.update("vehicle_manufacturers", record_id, request.model_dump(mode="json", exclude={'id'}))
+
+
+@router.delete('/manufacturers/{record_id}', status_code=204)
+def delete_manufacturer(record_id: UUID, request: catalogue_removal.RemovalInput):
+    catalogue_removal.remove('manufacturers', record_id, request)
 
 
 @router.post("/models", status_code=201)
@@ -226,6 +242,11 @@ def edit_model(record_id: UUID, request: ModelInput):
     if old["manufacturer_id"] != str(request.manufacturer_id):
         raise HTTPException(409, "Create a new model to change its manufacturer; existing vehicle identities must remain stable.")
     return db.update("vehicle_models", record_id, request.model_dump(mode="json", exclude={'id'}))
+
+
+@router.delete('/models/{record_id}', status_code=204)
+def delete_model(record_id: UUID, request: catalogue_removal.RemovalInput):
+    catalogue_removal.remove('models', record_id, request)
 
 
 @router.get("/maintenance-items")

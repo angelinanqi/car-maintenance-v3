@@ -7,7 +7,8 @@ from backend import db, settings
 from backend.auth import require_user
 from backend.services import scopes
 from backend.services.chat import automatic_scope, enforce_vehicle
-from backend.services.source_assets import extraction, element, original_download_allowed, image_bytes
+from backend.services.source_assets import extraction, element, original_download_allowed, image_bytes, table_page_bytes
+from backend.services.source_assets import source_document
 
 router = APIRouter(prefix='/chat/sessions', tags=['Chat source evidence'])
 
@@ -22,10 +23,11 @@ def authorized(session_id, document_id, revision, user):
         kind = 'vehicle' if session.get('vehicle_id') else 'category'
         enforce_vehicle(user, kind, session[kind + '_id'], session.get('user_vehicle_id'))
         scope = scopes.resolve(kind, session[kind + '_id'])
-    if not any(m['document_id'] == str(document_id) and m['index_revision'] == str(revision)
-               for m in scope['document_metadata'].values()):
+    allowed = next((m for m in scope['document_metadata'].values()
+                    if m['document_id'] == str(document_id) and m['index_revision'] == str(revision)), None)
+    if not allowed:
         raise HTTPException(404, 'This source revision is no longer available in this conversation.')
-    document = db.get('documents', document_id)
+    document = source_document(document_id, allowed)
     if document.get('source_revision') != str(revision):
         raise HTTPException(404, 'This source revision is no longer available in this conversation.')
     return document
@@ -48,6 +50,15 @@ def original(session_id: UUID, document_id: UUID, revision: UUID, element_id: st
     with extraction(document) as archive:
         element(archive, element_id)
     return original_link(document)
+
+
+@router.get('/{session_id}/sources/{document_id}/{revision}/{element_id}/pages/{page}/image')
+def table_page(session_id: UUID, document_id: UUID, revision: UUID, element_id: str,
+               page: int, user=Depends(require_user)):
+    document = authorized(session_id, document_id, revision, user)
+    with extraction(document) as archive:
+        data, mime = table_page_bytes(archive, element(archive, element_id), page)
+    return Response(data, media_type=mime, headers={'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff'})
 
 
 def original_link(document):

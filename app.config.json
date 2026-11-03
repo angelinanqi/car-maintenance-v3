@@ -77,16 +77,10 @@
   "CHROMA_PATH": "output/embeddings/chroma",
   "RAG_INDEX_WORK_DIR": "output/index-worker",
   "YOUTUBE_OUTPUT_DIR": "output/youtube",
-  "MINERU_EXECUTABLE": "C:/Users/Asus/Documents/Github/car-maintenance-v3/.venv-ocr/Scripts/mineru.exe",
+  "MINERU_EXECUTABLE": "",
   "RAG_SERVICE_URL": "http://127.0.0.1:8001",
   "RAG_BACKEND_URL": "http://127.0.0.1:8000",
   "GOOGLE_CLOUD_PROJECT": "project-8599f5c4-b60a-4048-a30",
   "YOUTUBE_CHANNEL_URL": "https://www.youtube.com/@karworxauto554",
-  "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_IYj-xXEUnqg8Jnj2Kx7fnw_ArYCaz4i",
-  "WEBSITE_IMPORT_ENABLED": "true",
-  "WEBSITE_CAPTURE_TIMEOUT": "120",
-  "WEBSITE_CAPTURE_MAX_PAGES": "50",
-  "WEBSITE_CAPTURE_NETWORK_BYTES": "104857600",
-  "WEBSITE_IMPORT_WORK_DIR": "output/website-imports",
-  "PLAYWRIGHT_BROWSERS_PATH": "output/playwright"
+  "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_IYj-xXEUnqg8Jnj2Kx7fnw_ArYCaz4i"
 }

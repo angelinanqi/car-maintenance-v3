@@ -129,6 +129,7 @@ class VectorStore:
         document_ids: list[str] | None = None,
         video_ids: list[str] | None = None,
         content_type: str | None = None,
+        extra_where: dict | None = None,
     ) -> QueryResult:
         if document_ids is not None:
             from rag.app.retrieval.hybrid import document_filter
@@ -146,6 +147,8 @@ class VectorStore:
             where = {"car_model": car_model}
         if content_type:
             where = {'$and': [where, {'content_type': content_type}]} if where else {'content_type': content_type}
+        if extra_where:
+            where = {'$and': [where, extra_where]} if where else extra_where
 
         return self.collection.query(
             query_embeddings=[query_embedding],

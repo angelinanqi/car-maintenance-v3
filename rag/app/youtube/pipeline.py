@@ -10,6 +10,42 @@ from rag.app.youtube.ingestion import ingest_videos
 from rag.app.youtube.retrieval import open_store
 from rag.config.settings import CHROMA_PATH, YOUTUBE_API_KEY
 
+
+def ingest_guide_videos(videos, output_dir=OUTPUT_DIR, chroma_path=CHROMA_PATH):
+    """Register exact embedded videos with the same ingestor, cache and collection."""
+    if not videos:
+        return []
+    chroma_path = Path(chroma_path)
+    chroma_path.mkdir(parents=True, exist_ok=True)
+    warnings = []
+    with FileLock(str(chroma_path / '.youtube-ingestion.lock'), timeout=0):
+        store = open_store(chroma_path)
+        try:
+            for video in videos:
+                identity = video['video_id']
+                existing = store.collection.get(where={'video_id': identity}, include=['metadatas'])
+                if existing['ids'] and any(item.get('retrieval_content') == 'transcript'
+                                          or not item.get('guide_only') for item in existing['metadatas']):
+                    continue  # Reuse channel-indexed videos and videos shared by other guides.
+                metadata = dict(video_id=identity, title=video.get('title') or f'YouTube video {identity}',
+                                description='', channel_id='', guide_only=True)
+                if YOUTUBE_API_KEY:
+                    try:
+                        from rag.app.youtube.discovery import api_get
+                        items = api_get('videos', YOUTUBE_API_KEY, part='snippet', id=identity).get('items', [])
+                        snippet = items[0]['snippet'] if items else {}
+                        metadata.update(title=snippet.get('title') or metadata['title'],
+                                        description=snippet.get('description', ''), channel_id=snippet.get('channelId', ''))
+                    except Exception:
+                        # Captions can still be fetched when the metadata API is unavailable.
+                        pass
+                summary = ingest_videos([metadata], Path(output_dir) / 'embedded', store)
+                if summary['videos_failed'] or summary['transcripts_failed']:
+                    warnings.append(f'YouTube {identity}: transcript unavailable; video remains linked in the guide.')
+        finally:
+            store.client.close()
+    return warnings
+
 # Reusable YouTube ingestion orchestration, separate from user queries
 
 

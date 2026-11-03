@@ -79,6 +79,7 @@ class ChatReply {
   final List<Map<String, dynamic>> attachments;
   final List<Map<String, dynamic>> manualLinks;
   final List<Map<String, dynamic>> recommendedGuides;
+  final List<Map<String, dynamic>> contentMedia;
   final bool externalWarning;
   final bool manualRelevant;
   final String? route;
@@ -95,6 +96,7 @@ class ChatReply {
     this.attachments = const [],
     this.manualLinks = const [],
     this.recommendedGuides = const [],
+    this.contentMedia = const [],
     this.externalWarning = false,
     this.manualRelevant = false,
     this.route,
@@ -112,6 +114,8 @@ class ChatReply {
     }
     return ChatReply(
       reply,
+      contentMedia: (json['content_media'] as List? ?? [])
+          .map((item) => Map<String, dynamic>.from(item as Map)).toList(),
       videos: (json['videos'] as List? ?? [])
           .map((item) => Map<String, dynamic>.from(item as Map))
           .toList(),

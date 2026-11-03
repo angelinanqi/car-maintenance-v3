@@ -5,7 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from rag.app.safety import enforce_policy, immediate_emergency
+from shared.safety import enforce_policy, immediate_emergency
 from rag.app.generation.context import bounded_history
 
 
@@ -56,7 +56,7 @@ def interpret(question, history, scope, client):
         "or a review of what to service next. A general question about servicing alone does not need it. "
         "Set personal_context to none only for a clearly self-contained general educational question "
         "that needs no saved personal facts. Use profile for saved identity or mileage questions "
-        "without maintenance history. Use maintenance for personal service status/planning, records, "
+        "without maintenance history. Use maintenance for saved costs, spending, personal service status/planning, records, "
         "or any uncertain follow-up such as 'what about mine?'. This controls personal evidence "
         "packing only, never eligibility of general documents, manuals or Learning guides. "
         "Set specification only when the request needs an exact manufacturer value, interval or "

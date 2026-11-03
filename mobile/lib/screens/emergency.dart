@@ -9,6 +9,7 @@ import '../data/nearby_repository.dart';
 import 'nearby_assistance.dart';
 import '../data/content_repository.dart';
 import '../data/accident_repository.dart';
+import '../data/emergency_progress.dart';
 import '../models/content.dart';
 import '../widgets/emergency_widgets.dart';
 import 'accident_reports.dart';
@@ -35,6 +36,7 @@ class _EmergencyState extends State<Emergency> with WidgetsBindingObserver {
   bool _wasSignedIn = false;
   bool _hasGuestRecords = false;
   List<EmergencyGuide> _guides = [];
+  EmergencyProgress? _resume;
   bool _loading = true;
   String? _error;
   String? _photoWarning;
@@ -58,6 +60,7 @@ class _EmergencyState extends State<Emergency> with WidgetsBindingObserver {
       _checkGuestRecords();
     }
     _load();
+    _loadProgress();
     _recoverPhotos();
   }
 
@@ -222,17 +225,31 @@ class _EmergencyState extends State<Emergency> with WidgetsBindingObserver {
     ),
   );
 
-  void _openGuide(EmergencyGuide guide) => Navigator.push(
-    context,
-    MaterialPageRoute(
-      builder: (_) => EmergencyGuidePage(
-        guide: guide,
-        state: widget.state,
-        accidents: _accidents,
-        content: _content,
+  Future<void> _loadProgress() async {
+    try {
+      final progress = await EmergencyProgressStore(
+        widget.state.store,
+      ).latest();
+      if (mounted) setState(() => _resume = progress);
+    } catch (_) {
+      // A damaged checkpoint must not prevent access to emergency help.
+    }
+  }
+
+  Future<void> _openGuide(EmergencyGuide guide) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => EmergencyGuidePage(
+          guide: guide,
+          state: widget.state,
+          accidents: _accidents,
+          content: _content,
+        ),
       ),
-    ),
-  );
+    );
+    if (mounted) await _loadProgress();
+  }
 
   Future<void> _downloads() async {
     await Navigator.push(
@@ -250,6 +267,9 @@ class _EmergencyState extends State<Emergency> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    final resumeGuide = _guides
+        .where((g) => g.id == _resume?.guideId && g.available)
+        .firstOrNull;
     final general = _guides
         .where((g) => g.isGeneralBreakdown && g.available)
         .firstOrNull;
@@ -419,6 +439,31 @@ class _EmergencyState extends State<Emergency> with WidgetsBindingObserver {
               ],
             ),
           ),
+          if (resumeGuide != null) ...[
+            SurfaceCard(
+              color: AppColors.accentLight,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    'Continue emergency guide',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  Text(resumeGuide.title),
+                  Text(
+                    _resume!.matches(resumeGuide)
+                        ? 'You stopped at step ${resumeGuide.steps.indexWhere((s) => s.id == _resume!.stepId) + 1} · Saved on this phone'
+                        : 'This guide has changed. Review it from the beginning.',
+                  ),
+                  const SizedBox(height: 12),
+                  FilledButton(
+                    onPressed: () => _openGuide(resumeGuide),
+                    child: const Text('Continue guide'),
+                  ),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 2),
           Text(
             'What’s happening?',

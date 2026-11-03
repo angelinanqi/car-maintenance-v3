@@ -1,7 +1,7 @@
 ﻿"""Deterministic supplementary-video selection; transcripts never authorize repairs."""
 import re
 from rag.app.youtube.retrieval import distance_to_similarity, group_by_video
-from rag.app.safety import videos_allowed
+from shared.safety import videos_allowed
 from rag.app.generation.grounded import INJECTION
 from rag.config.settings import VIDEO_RELEVANCE_THRESHOLD
 

@@ -4,6 +4,29 @@ from backend import db, settings
 from backend.services import content_sources
 
 
+def with_indexed_guides(scope):
+    """Use the same scoped Chroma retrieval for current guide and document revisions."""
+    guide_videos = set()
+    for source in scope.get('content_sources', []):
+        if source['source_type'] not in {'learning_guide', 'emergency_protocol'} or not source.get('indexed') or source.get('index_ready') is False:
+            continue
+        identity, revision = source['source_id'], source['index_revision']
+        scope['document_metadata'][f'{identity}_{revision}'] = dict(
+            document_id=identity, document_title=source['title'], document_type=source['source_type'],
+            source_type=source['source_type'], source_kind=source['source_type'], source_id=identity,
+            title=source['title'], revision=source['revision'], index_revision=revision,
+            reviewed_at=source.get('reviewed_at'), source_reference=source.get('source_reference', ''),
+            scenario_key=source.get('scenario_key', ''),
+            indexed_chunk_count=source['chunk_count'], vehicle_independent=True,
+            source_fidelity_verified=False, applicable_vehicles=[])
+        guide_videos.update(video['video_id'] for video in source.get('videos', []))
+    scope['document_ids'] = list(scope['document_metadata'])
+    scope['guide_video_ids'] = sorted(guide_videos)
+    if scope.get('video_ids') is not None:
+        scope['video_ids'] = sorted(set(scope.get('video_ids') or []) | guide_videos)
+    return scope
+
+
 def resolve(scope_type, scope_id, *, require_available=True):
     if scope_type == 'auto':
         return automatic(None if scope_id == 'general' else str(scope_id))
@@ -47,12 +70,12 @@ def resolve(scope_type, scope_id, *, require_available=True):
     if not settings.YOUTUBE_SEARCH_ALL_VIDEOS:
         videos = db.all_rows("knowledge_videos", **{field: str(scope_id)})
         video_ids = [v["video_id"] for v in videos]
-    return {"scope_type": scope_type, "scope_id": str(scope_id), "label": scope["name"],
+    return with_indexed_guides({"scope_type": scope_type, "scope_id": str(scope_id), "label": scope["name"],
             "vehicle": scope if scope_type == "vehicle" else None,
             "document_ids": list(metadata), "document_metadata": metadata,
             "content_sources": content,
             "video_ids": video_ids, "published": published,
-            "vehicle_codes": [v["code"] for v in vehicles.values()]}
+            "vehicle_codes": [v["code"] for v in vehicles.values()]})
 
 
 def catalog(*, admin=False):
@@ -127,9 +150,9 @@ def automatic(vehicle_id=None):
         video_ids = sorted({v['video_id'] for v in videos
                             if (vehicle and vehicle.get('published') and v.get('vehicle_id') == vehicle_id)
                             or v.get('category_id') in category_ids})
-    return {'scope_type': 'auto', 'scope_id': vehicle_id or 'general',
+    return with_indexed_guides({'scope_type': 'auto', 'scope_id': vehicle_id or 'general',
             'label': vehicle['name'] if vehicle else 'General car assistance',
             'vehicle': vehicle, 'document_ids': list(metadata), 'document_metadata': metadata,
             'content_sources': content_sources.load('auto', vehicle_id),
             'video_ids': video_ids, 'published': True,
-            'vehicle_codes': [v['code'] for v in vehicles.values()]}
+            'vehicle_codes': [v['code'] for v in vehicles.values()]})

@@ -5,6 +5,7 @@ from pydantic import Field
 from backend import auth, db
 from shared.models import InputModel
 from backend.services import scopes
+from backend.services import catalogue_removal
 from backend.services.documents import referencing_schedules
 from backend.locks import content_lock
 from backend.services.admin_maintenance import create_once
@@ -80,8 +81,8 @@ def edit_vehicle(vehicle_id: UUID, request: VehicleInput):
 
 
 @router.delete("/vehicles/{vehicle_id}", status_code=204, dependencies=[Depends(auth.require_admin)])
-def delete_vehicle(vehicle_id: UUID):
-    raise HTTPException(409, "Deactivate catalogue vehicles instead of deleting them to preserve user and source identities.")
+def delete_vehicle(vehicle_id: UUID, request: catalogue_removal.RemovalInput):
+    catalogue_removal.remove('vehicles', vehicle_id, request)
 
 
 @router.patch("/categories/{category_id}/publication", dependencies=[Depends(auth.require_admin)])

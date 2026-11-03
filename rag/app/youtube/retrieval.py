@@ -53,6 +53,7 @@ def retrieve_youtube(
     query_embedding=None,
     diagnostics=None,
     video_ids=None,
+    guide_video_ids=None,
 ):
     from rag.app.embedding.vector_store import CHROMA_PATH
 
@@ -87,7 +88,13 @@ def retrieve_youtube(
         embedding = create_embedder().embed_query(query)
 
     limit = min(top_k, count)
-    response = store.search(embedding, top_k=limit, **({"video_ids": video_ids} if video_ids is not None else {}))
+    options = {"video_ids": video_ids} if video_ids is not None else {}
+    if video_ids is None and guide_video_ids is not None:
+        allowed = {'guide_only': {'$ne': True}}
+        if guide_video_ids:
+            allowed = {'$or': [allowed, {'video_id': {'$in': sorted(set(guide_video_ids))}}]}
+        options['extra_where'] = allowed
+    response = store.search(embedding, top_k=limit, **options)
     distances = (response or {}).get("distances") or []
 
     if not distances or not distances[0]:

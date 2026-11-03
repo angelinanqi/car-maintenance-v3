@@ -21,7 +21,7 @@ Explicit process environment values take precedence over loaded settings. Old no
 
 `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` belong in JSON and are safe to pass to public clients. The admin uses its same-origin `/api/backend` proxy; `BACKEND_API_URL` selects the server-side upstream. The obsolete `NEXT_PUBLIC_API_URL` setting is no longer read.
 
-`MINERU_API_URL` must point to Windows for the split-device deployment. Leaving it empty selects local MinerU execution, which requires MinerU on the backend machine. The Windows-specific `MINERU_EXECUTABLE` path is unused when remote OCR is selected.
+`MINERU_API_URL` must point to Windows for the split-device deployment. Leaving it empty selects local MinerU execution, which requires MinerU on the backend machine. Leave `MINERU_EXECUTABLE` empty for automatic discovery: `.venv-ocr/Scripts/mineru.exe` on Windows or `.venv-ocr/bin/mineru` on macOS, then the current Python environment, then `PATH`. An explicit executable override is still supported. This setting is unused when remote OCR is selected.
 
 Copying the project to a Mac does not make Windows virtual environments or credential paths valid there. Create native environments and adjust credential paths. Preserve existing credential values; do not put private keys in JSON or pass the whole configuration file to Flutter.
 
@@ -113,6 +113,78 @@ topic changes while the dialog is open, refresh its removal details before
 confirming. Existing databases require the
 [category management upgrade](../supabase/migrations/20261103_category_removal.sql).
 
+## Delete unused catalogue entries
+
+In **Vehicle Catalogue**, each vehicle, model and manufacturer has a **Delete**
+action. Vehicles also offer it in their detail workspace. The dialog checks usage
+and lists blockers with counts and links to available records. Models require
+their vehicle variants to be removed first; manufacturers require their models
+to be removed first. Inactive children still count as references.
+
+An unused entry can be **Permanently deleted** after reviewing the dialog. Entries
+with documents, schedules of any status, video assignments, user vehicles,
+clarification questions, chats, saved document-test questions or test history
+must retain their identity. Use **Deactivate** in the dialog to hide an entry
+from new selections while preserving those references. No linked documents or
+personal records are deleted or detached by this operation.
+
+Deletion rechecks usage inside a database transaction and requires the preview's
+fingerprint. If an entry or its references change, refresh the preview before
+confirming again. Database triggers enforce the same rules for direct deletion,
+and scope guards prevent new document tests from referencing a deleted vehicle.
+Existing installations must first apply
+[`20261103_catalogue_deletion.sql`](../supabase/migrations/20261103_catalogue_deletion.sql).
+Database regression checks are preserved with the evaluation archive as `tests/catalogue_deletion.sql`; restore the archived test tree and run these only
+against a disposable test database after the fresh schema or upgrade migration.
+
+## Upload a document bundle and share its coverage
+
+In **Reference Library → Add document**, select the files for the bundle. Tags
+and document type apply to all selected files; a multi-file upload keeps each
+filename as its title. **Upload and continue** shows progress and then opens
+coverage in the same popup. Choose the vehicles, learning topics and optional
+general-guidance flag once, then **Apply coverage** to all uploaded documents.
+Year, engine and version qualifiers entered here also apply to the whole bundle.
+Use this only for documents that share that coverage; each document can still be
+adjusted in its workspace.
+
+**Finish later** keeps the uploaded files for later setup. Partial upload failures
+keep successful document IDs and leave only failed files selected for retry.
+Coverage can also be applied to the successful subset before returning to the
+remaining files. A failed coverage assignment can be retried without uploading
+again; assignments already confirmed for the current selection are skipped.
+Coverage does not publish documents or start preparation automatically.
+
+## Manage document tags
+
+Open **Reference Library → Manage tags** to see labels and document counts.
+Select a tag to rename it across the library or merge it into an existing label.
+**Remove tag from documents** removes that label from all documents using it;
+other labels and coverage are preserved. Create new tags during upload or under
+an individual document's **Edit details → Search Labels** section.
+
+Tags are stored on documents, so unused tags disappear from the choices. Case and
+extra whitespace are ignored for matching and duplicates within a document are
+collapsed. Changes are reported per document; processing or busy documents can
+be retried after their current operation finishes. Neither shared upload coverage
+nor tag management requires a database migration.
+
+## Duplicate document uploads
+
+Uploads and replacements reject byte-identical sources with HTTP 409 and name
+the existing document. Renaming a file or changing its library title does not
+bypass the check. Assign additional vehicles or topics to the existing document
+instead of uploading another copy. Website PDF capture and recovery use the same
+check. Different source bytes are allowed, including revised editions with the
+same filename; this check does not detect visually similar or re-exported PDFs.
+
+The backend checks stored sources of the same size using SHA-256 and caches only
+their digests, keyed by storage path and source revision. This also covers sources
+uploaded before this feature, without a database migration or removal of existing
+duplicates. Storage must be available to verify uncached sources. Source writes
+are serialized per digest within the supported single backend process; multiple
+backend processes would require a database uniqueness constraint or shared lock.
+
 ## Restore document search
 
 Use this when moving to a fresh Mac environment with existing processed documents in Supabase. Existing publication status does not mean the new Mac already has local search indexes.
@@ -150,6 +222,28 @@ This rebuilds local search artifacts from saved extraction ZIPs, including corre
 Missing extractions, older formats, or chunk-count mismatches need review through the admin workflow. Do not reset records with SQL. If fresh OCR is needed, upload a new document or deliberately unpublish and reprocess an existing one. Retry/sync YouTube channels through the admin dashboard when rebuilding their local collection.
 
 ## AI service and memory
+
+### Original pages for table answers
+
+Chat retrieves tables through their extracted cells and supplies the original PDF
+pages to the answer model. PDF table claims require citations to supplied full-page
+images; OCR cells or cropped details alone cannot establish those claims. Missing
+pages or unresolved symbols produce a limitation. Web and mobile replies show the
+supporting pages with page numbers and enlargement controls, except when the user
+explicitly requests text only.
+
+Tables have a separate image budget: `RAG_TABLE_PAGE_LIMIT` defaults to 12 (allowed
+range 1–24), with up to three supplemental table crops and three illustration
+inputs. Related tables in the same contiguous extracted section supply additional
+page context; they are not automatically declared continuations. The answer model
+must check printed headings, legends and notes. Context packing can still omit
+evidence, and the final packed coverage is reported to the model. Setting
+`RAG_VISUAL_INPUTS=false` also prevents PDF table claims from using OCR alone.
+
+Existing extractions containing packaged page assets work without rerunning OCR.
+Older sources missing page assets need preparation again. Restart the backend and
+RAG service after updating the code, rebuild/restart the dashboard, and rebuild the
+mobile app to use its new page gallery.
 
 ### Correct several entries before indexing
 
@@ -224,72 +318,15 @@ For an acknowledged OCR task interrupted by a connection failure, retrying can r
 
 Finish active processing before shutdown. The launcher waits up to 120 seconds per child before forcing it to stop. Keep documents, search databases, credentials, signing keys, and recovery checkpoints even though Git ignores many of those files.
 
-## Website article imports
+## Website references
 
-The Mac extracts supported public HTML articles directly. The saved snapshot includes text, supported images, source metadata, and a content hash. Identical snapshots are rejected; changed content creates a new source instead of overwriting the previous one. Review the old source's publication status when importing an update.
+Website importing has been removed. To add a webpage as a reference, use your
+browser's **Print → Save as PDF**, then upload the file through
+**Reference Library → Add document**. Assign coverage, process, review and publish
+it through the normal document workflow.
 
-The importer does not run JavaScript or crawl linked pages. Login/paywall pages and inaccessible or blocked sources are rejected. Video, interactive media, and SVG/canvas diagrams are not captured. Review the result against the original before publishing. An authorized PDF can use the normal PDF upload workflow if needed.
-
-
-## Website PDF imports
-
-Apply `supabase/migrations/20261103_website_pdf_imports.sql` once to the existing
-Supabase database before running the new worker. It does not modify existing
-source files, processing queues or publication state.
-
-From the repository root on the Mac:
-
-```sh
-.venv/bin/python -m pip install -r backend/requirements.txt
-PLAYWRIGHT_BROWSERS_PATH=output/playwright .venv/bin/python -m playwright install chromium
-npm --prefix web run build
-```
-
-Then stop and restart the Mac app with the usual launcher. The launcher starts
-`backend.website_import_worker` and logs to `output/logs/website-import-worker.log`.
-For a manually launched backend, start `.venv/bin/python -m backend.website_import_worker` separately. Windows OCR continues to run as before.
-Do not run multiple backend instances.
-
-In Reference Library choose **Import website → Webpage as PDF**. Accepted jobs
-are visible in the Website imports panel after closing the dialog or refreshing.
-Open a completed document, preview its captured PDF, assign coverage, and use the
-existing Process and review workflow. Capturing never publishes a document.
-Direct text import remains available. For sites requiring login or a browser
-challenge, use **Upload a saved PDF with its website URL**, or attach a saved PDF
-to a failed/cancelled import. Manual PDFs are labelled as user-supplied sources.
-
-Capture jobs survive restarts in Supabase. Completed local captures and source
-checksums live in `output/website-imports/`; retain this directory across updates.
-A graceful stop releases its job immediately. A killed worker's lease expires
-within three minutes. A lost upload/finalization acknowledgement is reconciled
-against the original artifact/document ID instead of creating another document.
-Capture retry stops after three unsuccessful attempts; Retry in the UI resets
-that budget. Captures interrupted by graceful shutdown do not consume it.
-
-Settings in `app.config.json`:
-
-| Setting | Default | Purpose |
-| --- | --- | --- |
-| `WEBSITE_IMPORT_ENABLED` | `true` | Start the capture worker and accept automated captures |
-| `WEBSITE_CAPTURE_TIMEOUT` | `120` | Rendering deadline per attempt, seconds |
-| `WEBSITE_CAPTURE_MAX_PAGES` | `50` | Maximum captured/manual PDF pages |
-| `WEBSITE_CAPTURE_NETWORK_BYTES` | `104857600` | Total proxied bytes per attempt, both directions |
-| `WEBSITE_IMPORT_WORK_DIR` | `output/website-imports` | Recovery artifacts and renderer logs |
-| `PLAYWRIGHT_BROWSERS_PATH` | `output/playwright` | Matching browser installation |
-
-Chromium runs with its sandbox enabled in a credential-free child process.
-Its HTTP/HTTPS traffic uses a proxy that validates DNS results and pins public
-TCP destinations; private subresources and non-web requests are blocked, service
-workers and WebSockets are blocked, and non-proxied WebRTC UDP/QUIC are disabled.
-Fresh browser contexts contain no personal browser sessions. Large images are
-resized to a bounded print resolution before PDF generation, and warnings are
-shown for missing images or potentially omitted content. No CAPTCHA/login bypass
-or automatic consent-button clicking is implemented. A successful PDF is still
-reviewed against its original before approval.
-
-Disable new automated captures with `WEBSITE_IMPORT_ENABLED=false` and restart
-the launcher. Existing documents, saved imports and manual PDF uploads remain
-available. The schema is additive; do not drop the queue or source metadata to
-roll back application code. Local capture files are retained for recovery and
-inspection; they can be archived after confirming the associated document is
-saved in private Storage. Do not delete checkpoints for active or retrying jobs.
+Existing imported documents and their source attribution remain available.
+The launcher no longer starts a website capture worker, and website import API
+routes have been removed. Restart the app after updating to stop an existing
+worker and load the updated dashboard and API. Historical import records and
+local capture files are retained; no database migration is required.

@@ -29,7 +29,7 @@ export const SectionIds = Extension.create({
   addProseMirrorPlugins() {
     return [
       new Plugin({
-        appendTransaction(transactions, oldState, state) {
+        appendTransaction(transactions, _oldState, state) {
           if (
             !transactions.some(
               (transaction) =>

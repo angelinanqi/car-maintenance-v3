@@ -21,6 +21,24 @@ export type Catalogue = {
   models: VehicleModel[];
   vehicles: Vehicle[];
 };
+export type CatalogueKind = "manufacturers" | "models" | "vehicles";
+export type CatalogueDeletionImpact = {
+  kind: CatalogueKind;
+  entry: Manufacturer;
+  references: Record<string, number>;
+  deletable: boolean;
+  fingerprint: string;
+  blockers: { key: string; label: string; count: number; href: string | null;
+    items: { name: string; href: string }[] }[];
+};
+export const catalogueDeletionPreview = (kind: CatalogueKind, id: string, signal?: AbortSignal): Promise<CatalogueDeletionImpact> =>
+  request(`/admin/catalogue/${kind}/${id}/deletion-preview`, { signal });
+export const deleteCatalogueEntry = (kind: CatalogueKind, id: string, fingerprint: string): Promise<void> =>
+  request(`${kind === "vehicles" ? "/knowledge" : "/admin"}/${kind}/${id}`, {
+    method: "DELETE", body: { fingerprint },
+  });
+export const deactivateCatalogueEntry = (kind: CatalogueKind, id: string): Promise<Manufacturer> =>
+  request(`/admin/catalogue/${kind}/${id}/deactivate`, { method: "POST" });
 export type MaintenanceItem = {
   id: string;
   title: string;

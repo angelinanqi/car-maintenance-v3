@@ -71,6 +71,7 @@ def chunk_transcript(
             "end_seconds": snippets[end - 1]["start"] + snippets[end - 1]["duration"],
             "language": transcript["language"],
             "is_generated": transcript["is_generated"],
+            **({'guide_only': True} if video.get('guide_only') else {}),
         }
         chunk = {
             "text": f"Title: {video['title']}\nTranscript: {' '.join(texts)}",
@@ -118,6 +119,7 @@ def build_metadata_record(video):
             "video_title": title,
             "channel_id": video["channel_id"],
             "retrieval_content": "metadata_only",
+            **({'guide_only': True} if video.get('guide_only') else {}),
         },
     }
 

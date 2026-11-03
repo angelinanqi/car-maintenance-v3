@@ -1,9 +1,9 @@
 "use client";
 import Pagination, { usePagination } from "@/components/admin/Pagination";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import NextLink from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Badge,
   Box,
@@ -18,6 +18,8 @@ import {
 } from "@chakra-ui/react";
 import AdminLayout from "@/components/layouts/AdminLayout";
 import ListFilters from "@/components/admin/ListFilters";
+import CatalogueDeletionDialog from "@/components/admin/CatalogueDeletionDialog";
+import { useContent } from "@/components/ContentProvider";
 import FormField from "@/components/admin/FormField";
 import { AdminSelect } from "@/components/admin/NativeControls";
 import {
@@ -41,16 +43,36 @@ type Editor =
   | { kind: "manufacturers"; row?: Manufacturer };
 
 export default function VehiclesPage() {
+  return <Suspense fallback={<Text p={8}>Opening vehicle catalogue…</Text>}><VehicleCatalogue /></Suspense>;
+}
+
+function VehicleCatalogue() {
   const router = useRouter();
+  const search = useSearchParams();
+  const searchKey = search.toString();
+  const { refresh } = useContent();
   const [data, setData] = useState<Catalogue | null>(null);
   const [section, setSection] = useState<Section>("vehicles");
   const [editor, setEditor] = useState<Editor | null>(null);
+  const [removal, setRemoval] = useState<{ kind: Section; row: Manufacturer } | null>(null);
   const [query, setQuery] = useState("");
   const [manufacturerId, setManufacturerId] = useState("");
+  const [modelId, setModelId] = useState("");
   const [status, setStatus] = useState("all");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+
+  useEffect(() => {
+    const params = new URLSearchParams(searchKey);
+    const next = params.get("section");
+    setSection(next === "models" || next === "manufacturers" ? next : "vehicles");
+    setManufacturerId(params.get("manufacturer") || "");
+    setModelId(params.get("model") || "");
+    setQuery("");
+    setStatus("all");
+    setRemoval(null);
+  }, [searchKey]);
 
   useEffect(() => {
     let active = true;
@@ -85,6 +107,21 @@ export default function VehiclesPage() {
     setQuery("");
     setStatus("all");
     setManufacturerId("");
+    setModelId("");
+    router.replace(`/admin/vehicles?section=${next}`, { scroll: false });
+  }
+  function removalComplete(action: "deleted" | "deactivated") {
+    if (!removal) return;
+    const { kind, row } = removal;
+    setData((current) => current ? {
+      ...current,
+      [kind]: action === "deleted" ? current[kind].filter((entry) => entry.id !== row.id)
+        : current[kind].map((entry) => entry.id === row.id ? { ...entry, active: false } : entry),
+    } : current);
+    setNotice(`${row.name} ${action}.`);
+    setRemoval(null);
+    void refresh({ resources: ["knowledge", "configuration"] }).catch(() =>
+      setError("The change was saved, but related views could not be refreshed. Reload the workspace."));
   }
   function saved<T extends Manufacturer | VehicleModel | Vehicle>(
     kind: Section,
@@ -105,6 +142,7 @@ export default function VehiclesPage() {
     setNotice(`${row.name} saved.`);
     setQuery("");
     setManufacturerId("");
+    setModelId("");
     setStatus("all");
     if (kind === "vehicles") router.push(`/admin/vehicles/${row.id}`);
   }
@@ -125,6 +163,7 @@ export default function VehiclesPage() {
       );
       return (
         (!manufacturerId || model?.manufacturer_id === manufacturerId) &&
+        (!modelId || row.model_id === modelId) &&
         matchesStatus(availability === "Available in Roadie") &&
         matchesQuery(
           `${row.name} ${manufacturerName(model?.manufacturer_id)} ${model?.name || ""} ${row.year} ${row.engine} ${row.variant} ${row.code}`,
@@ -143,7 +182,7 @@ export default function VehiclesPage() {
   const manufacturers = (data?.manufacturers || [])
     .filter((row) => matchesStatus(row.active) && matchesQuery(row.name))
     .sort((a, b) => a.name.localeCompare(b.name));
-  const paginationKey = JSON.stringify([section, query, manufacturerId, status]);
+  const paginationKey = JSON.stringify([section, query, manufacturerId, modelId, status]);
   const vehiclePages = usePagination(vehicles, paginationKey);
   const modelPages = usePagination(models, paginationKey);
   const manufacturerPages = usePagination(manufacturers, paginationKey);
@@ -278,10 +317,10 @@ export default function VehiclesPage() {
             <Box mb={5}>
               <ListFilters
                 columns={
-                  section === "manufacturers" ? "2fr 1fr" : "2fr 1fr 1fr"
+                  section === "manufacturers" ? "2fr 1fr" : section === "vehicles" ? "2fr 1fr 1fr 1fr" : "2fr 1fr 1fr"
                 }
                 activeCount={
-                  Number(Boolean(manufacturerId)) + Number(status !== "all")
+                  Number(Boolean(manufacturerId)) + Number(Boolean(modelId)) + Number(status !== "all")
                 }
                 search={
                   <FormField label={`Search ${section}`}>
@@ -302,7 +341,7 @@ export default function VehiclesPage() {
                   <FormField label="Manufacturer">
                     <AdminSelect
                       value={manufacturerId}
-                      onChange={(e) => setManufacturerId(e.target.value)}
+                      onChange={(e) => { setManufacturerId(e.target.value); setModelId(""); }}
                       disabled={!data}
                     >
                       <option value="">All manufacturers</option>
@@ -314,6 +353,13 @@ export default function VehiclesPage() {
                     </AdminSelect>
                   </FormField>
                 )}
+                {section === "vehicles" && <FormField label="Model">
+                  <AdminSelect value={modelId} onChange={(event) => setModelId(event.target.value)} disabled={!data}>
+                    <option value="">All models</option>
+                    {data?.models.filter((model) => !manufacturerId || model.manufacturer_id === manufacturerId).map((model) =>
+                      <option key={model.id} value={model.id}>{manufacturerName(model.manufacturer_id)} · {model.name}</option>)}
+                  </AdminSelect>
+                </FormField>}
                 <FormField
                   label={
                     section === "vehicles" ? "Roadie selection" : "Entry status"
@@ -345,7 +391,7 @@ export default function VehiclesPage() {
                 {count} of {total} {section}
                 {section === "vehicles"
                   ? ". Open a vehicle to see its documents, service schedule and availability."
-                  : ". Deactivate entries to preserve existing records."}
+                  : ". Delete unused entries or deactivate entries that are in use."}
               </Text>
             )}
             <Stack as="ul" gap={3} listStyleType="none" m={0} p={0}>
@@ -437,6 +483,8 @@ export default function VehiclesPage() {
                           >
                             Edit
                           </Button>
+                          <Button variant="outline" colorPalette="red" size="sm" aria-label={`Delete ${row.name}`}
+                            onClick={() => setRemoval({ kind: "vehicles", row })}>Delete</Button>
                           <Button variant="outline" size="sm" asChild>
                             <NextLink
                               href={`/admin/schedules?vehicle=${row.id}`}
@@ -495,6 +543,8 @@ export default function VehiclesPage() {
                       >
                         Edit
                       </Button>
+                      <Button variant="outline" colorPalette="red" size="sm" aria-label={`Delete ${row.name}`}
+                        onClick={() => setRemoval({ kind: "models", row })}>Delete</Button>
                     </Flex>
                   </Box>
                 ))}
@@ -539,6 +589,8 @@ export default function VehiclesPage() {
                       >
                         Edit
                       </Button>
+                      <Button variant="outline" colorPalette="red" size="sm" aria-label={`Delete ${row.name}`}
+                        onClick={() => setRemoval({ kind: "manufacturers", row })}>Delete</Button>
                     </Flex>
                   </Box>
                 ))}
@@ -561,6 +613,7 @@ export default function VehiclesPage() {
                     onClick={() => {
                       setQuery("");
                       setManufacturerId("");
+                      setModelId("");
                       setStatus("all");
                     }}
                   >
@@ -572,6 +625,8 @@ export default function VehiclesPage() {
           </Tabs.Content>
         </Tabs.Root>
       </Stack>
+      {removal && <CatalogueDeletionDialog kind={removal.kind} entry={removal.row}
+        onClose={() => setRemoval(null)} onComplete={removalComplete} />}
       {data && editor?.kind === "vehicles" && (
         <VehicleEditor
           data={data}

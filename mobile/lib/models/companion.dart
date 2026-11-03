@@ -15,6 +15,7 @@ class ExplorationOption {
 class ExplorationSection {
   final String id, title, content, example;
   final String? question;
+  final String? sectionId;
   final List<ExplorationOption> options;
   const ExplorationSection({
     required this.id,
@@ -22,6 +23,7 @@ class ExplorationSection {
     required this.content,
     this.example = '',
     this.question,
+    this.sectionId,
     this.options = const [],
   });
 
@@ -57,6 +59,7 @@ class ExplorationSection {
       result.add(
         ExplorationSection(
           id: step['id'] as String,
+          sectionId: step['section_id'] as String?,
           title: heading.text,
           content: buffer.toString(),
           example: step['example_html'] as String? ?? '',

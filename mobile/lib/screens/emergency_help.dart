@@ -5,6 +5,7 @@ import '../data/api_client.dart';
 import '../data/content_repository.dart';
 import '../data/nearby_repository.dart';
 import '../widgets/emergency_widgets.dart';
+import '../widgets/emergency_location_share.dart';
 import 'nearby_assistance.dart';
 
 Future<void> openEmergencyHelp(
@@ -92,6 +93,8 @@ class _EmergencyHelpState extends State<EmergencyHelp> {
           const Text(
             'Calls open your phone app and require phone service. Numbers remain visible for manual dialing.',
           ),
+          const SizedBox(height: 24),
+          const EmergencyLocationShare(),
           const SizedBox(height: 24),
           Text(
             'Roadside assistance',

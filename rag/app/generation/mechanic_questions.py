@@ -5,7 +5,7 @@ import logging
 from shared.mechanic_questions import general_questions
 from shared.models import MechanicQuestionDraft
 from rag.app.generation.provider import GenerationClient
-from rag.app.safety import policy_risk
+from shared.safety import policy_risk
 
 logger = logging.getLogger(__name__)
 

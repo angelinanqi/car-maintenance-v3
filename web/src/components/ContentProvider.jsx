@@ -14,6 +14,7 @@ import * as categoriesApi from "@/api/categories.mjs";
 import * as emergencyApi from "@/api/emergency.mjs";
 import { request, listAll } from "@/api/client.mjs";
 import { CONTENT_POLL_MS, DOCUMENT_BATCH_LIMIT } from "@/lib/config.mjs";
+import { uploadDocumentBatch } from "@/lib/documentBatch.mjs";
 
 const ContentContext = createContext(null);
 const empty = {
@@ -182,27 +183,23 @@ export function ContentProvider({ children, emergencyOnly = false }) {
     return result;
   }
 
+  async function uploadDocuments({ files, ...metadata }, onProgress) {
+    try {
+      return await uploadDocumentBatch(files, metadata, documentsApi.uploadDocument, onProgress);
+    } finally {
+      await refresh({ documentsOnly: true });
+    }
+  }
+
   async function saveDocument(editItem, { files, ...metadata }) {
+    if (!editItem) {
+      const documents = await uploadDocuments({ files, ...metadata });
+      return documents.at(-1);
+    }
     let saved;
     try {
-      if (editItem) {
-        saved = await documentsApi.editDocument(editItem.id, metadata);
-        if (files[0]) await documentsApi.replaceDocument(editItem.id, files[0]);
-      } else {
-        const uploadedFiles = [];
-        try {
-          for (const file of files) {
-            saved = await documentsApi.uploadDocument(file, {
-              ...metadata,
-              name: files.length === 1 ? metadata.name : file.name,
-            });
-            uploadedFiles.push(file);
-          }
-        } catch (error) {
-          error.uploadedFiles = uploadedFiles;
-          throw error;
-        }
-      }
+      saved = await documentsApi.editDocument(editItem.id, metadata);
+      if (files[0]) await documentsApi.replaceDocument(editItem.id, files[0]);
     } finally {
       // Reflect partial successes too; failed files remain visible as an error in the dialog.
       await refresh({ documentsOnly: true });
@@ -237,6 +234,7 @@ export function ContentProvider({ children, emergencyOnly = false }) {
         documentTestError,
         refresh,
         saveDocument,
+        uploadDocuments,
         processDocuments,
         deleteDocument: (id) =>
           mutate(() => documentsApi.deleteDocument(id), ["documents"]),

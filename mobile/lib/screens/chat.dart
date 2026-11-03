@@ -19,6 +19,7 @@ import '../models/content.dart';
 import '../widgets/learning_activity.dart';
 import '../widgets/service_plan_view.dart';
 import '../widgets/guide_content.dart';
+import '../widgets/content_media.dart';
 import 'saved_items.dart';
 import 'service_forms.dart';
 import 'dart:convert';
@@ -668,7 +669,13 @@ class _ChatState extends State<Chat> {
           appBar: AppBar(title: Text(lesson.title)),
           body: SingleChildScrollView(
             padding: const EdgeInsets.all(AppSpacing.screen),
-            child: GuideContent(content: lesson.content),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                GuideContent(content: lesson.content),
+                ContentMediaList(items: lesson.media),
+              ],
+            ),
           ),
         ),
       ),
@@ -1217,6 +1224,12 @@ class _ChatState extends State<Chat> {
                     icon: const Icon(Icons.refresh),
                     label: const Text('Retry reply'),
                   ),
+                if (widget.onEmergency != null)
+                  TextButton.icon(
+                    onPressed: widget.onEmergency,
+                    icon: const Icon(Icons.health_and_safety_outlined),
+                    label: const Text('Open downloaded emergency guides'),
+                  ),
               ],
             ),
           ),
@@ -1474,10 +1487,14 @@ class _ChatState extends State<Chat> {
                                           '$_conversationKey:$index',
                                         ),
                                         message: message,
+                                        content: ContentRepository(
+                                          widget.state.store,
+                                        ),
                                         repository: widget.repository,
                                         onEmergency: widget.onEmergency,
                                         onGuide: _toolBusy || _companion == null
-                                            ? null : (id) => _openGuide(id),
+                                            ? null
+                                            : (id) => _openGuide(id),
                                         onMaintenance: hasCurrentMaintenance
                                             ? widget.onMaintenance
                                             : null,

@@ -130,7 +130,12 @@ class EmergencyAction extends StatelessWidget {
 
 class EmergencyHelpBar extends StatelessWidget {
   final VoidCallback onHelp;
-  const EmergencyHelpBar({super.key, required this.onHelp});
+  final bool showEmergencyCall;
+  const EmergencyHelpBar({
+    super.key,
+    required this.onHelp,
+    this.showEmergencyCall = false,
+  });
   @override
   Widget build(BuildContext context) => Material(
     color: Theme.of(context).colorScheme.surface,
@@ -143,14 +148,50 @@ class EmergencyHelpBar extends StatelessWidget {
           AppSpacing.screen,
           8,
         ),
-        child: FilledButton.icon(
-          style: FilledButton.styleFrom(
-            backgroundColor: Theme.of(context).colorScheme.error,
-            foregroundColor: Theme.of(context).colorScheme.onError,
-          ),
-          onPressed: onHelp,
-          icon: const Icon(Icons.call_outlined),
-          label: const Text('Call for help'),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final stacked = MediaQuery.textScalerOf(context).scale(15) > 20;
+            final width = showEmergencyCall && !stacked
+                ? (constraints.maxWidth - 12) / 2
+                : constraints.maxWidth;
+            return Wrap(
+              spacing: 12,
+              runSpacing: 8,
+              children: [
+                if (showEmergencyCall)
+                  SizedBox(
+                    width: width,
+                    child: FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: Theme.of(context).colorScheme.error,
+                        foregroundColor: Colors.white,
+                      ),
+                      onPressed: () => dialAssistance(context, '999'),
+                      icon: const Icon(Icons.call_outlined),
+                      label: const Text('Call 999'),
+                    ),
+                  ),
+                SizedBox(
+                  width: width,
+                  child: FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: showEmergencyCall
+                          ? Theme.of(context).colorScheme.primary
+                          : Theme.of(context).colorScheme.error,
+                      foregroundColor: showEmergencyCall
+                          ? Theme.of(context).colorScheme.onPrimary
+                          : Theme.of(context).colorScheme.onError,
+                    ),
+                    onPressed: onHelp,
+                    icon: const Icon(Icons.call_outlined),
+                    label: Text(
+                      showEmergencyCall ? 'Roadside' : 'Call for help',
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
         ),
       ),
     ),

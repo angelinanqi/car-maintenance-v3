@@ -123,7 +123,7 @@ class ContentRepository {
       for (final guide in updates) {
         if (!await _imagesPresent(guide)) {
           warning =
-              'A saved guide is missing illustrations. Written instructions are available; download it again when online.';
+              'A saved guide is missing supporting media. Written instructions are available; download it again when online.';
         }
       }
       return _orderedGuides(updates);
@@ -140,6 +140,16 @@ class ContentRepository {
           (step.localImagePath == null ||
               !await store.hasEmergencyImage(step.localImagePath!)))
         return false;
+      for (final media in step.media) {
+        final path = media['localMediaPath'] ?? media['localImagePath'];
+        if (path is! String ||
+            !await store.hasEmergencyMedia(
+              path,
+              digest: media['sha256'] as String?,
+              size: media['size_bytes'] as int?,
+            ))
+          return false;
+      }
     }
     return true;
   }
@@ -172,18 +182,69 @@ class ContentRepository {
     });
   }
 
-  Future<void> _removeImages(EmergencyGuide guide) async {
+  Iterable<String> _mediaPaths(EmergencyGuide guide) sync* {
     for (final step in guide.steps) {
-      if (step.localImagePath != null) {
-        try {
-          await store.removeEmergencyImage(step.localImagePath!);
-        } catch (_) {
-          debugPrint(
-            'WARNING [emergency-content] Old illustration cleanup failed; manifest is authoritative.',
-          );
-        }
+      if (step.localImagePath != null) yield step.localImagePath!;
+      for (final media in step.media) {
+        final path = media['localMediaPath'] ?? media['localImagePath'];
+        if (path is String) yield path;
       }
     }
+  }
+
+  Future<void> _cleanupPaths(Iterable<String> paths) async {
+    // A hash may be shared by several steps or guides. The committed manifest
+    // is authoritative, including when a download or replacement failed.
+    final keep = (await _savedGuides()).expand(_mediaPaths).toSet();
+    for (final path in paths.toSet().difference(keep)) {
+      try {
+        await store.removeEmergencyMedia(path);
+      } catch (_) {
+        debugPrint('WARNING [emergency-content] Deferred media cleanup.');
+      }
+    }
+  }
+
+  Future<void> _removeImages(EmergencyGuide guide) =>
+      _cleanupPaths(_mediaPaths(guide));
+
+  Future<Map<String, dynamic>> localEmergencyMedia(
+    Map<String, dynamic> item,
+  ) async {
+    final clean = Map<String, dynamic>.from(item)
+      ..remove('localImagePath')
+      ..remove('localMediaPath');
+    if (item['source_type'] != 'emergency_protocol' ||
+        item['sha256'] is! String)
+      return clean;
+    try {
+      for (final guide in await _savedGuides()) {
+        if (guide.id != item['source_id']) continue;
+        for (final step in guide.steps) {
+          for (final cached in step.media) {
+            if (cached['sha256'] != item['sha256'] ||
+                cached['asset_id'] != item['asset_id'])
+              continue;
+            final path = cached['localMediaPath'] ?? cached['localImagePath'];
+            if (path is String &&
+                await store.hasEmergencyMedia(
+                  path,
+                  digest: item['sha256'] as String,
+                  size: item['size_bytes'] as int?,
+                )) {
+              return {
+                ...clean,
+                'localMediaPath': path,
+                if (item['kind'] == 'image') 'localImagePath': path,
+              };
+            }
+          }
+        }
+      }
+    } catch (_) {
+      /* Written guidance remains usable if the media cache is unavailable. */
+    }
+    return clean;
   }
 
   Future<List<EmergencyGuide>> refreshEmergency() {
@@ -260,11 +321,7 @@ class ContentRepository {
     final guides = <EmergencyGuide>[];
     for (final guide in _remoteGuides) {
       final offline = saved[guide.id];
-      guides.add(
-        offline != null && offline.updatedAt == guide.updatedAt
-            ? offline
-            : guide,
-      );
+      guides.add(offline ?? guide);
     }
     return _orderedGuides(guides, useRemote: true);
   }
@@ -315,23 +372,93 @@ class ContentRepository {
   Future<void> _saveOfflineGuide(
     EmergencyGuide guide, {
     bool explicit = false,
+  }) => _editCache(() => _downloadOfflineGuide(guide, explicit: explicit));
+
+  Future<void> _downloadOfflineGuide(
+    EmergencyGuide guide, {
+    bool explicit = false,
   }) async {
-    if (!guide.available) {
+    if (!guide.available)
       throw const FormatException(
         'Only complete published guides can be saved.',
       );
-    }
     if (!explicit && (await _excludedGuides()).contains(guide.id)) return;
+    final existing = await _savedGuides();
+    final previous = existing.where((item) => item.id == guide.id).toList();
+    final reusable = <String, Map<String, dynamic>>{};
+    final legacy = <String, String>{};
+    for (final cached in existing) {
+      for (final step in cached.steps) {
+        if (step.localImagePath != null)
+          legacy[step.imageUrl] = step.localImagePath!;
+        for (final item in step.media) {
+          if (item['sha256'] is String)
+            reusable[item['sha256'] as String] = item;
+          if (item['localImagePath'] is String)
+            legacy[item['url'] as String] = item['localImagePath'] as String;
+        }
+      }
+    }
     final downloaded = <String>[];
     try {
       final steps = <EmergencyStep>[];
       for (final step in guide.steps) {
         String? path;
         if (step.imageUrl.isNotEmpty) {
-          final bytes = await api!.imageBytes(step.imageUrl);
-          await LocalStore.validateImage(bytes);
-          path = await store.saveEmergencyImage(bytes);
-          downloaded.add(path);
+          path = legacy[step.imageUrl];
+          if (path == null || !await store.hasEmergencyMedia(path)) {
+            final bytes = await api!.imageBytes(step.imageUrl);
+            await LocalStore.validateImage(bytes);
+            path = await store.saveEmergencyImage(bytes);
+            downloaded.add(path);
+          }
+        }
+        final mediaItems = <Map<String, dynamic>>[];
+        for (final item in step.media) {
+          final media = Map<String, dynamic>.from(item)
+            ..remove('localImagePath')
+            ..remove('localMediaPath');
+          if (media['asset_id'] is String) {
+            final digest = media['sha256'] as String;
+            final cached = reusable[digest];
+            String? mediaPath =
+                (cached?['localMediaPath'] ?? cached?['localImagePath'])
+                    as String?;
+            if (mediaPath == null ||
+                !await store.hasEmergencyMedia(
+                  mediaPath,
+                  digest: digest,
+                  size: media['size_bytes'] as int,
+                )) {
+              final bytes = await api!.emergencyMediaBytes(media);
+              mediaPath = await store.saveEmergencyMedia(
+                bytes,
+                kind: media['kind'] as String,
+                digest: digest,
+                size: media['size_bytes'] as int,
+              );
+              downloaded.add(mediaPath);
+            }
+            media['localMediaPath'] = mediaPath;
+            if (media['kind'] == 'image') media['localImagePath'] = mediaPath;
+            reusable[digest] = media;
+          } else if (media['kind'] == 'image') {
+            var mediaPath = legacy[media['url']];
+            if (mediaPath == null ||
+                !await store.hasEmergencyMedia(mediaPath)) {
+              final bytes = await api!.imageBytes(media['url'] as String);
+              await LocalStore.validateImage(bytes);
+              mediaPath = await store.saveEmergencyImage(bytes);
+              downloaded.add(mediaPath);
+            }
+            media['localImagePath'] = mediaPath;
+          } else {
+            // Older externally hosted videos cannot be promised offline.
+            throw const FormatException(
+              'This emergency video needs a direct upload.',
+            );
+          }
+          mediaItems.add(media);
         }
         steps.add(
           EmergencyStep(
@@ -340,6 +467,7 @@ class ContentRepository {
             description: step.description,
             imageUrl: step.imageUrl,
             localImagePath: path,
+            media: mediaItems,
           ),
         );
       }
@@ -347,28 +475,24 @@ class ContentRepository {
         ...guide.toJson(),
         'steps': steps.map((step) => step.toJson()).toList(),
       }, offline: true);
-      await _editCache(() async {
-        final excluded = await _excludedGuides();
-        if (!explicit && excluded.contains(guide.id)) {
-          for (final path in downloaded) {
-            await store.removeEmergencyImage(path);
-          }
-          return;
-        }
-        if (explicit) excluded.remove(guide.id);
-        final existing = await _savedGuides();
-        final previous = existing.where((item) => item.id == guide.id).toList();
+      final excluded = await _excludedGuides();
+      if (explicit) excluded.remove(guide.id);
+      await _writeGuides([
+        ...existing.where((item) => item.id != guide.id),
+        saved,
+      ], excludedIds: excluded);
+      for (final old in previous) {
+        await _removeImages(old);
+      }
+    } catch (_) {
+      await _cleanupPaths(downloaded);
+      // A first download can still save complete written safety steps when a
+      // supporting file is unavailable. An existing revision is kept intact.
+      if (previous.isEmpty) {
         await _writeGuides([
           ...existing.where((item) => item.id != guide.id),
-          saved,
-        ], excludedIds: excluded);
-        for (final old in previous) {
-          await _removeImages(old);
-        }
-      });
-    } catch (_) {
-      for (final path in downloaded) {
-        await store.removeEmergencyImage(path);
+          EmergencyGuide.fromJson(guide.toJson(), offline: true),
+        ]);
       }
       rethrow;
     }

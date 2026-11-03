@@ -10,6 +10,9 @@ import {
 import { useState } from "react";
 import { validateDocumentFile } from "@/lib/documentFiles.mjs";
 import useUnsavedChanges from "@/components/admin/useUnsavedChanges";
+import FileUploadField from "@/components/admin/FileUploadField";
+import UploadCoverageStep from "@/components/admin/UploadCoverageStep";
+import { cleanTag, tagKey, uniqueTags } from "@/lib/documentTags.mjs";
 import {
   Dialog,
   Button,
@@ -17,7 +20,6 @@ import {
   Input,
   Field,
   HStack,
-  FileUpload,
   Text,
   Box,
   Fieldset,
@@ -30,6 +32,8 @@ export default function FileModal({
   editData = null,
   tags = [],
   replacementFor = null,
+  preferredVehicle = "",
+  onUploadedDone,
 }) {
   const [fileName, setFileName] = useState(editData?.name || "");
   const [tagInput, setTagInput] = useState("");
@@ -39,26 +43,34 @@ export default function FileModal({
   );
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [uploadedDocuments, setUploadedDocuments] = useState([]);
+  const [coverageStep, setCoverageStep] = useState(false);
+  const [progress, setProgress] = useState(null);
 
-  // Preset tags available to click and choose from
+  // Tags come from saved documents, so removed labels do not reappear as presets.
   const [availableTags, setAvailableTags] = useState([
-    ...new Set(["Manuals", "Other", ...tags, ...(editData?.tags || [])]),
+    ...uniqueTags([...tags, ...(editData?.tags || [])]),
   ]);
-  const [selectedTags, setSelectedTags] = useState(editData?.tags || []);
+  const originalSelectedTags = uniqueTags(editData?.tags || []).map((tag) =>
+    availableTags.find((choice) => tagKey(choice) === tagKey(tag)) || tag);
+  const [selectedTags, setSelectedTags] = useState(originalSelectedTags);
   const isEditMode = Boolean(editData);
   const maxFiles = isEditMode || replacementFor ? 1 : DOCUMENT_MAX_FILES;
   const uploadLimits = `Accepted: ${DOCUMENT_EXTENSIONS.join(", ")}. Maximum ${DOCUMENT_MAX_BYTES / 1024 / 1024} MB per file; ${maxFiles} file(s) per upload.`;
   const dirty =
+    uploadedDocuments.length > 0 ||
     files.length > 0 ||
     fileName !== (editData?.name || "") ||
     documentType !== (editData?.document_type || "other_reference") ||
-    JSON.stringify(selectedTags) !== JSON.stringify(editData?.tags || []);
+    JSON.stringify(selectedTags) !== JSON.stringify(originalSelectedTags);
   useUnsavedChanges(dirty);
   function close() {
     if (
       !saving &&
       (!dirty ||
-        window.confirm("Close and discard these unsaved document details?"))
+        window.confirm(uploadedDocuments.length
+          ? "Uploaded documents are saved. Close and finish any remaining coverage or uploads later?"
+          : "Close and discard these unsaved document details?"))
     )
       onClose();
   }
@@ -78,9 +90,7 @@ export default function FileModal({
       e.preventDefault();
       if (!tagInput.trim()) return;
       const newTag =
-        availableTags.find(
-          (tag) => tag.toLowerCase() === tagInput.trim().toLowerCase(),
-        ) || tagInput.trim();
+        availableTags.find((tag) => tagKey(tag) === tagKey(tagInput)) || cleanTag(tagInput);
 
       // Add to available tags if not present
       if (!availableTags.includes(newTag)) {
@@ -97,7 +107,7 @@ export default function FileModal({
   // Submit handler
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (saving) return;
+    if (saving || coverageStep) return;
     if (files.length > maxFiles) {
       setError(`Too many files. ${uploadLimits}`);
       return;
@@ -117,18 +127,25 @@ export default function FileModal({
     }
     setSaving(true);
     try {
-      await onSave({
+      const uploaded = await onSave({
         name: fileName.trim(),
         tags: selectedTags,
         documentType,
         files,
-      });
-      onClose();
+      }, setProgress);
+      if (!isEditMode && !replacementFor) {
+        setUploadedDocuments((previous) => [...previous, ...uploaded]);
+        setFiles([]);
+        setCoverageStep(true);
+      } else onClose();
     } catch (error) {
-      if (error.uploadedFiles?.length)
-        setFiles((previous) =>
-          previous.filter((file) => !error.uploadedFiles.includes(file)),
-        );
+      if (error.uploadedDocuments?.length)
+        setUploadedDocuments((previous) => [...previous, ...error.uploadedDocuments]);
+      if (error.uploadedFiles?.length) {
+        const remaining = files.filter((file) => !error.uploadedFiles.includes(file));
+        setFiles(remaining);
+        if (files.length > 1) setFileName(remaining[0]?.name || "");
+      }
       setError(
         error.uploadedFiles?.length
           ? `${error.uploadedFiles.length} file(s) uploaded. Remaining files: ${error.message}`
@@ -148,7 +165,7 @@ export default function FileModal({
     >
       <Dialog.Backdrop />
       <Dialog.Positioner>
-        <Dialog.Content maxH="85vh" overflowY="auto">
+        <Dialog.Content maxW="720px" maxH="85vh" overflowY="auto">
           <form onSubmit={handleSubmit}>
             {/* HEADER */}
             <Dialog.Header
@@ -157,7 +174,7 @@ export default function FileModal({
               alignItems="center"
             >
               <Dialog.Title>
-                {replacementFor
+                {coverageStep ? "Set coverage for uploaded documents" : replacementFor
                   ? "Replace Document"
                   : isEditMode
                     ? "Edit Document Details"
@@ -177,6 +194,13 @@ export default function FileModal({
 
             {/* BODY */}
             <Dialog.Body>
+              {uploadedDocuments.length > 0 && <Box display={coverageStep ? "block" : "none"}>
+                <UploadCoverageStep documents={uploadedDocuments} preferredVehicle={preferredVehicle}
+                  remainingFileCount={files.length}
+                  onBusy={setSaving} onBack={files.length ? () => setCoverageStep(false) : null}
+                  onDone={(documents) => { onUploadedDone?.(documents); onClose(); }} />
+              </Box>}
+              {!coverageStep && (
               <Fieldset.Root disabled={saving}>
                 <Stack gap={4}>
                   <Text fontSize="sm" color="gray.600">
@@ -184,15 +208,40 @@ export default function FileModal({
                       ? "Choose the updated manual. The current version stays available until you check and approve its replacement. You will confirm the vehicles and topics it covers next."
                       : isEditMode
                         ? "Change how this document is identified. To provide a newer file, use Replace document in the document workspace."
-                        : "Start with the file and a recognisable title. Next, you’ll choose the vehicles or topics it covers and prepare it for checking."}
+                        : "Choose your files and shared details. After upload, assign the same vehicles or learning topics to the whole bundle in this popup."}
                   </Text>
                   <Text fontSize="sm" color="muted">
                     {uploadLimits}
                   </Text>
+                  {(!isEditMode || replacementFor) && (
+                    <Text fontSize="sm" color="muted">
+                      Identical files are blocked, even with a different filename.
+                      Use the existing document to assign more vehicles or topics.
+                    </Text>
+                  )}
                   {error && (
                     <Text role="alert" color="red.600">
                       {error}
                     </Text>
+                  )}
+                  {uploadedDocuments.length > 0 && (
+                    <Box bg="green.50" p={3} borderRadius="md">
+                      <Text>{uploadedDocuments.length} document(s) already uploaded and saved.</Text>
+                      <Button type="button" mt={2} size="sm" variant="outline" disabled={saving}
+                        onClick={() => setCoverageStep(true)}>Set coverage for uploaded documents</Button>
+                    </Box>
+                  )}
+                  {progress && (
+                    <Box role="status" aria-live="polite">
+                      <Text>{progress.results.length} of {progress.total} files checked{progress.currentFile ? ` · Uploading ${progress.currentFile}…` : ""}</Text>
+                      <Box as="progress" w="100%" max={progress.total} value={progress.results.length}
+                        aria-label="Document upload progress" />
+                      {progress.results.map((result, index) => (
+                        <Text key={index} fontSize="sm" color={result.error ? "red.600" : "muted"}>
+                          {result.file.name}: {result.error || "Uploaded"}
+                        </Text>
+                      ))}
+                    </Box>
                   )}
                   {/* Local attachments; edit supports replacement. */}
                   {(!isEditMode || replacementFor) && (
@@ -200,10 +249,8 @@ export default function FileModal({
                       <Field.Label>
                         {isEditMode ? "Updated document" : "Document file"}
                       </Field.Label>
-                      <FileUpload.Root
-                        disabled={Boolean(
-                          editData?.published && !replacementFor,
-                        )}
+                      <FileUploadField
+                        disabled={saving || Boolean(editData?.published && !replacementFor)}
                         accept={DOCUMENT_EXTENSIONS}
                         minFileSize={1}
                         maxFileSize={DOCUMENT_MAX_BYTES}
@@ -217,36 +264,7 @@ export default function FileModal({
                           if (selected && !fileName.trim())
                             setFileName(selected.name);
                         }}
-                      >
-                        <FileUpload.Dropzone
-                          w="100%"
-                          p={6}
-                          border="2px dashed"
-                          borderColor="gray.200"
-                          borderRadius="md"
-                          textAlign="center"
-                          cursor="pointer"
-                        >
-                          <FileUpload.DropzoneContent>
-                            <FileUpload.Label>
-                              Drag and drop files here, or click to browse
-                            </FileUpload.Label>
-                          </FileUpload.DropzoneContent>
-                        </FileUpload.Dropzone>
-                        <FileUpload.HiddenInput />
-                        <FileUpload.ItemGroup>
-                          {files.map((file, index) => (
-                            <FileUpload.Item
-                              key={`${file.name}-${index}`}
-                              file={file}
-                            >
-                              <FileUpload.ItemName />
-                              <FileUpload.ItemSizeText />
-                              <FileUpload.ItemDeleteTrigger />
-                            </FileUpload.Item>
-                          ))}
-                        </FileUpload.ItemGroup>
-                      </FileUpload.Root>
+                      />
                     </Field.Root>
                   )}
 
@@ -324,6 +342,7 @@ export default function FileModal({
                         {/* Input to create a custom tag */}
                         <Input
                           aria-label="New tag"
+                          maxLength={100}
                           placeholder="Type custom tag & press Enter to add"
                           value={tagInput}
                           onChange={(e) => setTagInput(e.target.value)}
@@ -341,10 +360,11 @@ export default function FileModal({
                   )}
                 </Stack>
               </Fieldset.Root>
+              )}
             </Dialog.Body>
 
             {/* FOOTER */}
-            <Dialog.Footer>
+            {!coverageStep && <Dialog.Footer>
               <Button
                 type="button"
                 variant="outline"
@@ -360,7 +380,7 @@ export default function FileModal({
                     ? "Save details"
                     : "Upload and continue"}
               </Button>
-            </Dialog.Footer>
+            </Dialog.Footer>}
           </form>
         </Dialog.Content>
       </Dialog.Positioner>

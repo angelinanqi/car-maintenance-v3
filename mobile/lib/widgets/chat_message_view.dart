@@ -8,6 +8,8 @@ import 'chat_attachment.dart';
 import 'chat_answer.dart';
 import 'manual_source_link.dart';
 import 'chat_video_preview.dart';
+import 'content_media.dart';
+import '../data/content_repository.dart';
 
 String sourceDescription(Map<String, dynamic> source) {
   final kind = switch (source['source_type']) {
@@ -30,7 +32,8 @@ String sourceDescription(Map<String, dynamic> source) {
       'Source reference: $reference',
     if (source['as_of'] != null) 'As of: ${source['as_of']}',
     if (source['source_kind'] == 'website') 'Website article snapshot',
-    if (source['original_url'] != null) 'Original URL: ${source['original_url']}',
+    if (source['original_url'] != null)
+      'Original URL: ${source['original_url']}',
     if (source['retrieved_at'] != null) 'Retrieved: ${source['retrieved_at']}',
     if (source['page'] != null) 'Page: ${source['page']}',
     if ((source['section_path'] as List? ?? []).isNotEmpty)
@@ -40,6 +43,7 @@ String sourceDescription(Map<String, dynamic> source) {
 
 /// Assistant answers use the reading width; only the user's words use a bubble.
 class ChatMessageView extends StatelessWidget {
+  final ContentRepository? content;
   final ChatMessage message;
   final ChatRepository repository;
   final VoidCallback? onEmergency;
@@ -48,6 +52,7 @@ class ChatMessageView extends StatelessWidget {
   const ChatMessageView({
     super.key,
     required this.message,
+    this.content,
     required this.repository,
     this.onEmergency,
     this.onMaintenance,
@@ -143,23 +148,33 @@ class ChatMessageView extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           ChatAnswer(text: message.text),
-          if (onEmergency != null && (reply?.route == 'emergency' ||
-              sources.any((source) => source['source_type'] == 'emergency_protocol'))) ...[
+          ContentMediaList(items: reply?.contentMedia ?? [], content: content),
+          if (onEmergency != null &&
+              (reply?.route == 'emergency' ||
+                  sources.any(
+                    (source) => source['source_type'] == 'emergency_protocol',
+                  ))) ...[
             const SizedBox(height: 16),
             FilledButton.icon(
               style: FilledButton.styleFrom(
                 backgroundColor: reply?.route == 'emergency'
-                    ? theme.colorScheme.error : theme.colorScheme.primary,
+                    ? theme.colorScheme.error
+                    : theme.colorScheme.primary,
                 foregroundColor: reply?.route == 'emergency'
-                    ? theme.colorScheme.onError : theme.colorScheme.onPrimary,
+                    ? theme.colorScheme.onError
+                    : theme.colorScheme.onPrimary,
               ),
               onPressed: onEmergency,
               icon: const Icon(Icons.emergency_outlined),
-              label: Text(reply?.route == 'emergency'
-                  ? 'Open emergency help' : 'Explore emergency guidance'),
+              label: Text(
+                reply?.route == 'emergency'
+                    ? 'Open emergency help'
+                    : 'Explore emergency guidance',
+              ),
             ),
           ],
-          if (onGuide != null && reply?.recommendedGuides.isNotEmpty == true) ...[
+          if (onGuide != null &&
+              reply?.recommendedGuides.isNotEmpty == true) ...[
             const SizedBox(height: 16),
             const Text('Further learning'),
             for (final guide in reply!.recommendedGuides)

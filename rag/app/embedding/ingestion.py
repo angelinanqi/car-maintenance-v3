@@ -111,6 +111,9 @@ def build_metadata(
         "evidence_type",
         "structure_valid",
         "pages",
+        "step_id", "step_order", "step_title", "scenario_key",
+        "media_id",
+        "start_seconds",
     ]:
         value = metadata.get(key)
 

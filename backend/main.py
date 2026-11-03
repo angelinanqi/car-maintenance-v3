@@ -33,7 +33,6 @@ from backend.routes import (
     review_questions,
     scopes,
     youtube,
-    website_imports,
 )
 from backend.services.documents import run_queue_pass, retry_pending_extractions
 from backend.services.youtube import recover_interrupted as recover_youtube_syncs
@@ -92,7 +91,6 @@ async def resume_extractions(stop):
 app = FastAPI(lifespan=lifespan)
 app.add_exception_handler(RequestValidationError, validation_error)
 app.add_exception_handler(StarletteHTTPException, http_error)
-app.include_router(website_imports.router)
 app.include_router(chat_sources.router)
 app.include_router(maintenance_assistance.router)
 app.include_router(review_questions.router)

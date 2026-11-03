@@ -10,6 +10,7 @@ import { toaster } from "@/components/ui/toaster";
 import dynamic from "next/dynamic";
 import DeleteConfirmModal from "@/components/modals/DeleteConfirmModal";
 import { hasGuideContent } from "@/lib/guideContent.mjs";
+import ContentMedia from "@/components/ContentMedia";
 import {
   Flex,
   Box,
@@ -333,6 +334,7 @@ export default function ContentPage() {
                 ) : (
                   <Text>This draft has no content yet.</Text>
                 ))}
+              <ContentMedia items={preview?.media || []} />
             </Dialog.Body>
             <Dialog.Footer>
               <Button onClick={() => setPreview(null)}>Close preview</Button>

@@ -1,6 +1,6 @@
 from uuid import UUID, uuid5, NAMESPACE_URL
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from pydantic import AwareDatetime
 from postgrest.exceptions import APIError
 from backend import auth, db
@@ -79,7 +79,9 @@ def mobile_playbook(row):
         if row.get(field):
             introductory_steps.append({"id": str(uuid5(NAMESPACE_URL, f"{row['id']}:{field}")),
                 "title": title, "description": row[field], "imageUrl": ""})
-    return {**row, "steps": introductory_steps + row["steps"]}
+    steps = [{**step, 'media': [item for item in step.get('media', [])
+              if item.get('kind') != 'video' or item.get('asset_id')]} for step in row['steps']]
+    return {**row, "steps": introductory_steps + steps}
 
 
 @router.get("/playbooks", response_model=list[Playbook])
@@ -92,7 +94,11 @@ def list_playbooks(request: Request, include_drafts: bool = False, offset: int =
 
 @router.post("/playbooks", response_model=Playbook, status_code=201, dependencies=[Depends(auth.require_admin)])
 def create_playbook(request: PlaybookCreate):
-    return create_once("emergency_playbooks", {**request.model_dump(mode="json", exclude={"status"}), "status": "draft", "reviewed_at": None})
+    values = request.model_dump(mode='json', exclude={'status'})
+    if any(step.get('media') or step.get('imageUrl') for step in values['steps']):
+        from backend.services.emergency_media import validate_steps
+        validate_steps(request.id, values['steps'])
+    return create_once("emergency_playbooks", {**values, "status": "draft", "reviewed_at": None})
 
 
 @router.get("/playbooks/{playbook_id}", response_model=Playbook)
@@ -113,6 +119,8 @@ def edit_playbook(playbook_id: UUID, request: PlaybookUpdate):
     with content_lock("playbook:" + str(playbook_id)):
         old = db.get("emergency_playbooks", playbook_id)
         values = request.model_dump(mode="json", exclude={"status", "expected_updated_at"})
+        from backend.services.emergency_media import validate_steps
+        validate_steps(playbook_id, values['steps'])
         if request.status == "draft" or any(old.get(key) != value for key, value in values.items()):
             values.update(status="draft", reviewed_at=None)
         return update_revision("emergency_playbooks", playbook_id, request.expected_updated_at, values)
@@ -125,13 +133,47 @@ def publish_playbook(playbook_id: UUID, request: PlaybookReview):
         values = PlaybookInput(**{key: row[key] for key in ("title", "steps", "source", "scenario_key")})
         if not values.steps or not values.source or not values.scenario_key:
             raise HTTPException(422, "Add steps, a source reference, and a scenario key before publishing.")
+        if any(not media.reviewed for step in values.steps for media in step.media):
+            raise HTTPException(422, 'Review each media description before publishing emergency steps.')
+        from backend.services.emergency_media import validate_steps
+        validate_steps(playbook_id, row['steps'])
         return update_revision("emergency_playbooks", playbook_id, request.expected_updated_at, {"status": "published", "reviewed_at": datetime.now(timezone.utc).isoformat()})
 
 
 @router.delete("/playbooks/{playbook_id}", status_code=204, dependencies=[Depends(auth.require_admin)])
 def delete_playbook(playbook_id: UUID, expected_updated_at: AwareDatetime):
     with content_lock("playbook:" + str(playbook_id)):
+        images = db.all_rows('emergency_images', playbook_id=str(playbook_id))
+        assets = db.all_rows('emergency_media_assets', playbook_id=str(playbook_id))
+        indexes = db.all_rows('emergency_indexes', id=str(playbook_id))
         delete_revision("emergency_playbooks", playbook_id, expected_updated_at)
+        if images or assets:
+            try:
+                db.bucket(settings.SUPABASE_CONTENT_BUCKET).remove([image['storage_path'] for image in [*images, *assets]])
+            except Exception:
+                import logging
+                logging.getLogger(__name__).exception('Playbook deleted; emergency image cleanup failed')
+        if indexes and indexes[0].get('extraction_storage_path'):
+            db.bucket(settings.SUPABASE_DOCUMENT_BUCKET).remove([indexes[0]['extraction_storage_path']])
+
+
+@router.post('/playbooks/{playbook_id}/media', status_code=201, dependencies=[Depends(auth.require_admin)])
+def upload_playbook_media(playbook_id: UUID, step_id: UUID = Form(...),
+                          description: str = Form(default='', max_length=4000), file: UploadFile = File(...)):
+    with content_lock('playbook:' + str(playbook_id)):
+        row = db.get('emergency_playbooks', playbook_id)
+        if not any(step['id'] == str(step_id) for step in row['steps']):
+            raise HTTPException(422, 'Save this step before uploading its media.')
+        from backend.services.emergency_media import upload
+        return upload(playbook_id, step_id, file, description)
+
+
+@router.post('/playbooks/{playbook_id}/images', status_code=201, dependencies=[Depends(auth.require_admin)])
+def upload_playbook_image(playbook_id: UUID, file: UploadFile = File(...)):
+    with content_lock('playbook:' + str(playbook_id)):
+        db.get('emergency_playbooks', playbook_id)
+        from backend.services.content_uploads import upload_image
+        return upload_image(playbook_id, file, emergency=True)
 
 
 @router.get("/contacts", response_model=list[Contact])

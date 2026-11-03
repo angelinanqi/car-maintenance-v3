@@ -1,4 +1,4 @@
-"""Index extracted Markdown supplied by the production document worker."""
+"""Index extracted documents and authored guide HTML through shared stages."""
 from shared.observability import observed
 from pathlib import Path
 from contextlib import closing
@@ -30,8 +30,9 @@ def run_pipeline(
     source = Path(input_path)
     if not source.is_file():
         raise FileNotFoundError(f"Extracted Markdown file does not exist: {source}")
-    if source.suffix.lower() != ".md":
-        raise ValueError(f"Expected extracted Markdown: {source}")
+    is_html = source.suffix.lower() == '.html'
+    if source.suffix.lower() not in {'.md', '.html'}:
+        raise ValueError(f"Expected extracted Markdown or guide HTML: {source}")
 
     output_dir = Path(output_dir)
     if chroma_path is not None:
@@ -65,7 +66,8 @@ def run_pipeline(
     copy_page_assets(elements, source.parent, output_dir / 'assets' / name)
     for element in elements['elements']:
         element['original_section_path'] = element['section_path'].copy()
-        element['section_path'] = render_section_path(element['section_path'])
+        if not is_html:
+            element['section_path'] = render_section_path(element['section_path'])
     asset_elements = list(elements['elements'])
     for element in elements['elements']:
         if element.get('parts'):
@@ -83,10 +85,10 @@ def run_pipeline(
             shutil.copyfile(asset, target)
     # Source elements are classified before prose cleaning and cannot enter
     # ordinary chunking. Their complete original evidence lives in the manifest.
-    prose = ELEMENT_PATTERN.sub('\n\n', original)
+    prose = original if is_html else ELEMENT_PATTERN.sub('\n\n', original)
     cleaned.parent.mkdir(parents=True, exist_ok=True)
     cleaner = MarkdownCleaner()
-    cleaned.write_text(cleaner.clean(prose), encoding='utf-8')
+    cleaned.write_text(prose if is_html else cleaner.clean(prose), encoding='utf-8')
     cleaning_audit = {
         'document_name': name,
         'removed_blocks': cleaner.removed_malay_blocks.copy(),
@@ -96,7 +98,7 @@ def run_pipeline(
         # Descriptions are search aids. Keep original descriptions, cell values,
         # captions, images and provenance intact in the source manifest.
         element['retrieval_description'] = cleaner.clean(element['description']).strip()
-        if element['kind'] == 'image' and (element.get('identity_review') or element.get('generated_identity')):
+        if element['kind'] == 'image' and not element.get('authored_description') and (is_html or element.get('identity_review') or element.get('generated_identity')):
             # Clean original prose before adding attribution/identification labels.
             element['retrieval_description'] = image_search_text({**element,
                 'context': [cleaner.clean(text).strip() for text in element.get('context', [])]})
@@ -108,7 +110,10 @@ def run_pipeline(
     cleaned.with_suffix('.removed_malay.json').write_text(
         json.dumps(cleaning_audit, ensure_ascii=False, indent=2), encoding='utf-8')
     html.parent.mkdir(parents=True, exist_ok=True)
-    convert_markdown_to_html(cleaned, html)
+    if is_html:
+        html.write_text(prose, encoding='utf-8')
+    else:
+        convert_markdown_to_html(cleaned, html)
     save_tree(HTMLParser().parse(html), parsed)
     normalized.parent.mkdir(parents=True, exist_ok=True)
     normalize_file(parsed, normalized)
@@ -156,12 +161,30 @@ def run_pipeline(
         section = ('Section: ' + ' > '.join(element['section_path'])
                    if not (element.get('identity_review') or element.get('generated_identity')) else '')
         text = '\n'.join([context.get('document_title', name), context.get('car_model', ''),
-                          section, description])
+                          section, element.get('vehicle_context', ''), description])
+        guide_image = is_html and element['kind'] == 'image'
         data.append({'text': text, 'retrieval_text': text, 'metadata': {
-            'document_name': name, 'content_type': element['kind'],
+            'document_name': name, 'content_type': 'paragraph' if guide_image else element['kind'],
             'node_type': element['kind'].title(), 'element_id': element['element_id'],
-            'section_path': element['section_path'], 'source_content': element['description'],
+            'section_path': element['section_path'],
+            'source_content': '\n'.join(filter(None, [element.get('vehicle_context'), description])) if guide_image else element['description'],
+            **({'media_id': element['media_id'], 'start_seconds': 0} if guide_image else {}),
         }})
+    if is_html:
+        for item in elements.get('guide_media_texts', []):
+            data.append({'text': item['text'], 'retrieval_text': item['text'], 'metadata': {
+                'document_name': name, 'content_type': 'paragraph', 'source_content': item['text'],
+                'media_id': item['media_id'], 'start_seconds': item['start_seconds'],
+                **{key: item[key] for key in ('step_id', 'step_order', 'step_title', 'section_path') if key in item}}})
+    if elements.get('emergency_steps'):
+        for chunk in data:
+            details = chunk['metadata']
+            details['scenario_key'] = elements['scenario_key']
+            path = details.get('section_path', [])
+            for step in elements['emergency_steps']:
+                if step['heading'] in path:
+                    details.update({key: step[key] for key in ('step_id', 'step_order', 'step_title')})
+                    break
     chunks_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
     sources = output_dir / 'sources'
     sources.mkdir(parents=True, exist_ok=True)
@@ -180,12 +203,13 @@ def run_pipeline(
             extra_metadata={**(metadata or {}), 'format_version': FORMAT_VERSION}
         )
     # Optional review artifacts never enter embeddings or affect index success.
-    try:
-        from shared.maintenance_extraction import prepare_safely
-        prepare_safely(elements, output_dir)
-    except Exception:
-        import logging
-        logging.getLogger(__name__).exception('Maintenance assistance unavailable; indexing is unaffected')
+    if not is_html:
+        try:
+            from shared.maintenance_extraction import prepare_safely
+            prepare_safely(elements, output_dir)
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception('Maintenance assistance unavailable; indexing is unaffected')
     return {
         "status": "completed",
         "documents": [{

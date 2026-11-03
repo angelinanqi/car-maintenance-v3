@@ -15,9 +15,8 @@ import {
 } from "@chakra-ui/react";
 import AdminLayout from "@/components/layouts/AdminLayout";
 import FileModal from "@/components/modals/FileModal";
-import WebsiteImportJobs from "@/components/admin/WebsiteImportJobs";
-import WebsiteArticleModal from "@/components/admin/WebsiteArticleModal";
 import DocumentTestSummary from "@/components/admin/DocumentTestSummary";
+import DocumentTagManager from "@/components/admin/DocumentTagManager";
 import { AdminSelect } from "@/components/admin/NativeControls";
 import { useContent } from "@/components/ContentProvider";
 import { documentJourney, coverageNames } from "@/lib/adminJourney.mjs";
@@ -31,14 +30,12 @@ export default function DocumentsPage() {
   );
 }
 function DocumentLibrary() {
-  const { documents, knowledge, saveDocument, refresh, loading, documentTests, documentTestError } = useContent();
+  const { documents, knowledge, uploadDocuments, refresh, loading, documentTests, documentTestError } = useContent();
   const search = useSearchParams();
   const router = useRouter();
   const [uploadOpen, setUploadOpen] = useState(search.get("add") === "1");
   const [query, setQuery] = useState("");
-  const [articleOpen, setArticleOpen] = useState(false);
-  const [articleJobId, setArticleJobId] = useState(null);
-  const [importRefresh, setImportRefresh] = useState(0);
+  const [tagsOpen, setTagsOpen] = useState(false);
   const [filter, setFilter] = useState("current");
   const preferredVehicle = search.get("vehicle") || "";
   const testFilter = filter.startsWith("tests:") ? filter.slice(6) : "";
@@ -81,7 +78,8 @@ function DocumentLibrary() {
           <Heading as="h2" size="lg">
             Your Documents
           </Heading>
-          <Flex gap={3}>
+          <Flex gap={3} wrap="wrap">
+            <Button variant="outline" disabled={loading} onClick={() => setTagsOpen(true)}>Manage tags</Button>
             <Button
               variant="outline"
               onClick={() => refresh({ documentsOnly: true })}
@@ -89,7 +87,6 @@ function DocumentLibrary() {
               Refresh
             </Button>
             <Button onClick={() => setUploadOpen(true)}>Add document</Button>
-            <Button variant="outline" onClick={() => { setArticleJobId(null); setArticleOpen(true); }}>Import website</Button>
           </Flex>
         </Flex>
         <Flex gap={4} align="end" wrap="wrap">
@@ -120,7 +117,6 @@ function DocumentLibrary() {
             </AdminSelect>
           </Box>
         </Flex>
-        <WebsiteImportJobs refreshKey={importRefresh} onOpen={id => { setArticleJobId(id); setArticleOpen(true); }} />
         {!loading && !documents.length && (
           <Box bg="white" p={8} borderRadius="12px">
             <Heading size="lg">Add Your First Reference</Heading>
@@ -222,22 +218,20 @@ function DocumentLibrary() {
       {uploadOpen && (
         <FileModal
           isOpen
+          preferredVehicle={preferredVehicle}
           tags={documents.flatMap((document) => document.tags || [])}
           onClose={() => setUploadOpen(false)}
-          onSave={async (data) => {
-            const document = await saveDocument(null, data);
-            if (data.files.length === 1 && document)
+          onSave={uploadDocuments}
+          onUploadedDone={(documents) => {
+            const document = documents[0];
+            if (documents.length === 1 && document)
               router.push(
                 `/admin/kb/${document.id}${preferredVehicle ? `?vehicle=${encodeURIComponent(preferredVehicle)}` : ""}`,
               );
           }}
         />
       )}
-      {articleOpen && <WebsiteArticleModal initialJobId={articleJobId} onJobChanged={() => setImportRefresh(value => value + 1)} onClose={() => setArticleOpen(false)} onAdded={async (document) => {
-        await refresh({ resources: ['documents'] });
-        setArticleOpen(false);
-        router.push(`/admin/kb/${document.id}${preferredVehicle ? `?vehicle=${encodeURIComponent(preferredVehicle)}` : ""}`);
-      }} />}
+      {tagsOpen && <DocumentTagManager onClose={() => setTagsOpen(false)} />}
     </AdminLayout>
   );
 }

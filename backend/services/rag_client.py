@@ -134,10 +134,18 @@ async def query(message, history, scope, *, vehicle_profile=None, maintenance_co
                     if current is None or source.get('revision') != current['revision']:
                         raise ValueError('The RAG service returned unpublished or stale content')
                     label = source.get('label')
+                    media_ref = {key: source[key] for key in ('media_id', 'start_seconds') if key in source}
+                    chunk_ref = {key: source[key] for key in ('chunk_id', 'section_path', 'step_id', 'step_order') if key in source}
+                    if media_ref:
+                        from backend.services.content_sources import resolve_content_media
+                        if not resolve_content_media([source], [current]):
+                            raise ValueError('The RAG service returned unavailable media')
                     source.clear()
                     source.update(label=label, source_type=kind, source_id=current['source_id'],
                                   revision=current['revision'], title=current['title'],
                                   source_reference=current.get('source_reference', ''), reviewed_at=current.get('reviewed_at'))
+                    source.update(media_ref)
+                    source.update(chunk_ref)
             for source in answer['attachments']:
                 document = by_id.get(str(source.get('document_id')))
                 if document is None:

@@ -21,12 +21,72 @@ class ChatAttachment extends StatefulWidget {
 
 class _ChatAttachmentState extends State<ChatAttachment> {
   Future<Uint8List>? _image;
+  final _pageImages = <String, Future<Uint8List>>{};
   bool _opening = false;
 
   @override
   void initState() {
     super.initState();
     _loadImage();
+    _loadPages();
+  }
+
+  @override
+  void didUpdateWidget(covariant ChatAttachment oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.attachment != widget.attachment || oldWidget.token != widget.token) {
+      _loadImage();
+      _pageImages.clear();
+      _loadPages();
+    }
+  }
+
+  List<Map> get _pages => widget.attachment['kind'] == 'table'
+      ? (widget.attachment['page_previews'] as List? ?? []).whereType<Map>().toList()
+      : <Map>[];
+
+  void _loadPages() {
+    for (final page in _pages) {
+      final endpoint = page['asset_endpoint'];
+      if (page['asset_available'] != false && endpoint is String) {
+        _pageImages[endpoint] = widget.api.chatImageBytes(endpoint, widget.token);
+      }
+    }
+  }
+
+  Widget _pagePreview(Map page) {
+    final endpoint = page['asset_endpoint'] as String? ?? '';
+    final future = _pageImages[endpoint];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Original PDF page ${page['page']}${page['role'] == 'section_context' ? ' · Related table context' : ''}'),
+        if (future == null)
+          const Text('Page preview unavailable. Open the original source to check this page.')
+        else
+          FutureBuilder<Uint8List>(
+            future: future,
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  const Text('Could not load the original PDF page.'),
+                  TextButton(onPressed: () => setState(() {
+                    _pageImages[endpoint] = widget.api.chatImageBytes(endpoint, widget.token);
+                  }), child: const Text('Retry page')),
+                ]);
+              }
+              if (!snapshot.hasData) {
+                return const SizedBox(height: 160, child: Center(child: CircularProgressIndicator()));
+              }
+              return Column(children: [
+                _imageView(snapshot.data!),
+                TextButton(onPressed: () => _openImage(snapshot.data!),
+                  child: Text('Enlarge page ${page['page']}')),
+              ]);
+            },
+          ),
+      ],
+    );
   }
 
   void _loadImage() {
@@ -210,6 +270,9 @@ class _ChatAttachmentState extends State<ChatAttachment> {
             ),
             if (sections.isNotEmpty && '${sections.last}' != _title())
               Text('${sections.last}'),
+            for (final page in _pages) _pagePreview(page),
+            if (_pages.isNotEmpty && hasTableImage)
+              const Text('Enlarged table detail'),
             if (a['kind'] == 'image' || hasTableImage)
               FutureBuilder<Uint8List>(
                 future: _image,

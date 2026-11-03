@@ -13,6 +13,16 @@ export function uploadDocument(file, metadata) {
 export const editDocument = (id, data) => request(`/documents/${id}`, {
   method: "PATCH", body: { name: data.name, tags: data.tags, document_type: data.documentType },
 });
+export async function saveDocumentCoverage(id, coverage) {
+  const { vehicle_ids, category_ids, ...metadata } = coverage;
+  await request(`/documents/${id}`, { method: "PATCH", body: metadata });
+  return request(`/knowledge/documents/${id}/associations`, {
+    method: "PUT", body: { vehicle_ids, category_ids },
+  });
+}
+export const changeDocumentTag = (tag, replacement = null) => request("/documents/tags/change", {
+  method: "POST", body: { tag, replacement },
+});
 export function replaceDocument(id, file) {
   const body = new FormData();
   body.append("file", file);

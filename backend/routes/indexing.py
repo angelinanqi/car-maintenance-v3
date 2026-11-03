@@ -25,11 +25,29 @@ def require_rag_service(request: Request):
 router = APIRouter(prefix="/internal/indexing", tags=["RAG integration"], dependencies=[Depends(require_rag_service)])
 
 
+@router.get('/guides')
+def list_guide_handoffs(offset: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=1000)):
+    from backend.services.guide_indexing import handoff, index_rows
+    indexes = index_rows()
+    categories = {row['id'] for row in db.all_rows('guide_categories', published=True)}
+    return [handoff(guide, indexes.get(guide['id']), category_published=(
+        not guide.get('category_id') or guide['category_id'] in categories))
+        for guide in db.list_rows('guides', offset=offset, limit=limit)]
+
+
+@router.get('/guides/{guide_id}/extraction')
+def guide_extraction(guide_id: UUID, source_revision: UUID):
+    from backend.services.guide_indexing import prepare
+    data = prepare(db.get('guides', guide_id), source_revision)
+    return Response(data, media_type='application/zip', headers={'X-Content-Type-Options': 'nosniff'})
+
+
 class IndexResult(InputModel):
     source_revision: UUID
     status: Literal["indexed", "failed"]
     chunk_count: int = Field(default=0, ge=0, le=2147483647)
     error: str | None = Field(default=None, max_length=2000)
+    warnings: list[str] | None = Field(default=None, max_length=100)
 
     @model_validator(mode="after")
     def check_result(self):
@@ -38,6 +56,62 @@ class IndexResult(InputModel):
         if self.status == "failed" and not self.error:
             raise ValueError("Failed indexing requires an error message")
         return self
+
+
+@router.post('/guides/{guide_id}/result')
+def confirm_guide_indexing(guide_id: UUID, result: IndexResult):
+    return confirm_content_indexing(guide_id, result)
+
+
+@router.get('/emergency')
+def list_emergency_handoffs(offset: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=1000)):
+    from backend.services.guide_indexing import handoff, index_rows
+    indexes = index_rows(emergency=True)
+    return [handoff(row, indexes.get(row['id']), emergency=True)
+            for row in db.list_rows('emergency_playbooks', offset=offset, limit=limit)]
+
+
+@router.get('/emergency/{playbook_id}/extraction')
+def emergency_extraction(playbook_id: UUID, source_revision: UUID):
+    from backend.services.guide_indexing import prepare
+    return Response(prepare(db.get('emergency_playbooks', playbook_id), source_revision, emergency=True),
+                    media_type='application/zip', headers={'X-Content-Type-Options': 'nosniff'})
+
+
+@router.post('/emergency/{playbook_id}/result')
+def confirm_emergency_indexing(playbook_id: UUID, result: IndexResult):
+    return confirm_content_indexing(playbook_id, result, emergency=True)
+
+
+def confirm_content_indexing(guide_id, result, *, emergency=False):
+    from backend.services.guide_indexing import source_revision, current
+    from backend.services.guide_indexing import content_revision, eligible
+    table = 'emergency_indexes' if emergency else 'guide_indexes'
+    with content_lock(('playbook:' if emergency else 'guide:') + str(guide_id)):
+        guide = db.get('emergency_playbooks' if emergency else 'guides', guide_id)
+        rows = db.all_rows(table, id=str(guide_id))
+        index = rows[0] if rows else None
+        if not eligible(guide, emergency) or str(result.source_revision) != source_revision(guide, index, emergency=emergency):
+            raise HTTPException(409, 'Stale guide indexing result.')
+        if current(guide, index, emergency=emergency):
+            if result.status != 'indexed' or result.chunk_count != index['chunk_count']:
+                raise HTTPException(409, 'This guide revision is already indexed.')
+            return {'status': 'processed'}
+        matching = bool(index and index.get('content_hash') == content_revision(guide, emergency)
+                        and index['source_revision'] == str(result.source_revision))
+        if result.status == 'indexed' and not (matching and index.get('extraction_storage_path')):
+            raise HTTPException(409, 'Prepare this guide before confirming indexing.')
+        values = dict(id=str(guide_id), content_hash=content_revision(guide, emergency), source_revision=str(result.source_revision),
+                      status='processed' if result.status == 'indexed' else 'failed', error=result.error,
+                      chunk_count=result.chunk_count, indexed_at=now() if result.status == 'indexed' else None)
+        if not matching:
+            values.update(extraction_storage_path=None, media=[], videos=[], warnings=[])
+        if result.warnings:
+            values['warnings'] = list(dict.fromkeys([*(index.get('warnings', []) if matching else []), *result.warnings]))
+        db.client().table(table).upsert(values).execute()
+        if not matching and index and index.get('extraction_storage_path'):
+            db.bucket(settings.SUPABASE_DOCUMENT_BUCKET).remove([index['extraction_storage_path']])
+        return {'status': values['status']}
 
 
 @router.get("/documents", response_model=list[Document])

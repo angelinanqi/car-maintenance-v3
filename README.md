@@ -180,7 +180,7 @@ For credential names and forwarding details, see [Configuration reference](docs/
 
 Use the admin dashboard to add manuals, website articles, and supported reference content. Review extracted text, tables, and images before approving and publishing them.
 
-For websites, open **Reference Library → Import website**. Browser PDF capture saves a persistent job; open its completed document to preview the PDF and use the existing Process/review flow. Direct text import and manual PDF upload with source attribution are also available. Existing installations must apply `supabase/migrations/20261103_website_pdf_imports.sql` first and install Playwright's matching Chromium on the Mac. See [website import setup and recovery](docs/operations.md#website-pdf-imports).
+For website references, save the page as a PDF in your browser, then upload it using **Reference Library → Add document**. Review and publish it through the normal document workflow.
 
 For database setup, administrator accounts, and recovery tasks, see the [operations guide](docs/operations.md).
 

@@ -4,7 +4,32 @@ import math
 import re
 import shutil
 
-from shared.source_elements import image_path
+from shared.source_elements import image_path, element_parts
+
+
+def table_page_parts(element, elements):
+    """Include neighbouring tables in the same extracted section as page context.
+
+    These are navigation links, not inferred continuation relationships. The model
+    must establish applicability from the printed headings, legends and notes.
+    Stop at a different section; repeated headings elsewhere must not be joined.
+    """
+    own = element_parts(element)
+    result = [(part, 'table') for part in own]
+    path = element.get('section_path')
+    index = next((i for i, item in enumerate(elements)
+                  if item['element_id'] == element['element_id']), None)
+    if not path or index is None:
+        return result
+    left, right = index, index + 1
+    while left > 0 and elements[left - 1].get('section_path') == path:
+        left -= 1
+    while right < len(elements) and elements[right].get('section_path') == path:
+        right += 1
+    for sibling in elements[left:right]:
+        if sibling['kind'] == 'table' and sibling['element_id'] != element['element_id']:
+            result.extend((part, 'section_context') for part in element_parts(sibling))
+    return result
 
 
 def element_page(element):

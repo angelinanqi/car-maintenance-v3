@@ -143,41 +143,6 @@ export function serviceInstruction(entry) {
   return rule.conditions || rule.notes || "Describe when this task is needed.";
 }
 
-export function parseVideoLinks(text) {
-  const ids = text
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((value) => {
-      let url;
-      try {
-        url = new URL(value);
-      } catch {
-        throw new Error(
-          "Paste a complete YouTube link for each video, one per line.",
-        );
-      }
-      if (!["https:", "http:"].includes(url.protocol))
-        throw new Error("Use a YouTube web link.");
-      const host = url.hostname.toLowerCase();
-      let id;
-      if (host === "youtu.be") id = url.pathname.slice(1);
-      else if (
-        ["youtube.com", "www.youtube.com", "m.youtube.com"].includes(host)
-      ) {
-        id =
-          url.pathname === "/watch"
-            ? url.searchParams.get("v")
-            : /^\/(?:shorts|embed)\/([^/]+)\/?$/.exec(url.pathname)?.[1];
-      }
-      if (!id || !/^[A-Za-z0-9_-]{11}$/.test(id))
-        throw new Error(
-          "One of the links is not a recognised YouTube video. Check it and try again.",
-        );
-      return id;
-    });
-  return [...new Set(ids)];
-}
-
 export function questionHref(question) {
   if (question.vehicle_id) {
     const query = new URLSearchParams({

@@ -11,6 +11,29 @@ from PIL import Image, UnidentifiedImageError
 from backend import db, settings
 from shared.source_elements import FORMAT_VERSION, public_element, image_path, sanitize_table
 from shared.visual_identity import source_image_available
+from shared.source_pages import page_assets, element_page, table_page_parts
+
+
+def table_pages(archive, record):
+    """Resolve originals from this revision's evidence, never caller-supplied paths."""
+    if record['kind'] != 'table':
+        return []
+    manifest = json.loads(archive.read('elements.json'))
+    assets = page_assets(manifest)
+    roles = {}
+    for part, role in table_page_parts(record, manifest['elements']):
+        number = element_page(part)
+        if number is not None:
+            roles.setdefault(number, role)
+    return [{'page': number, 'role': role, 'asset': assets.get(number)}
+            for number, role in sorted(roles.items())]
+
+
+def table_page_bytes(archive, record, number):
+    page = next((page for page in table_pages(archive, record) if page['page'] == number), None)
+    if not page or not page['asset']:
+        raise HTTPException(404, 'Original table page is unavailable.')
+    return image_bytes(archive, {'kind': 'image', **page['asset']})
 
 
 def image_bytes(archive, record):
@@ -71,7 +94,16 @@ def element(archive, identity):
 
 
 def original_download_allowed(document, user):
+    if document.get('source_kind') == 'learning_guide':
+        return False
     return user.get('role') == 'admin' or bool(document.get('published') and document.get('mobile_visible'))
+
+
+def source_document(identity, metadata):
+    if metadata.get('source_type') == 'learning_guide':
+        from backend.services.guide_indexing import source_document as guide_document
+        return guide_document(identity)
+    return db.get('documents', identity)
 
 
 def resolve_manual_sources(sources, scope, session_id, user, *, browse=False):
@@ -82,7 +114,7 @@ def resolve_manual_sources(sources, scope, session_id, user, *, browse=False):
     def link(metadata):
         identity = metadata['document_id']
         if identity not in loaded:
-            loaded[identity] = db.get('documents', identity)
+            loaded[identity] = source_document(identity, metadata)
         document = loaded[identity]
         if document['source_revision'] != metadata['index_revision']:
             raise HTTPException(409, 'The manual source changed. Retry the question.')
@@ -124,6 +156,7 @@ def resolve_manual_sources(sources, scope, session_id, user, *, browse=False):
 def attachments(descriptors, scope, session_id):
     documents = {m['document_id']: m for m in scope['document_metadata'].values()}
     result = []
+    shown_pages = set()
     if len(descriptors) > 5:
         raise ValueError('Too many source attachments')
     with ExitStack() as resources:
@@ -134,7 +167,7 @@ def attachments(descriptors, scope, session_id):
             if not allowed or descriptor.get('source_revision') != allowed['index_revision']:
                 raise ValueError('Attachment revision is outside the resolved scope')
             if identity not in loaded:
-                document = db.get('documents', identity)
+                document = source_document(identity, allowed)
                 if document['source_revision'] != allowed['index_revision']:
                     raise HTTPException(409, 'The attachment source changed. Retry the question.')
                 loaded[identity] = (document, resources.enter_context(extraction(document)))
@@ -158,10 +191,22 @@ def attachments(descriptors, scope, session_id):
                     item['cells'] = []
                     item['structure_valid'] = False
             base = f"/chat/sessions/{session_id}/sources/{identity}/{document['source_revision']}/{record['element_id']}"
+            if record['kind'] == 'table':
+                item['page_previews'] = []
+                for page in table_pages(archive, record):
+                    key = (identity, document['source_revision'], page['page'])
+                    if key in shown_pages:
+                        continue
+                    shown_pages.add(key)
+                    item['page_previews'].append({
+                        'page': page['page'], 'role': page['role'],
+                        'asset_available': bool(page['asset'] and page['asset']['asset_path'] in archive.namelist()),
+                        'asset_endpoint': f"{base}/pages/{page['page']}/image"})
             item.update(document_id=identity, source_revision=document['source_revision'],
                         reference_label=descriptor.get('reference_label'),
-                        document_title=document['name'], source_fidelity_verified=allowed['source_fidelity_verified'],
-                        source_endpoint=base + '/original')
+                        document_title=document['name'], source_fidelity_verified=allowed['source_fidelity_verified'])
+            if document.get('source_kind') != 'learning_guide':
+                item['source_endpoint'] = base + '/original'
             if record['kind'] == 'image' or record.get('visual_asset_path'):
                 item['asset_endpoint'] = base + '/image'
             result.append(item)

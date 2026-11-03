@@ -1,5 +1,6 @@
 """Validated data exchanged between the backend and private RAG service."""
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
@@ -41,6 +42,16 @@ class SavedMaintenanceService(InputModel):
     title: str
     date: datetime
     mileage_km: int = Field(ge=0)
+    cost: Decimal | None = Field(default=None, ge=0, decimal_places=2, allow_inf_nan=False)
+    currency: Literal['MYR'] = 'MYR'
+
+
+class MaintenanceSpendingSummary(InputModel):
+    """All saved records for the active vehicle, before history/context limits."""
+    currency: Literal['MYR'] = 'MYR'
+    total_recorded_cost: Decimal = Field(ge=0, decimal_places=2, allow_inf_nan=False)
+    records_with_cost: int = Field(ge=0)
+    records_without_cost: int = Field(ge=0)
 
 
 class MaintenanceStatus(InputModel):
@@ -69,6 +80,9 @@ class PersonalMaintenanceContext(InputModel):
     tasks: list[MaintenanceTaskSummary] = Field(default_factory=list, max_length=50)
     total_standalone_services: int = Field(ge=0)
     standalone_services: list[SavedMaintenanceService] = Field(default_factory=list, max_length=50)
+    spending_summary: MaintenanceSpendingSummary | None = None
+    total_service_records: int = Field(default=0, ge=0)
+    recent_services: list[SavedMaintenanceService] = Field(default_factory=list, max_length=50)
     service_plan: dict | None = None
 
 

@@ -29,6 +29,7 @@ import { hasGuideContent } from "@/lib/guideContent.mjs";
 import { listAll } from "@/api/client.mjs";
 import useUnsavedChanges from "@/components/admin/useUnsavedChanges";
 import CompanionEditor from "@/components/CompanionEditor";
+import GuideIndexStatus from "@/components/admin/GuideIndexStatus";
 
 export default function CreateArticlePage() {
   return (
@@ -333,6 +334,10 @@ function GuideForm({ guide }) {
             onChange={(html) => setEditorHTML(html)}
           />
         </Field.Root>
+        <Text fontSize="sm" color="muted">
+          Publishing prepares this guide for chat. Images and YouTube videos in the content are detected automatically.
+        </Text>
+        {guideId && guide?.status === "published" && <GuideIndexStatus guideId={guideId} />}
         <Box as="details" open={relatedOpen} onToggle={(event) => setRelatedOpen(event.currentTarget.open)}>
           <Box as="summary" cursor="pointer" fontWeight="semibold">Related Guides and Maintenance Items (Optional)</Box>
           <Box mt={4}>

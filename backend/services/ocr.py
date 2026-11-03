@@ -59,11 +59,13 @@ def run_ocr(
     executable = mineru_executable or MINERU_EXECUTABLE
 
     if not executable:
-        local = Path(sys.executable).parent / (
-            "mineru.exe" if os.name == "nt" else "mineru"
+        name = "mineru.exe" if os.name == "nt" else "mineru"
+        ocr_environment = Path(__file__).resolve().parents[2] / ".venv-ocr"
+        candidates = (
+            ocr_environment / ("Scripts" if os.name == "nt" else "bin") / name,
+            Path(sys.executable).parent / name,
         )
-
-        executable = str(local) if local.is_file() else "mineru"
+        executable = next((str(path) for path in candidates if path.is_file()), "mineru")
 
     root.mkdir(parents=True, exist_ok=True)
     log_path = root / f"{source.stem}.mineru.log"

@@ -2,6 +2,7 @@ import { Box, Button, SimpleGrid, Stack, Text } from "@chakra-ui/react";
 import ChatAttachment from "./ChatAttachment";
 import ChatAnswer from "./ChatAnswer";
 import ManualSourceLink from "./ManualSourceLink";
+import ContentMedia from "../ContentMedia";
 
 const sourceTypes = {
   learning_guide: "Learning guide",
@@ -48,7 +49,7 @@ export default function ChatMessage({ message, onMaintenance, onEmergency, onGui
         {isUser
           ? <Text fontSize="md" whiteSpace="pre-wrap" overflowWrap="anywhere" lineHeight="1.7">{message.answer}</Text>
           : <ChatAnswer>{message.answer}</ChatAnswer>}
-        {!isUser && attachments.length > 0 && <Box as="section" aria-label="Manual illustrations">
+        {!isUser && attachments.length > 0 && <Box as="section" aria-label="Manual originals">
           <Text fontSize="sm" fontWeight="semibold" mb={3}>From the manual</Text>
           <SimpleGrid columns={{ base: 1, sm: attachments.length > 1 ? 2 : 1 }} gap={3}>
             {attachments.map((attachment) => (
@@ -57,6 +58,7 @@ export default function ChatMessage({ message, onMaintenance, onEmergency, onGui
             ))}
           </SimpleGrid>
         </Box>}
+        {!isUser && <ContentMedia items={Array.isArray(message.content_media) ? message.content_media : []} />}
         {isUser && message.failed && (
           <Text fontSize="sm" color="red.600">
             No answer received for this message.

@@ -1,5 +1,6 @@
 """Shared personal task views and read-only maintenance evidence for chat."""
 from datetime import date
+from decimal import Decimal
 from uuid import NAMESPACE_URL, uuid5
 
 from backend import db, settings
@@ -71,8 +72,14 @@ def load(user, profile):
     views = [record_view(record) for record in records]
 
     def saved(record):
-        # Notes, costs, receipts and unrelated personal data never reach the model.
-        return {'title': record['title'], 'date': record['performed_at'], 'mileage_km': record['mileage']}
+        # Only saved maintenance facts; notes and receipts remain excluded.
+        return {'title': record['title'], 'date': record['performed_at'], 'mileage_km': record['mileage'],
+                'cost': record.get('cost'), 'currency': 'MYR'}
+
+    # Sum every record once, before latest-service deduplication or history limits.
+    costs = [Decimal(str(record['cost'])) for record in records if record.get('cost') is not None]
+    spending = {'total_recorded_cost': sum(costs, Decimal('0.00')),
+                'records_with_cost': len(costs), 'records_without_cost': len(records) - len(costs)}
 
     summaries = []
     for task in tasks:
@@ -95,4 +102,6 @@ def load(user, profile):
         vehicle_id=vehicle_id, catalogue_id=vehicle['catalogue_id'], as_of=today,
         total_tasks=len(summaries), tasks=summaries[:50],
         total_standalone_services=len(standalone), standalone_services=list(standalone.values())[:50],
+        spending_summary=spending, total_service_records=len(records),
+        recent_services=[saved(record) for record in records[:50]],
     ).model_dump(mode='json')

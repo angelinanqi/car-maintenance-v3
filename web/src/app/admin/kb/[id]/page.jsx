@@ -758,6 +758,7 @@ function DocumentWorkspace() {
           key={`${document.id}:${modal}`}
           isOpen
           editData={document}
+          tags={documents.flatMap((document) => document.tags || [])}
           replacementFor={modal === "replace" ? document.id : null}
           onClose={() => setModal("")}
           onSave={async (data) => {

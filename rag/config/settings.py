@@ -56,6 +56,10 @@ RAG_CONTEXT_CHARS = int(os.getenv("RAG_CONTEXT_CHARS") or "16000")
 RAG_RERANK = (os.getenv("RAG_RERANK") or "true").lower() == "true"
 # Supply a bounded set of original pages/crops in the existing answer call.
 RAG_VISUAL_INPUTS = (os.getenv('RAG_VISUAL_INPUTS') or 'true').lower() == 'true'
+# Table originals have their own budget, independent of illustration selection.
+RAG_TABLE_PAGE_LIMIT = int(os.getenv('RAG_TABLE_PAGE_LIMIT') or '12')
+if not 1 <= RAG_TABLE_PAGE_LIMIT <= 24:
+    raise ValueError('RAG_TABLE_PAGE_LIMIT must be between 1 and 24')
 RERANK_MODEL = "cross-encoder/ms-marco-MiniLM-L6-v2"
 if RAG_RETRIEVAL_MODE not in {"dense", "hybrid", "adaptive", "lexical"}:
     raise ValueError("RAG_RETRIEVAL_MODE must be dense, hybrid, adaptive or lexical")

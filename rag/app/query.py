@@ -10,13 +10,13 @@ from time import perf_counter
 from rag.config import settings
 from shared.visual_identity import image_identified, source_image_available, image_identity
 from shared.table_evidence import table_reference_text
-from shared.source_pages import element_page, element_region, page_assets
+from shared.source_pages import element_page, element_region, page_assets, table_page_parts
 from shared.source_elements import element_parts
 from rag.app.generation.provider import GenerationClient
 from rag.app.generation.intent import Intent, interpret
 from rag.app.generation.context import bounded_history
 from rag.app.generation.grounded import applicable, generate, GeneratedReply, INSUFFICIENT, CLARIFY
-from rag.app.safety import immediate_emergency, policy_risk, videos_allowed, emergency_guidance, RESTRICTED_ANSWER
+from shared.safety import immediate_emergency, policy_risk, videos_allowed, emergency_guidance, RESTRICTED_ANSWER
 from rag.app.youtube.retrieval import retrieve_youtube, timestamp_url
 from rag.app.youtube.selection import select_videos
 from rag.app.retrieval.content import retrieve_content, retrieve_emergency, render_emergency, public_source
@@ -25,7 +25,6 @@ MODEL_UNAVAILABLE = "I couldn't complete the answer right now. Please try again 
 MANUAL_UNAVAILABLE = "The manual search is temporarily unavailable. Please try again shortly."
 EXTERNAL_WARNING = "Verify current legal requirements with the relevant official transport authority."
 REFERENCE_CANDIDATE_LIMIT = 8
-TABLE_EVIDENCE_LIMIT = 2
 logger = logging.getLogger(__name__)
 
 
@@ -147,14 +146,15 @@ async def handle_query(query, *, scope, history=None, vehicle_profile=None,
                     selected = [source for source in sources if source['source_type'] == 'learning_guide'
                                 and source['source_id'] == activity_context.get('source_id')]
                     existing = {record.chunk_id for record in found}
-                    found.extend(record for record in records_for(selected) if record.chunk_id not in existing)
+                    found.extend(record for record in records_for(selected, include_media=False) if record.chunk_id not in existing)
                 return found
 
             def search_videos():
                 if video_ids == [] or embedding is None or not videos_allowed(intent):
                     return []
                 return retrieve_youtube(retrieval_query, top_k, query_embedding=embedding,
-                                        video_ids=video_ids, diagnostics=video_diagnostics)
+                                        video_ids=video_ids, guide_video_ids=scope.get('guide_video_ids', []),
+                                        diagnostics=video_diagnostics)
 
             records, published, candidates = await asyncio.gather(
                 asyncio.to_thread(search_manuals), asyncio.to_thread(search_content),
@@ -369,22 +369,25 @@ def ordered_visual_parts(element, records, document_name):
 
 def prepare_references(records, *, diagnostics=None):
     """Build a bounded shortlist, independently of pixel and display limits."""
-    manifests, selected, pages_by_document, frames = {}, {}, {}, {}
-    table_evidence_count = 0
+    manifests, selected, pages_by_document, frames, document_types = {}, {}, {}, {}, {}
     limited = {}
     unverified_images = {}
     direct, linked = [], []
     for record in records:
         metadata = record.metadata
-        if metadata.get("source_type", "manual") != "manual":
+        if metadata.get("source_type", "manual") not in {"manual", "learning_guide"}:
             continue
+        if metadata.get('source_type') == 'learning_guide' and metadata.get('content_type') != 'table':
+            continue  # Guide image descriptions return the original through content_media.
         if metadata.get("element_id"):
             direct.append((record, metadata["element_id"]))
         ids = metadata.get("source_element_ids") or []
         if isinstance(ids, str):
             ids = json.loads(ids)
         linked.extend((record, identity) for identity in ids)
-    for record, identity in direct + linked:
+    # Preserve retrieval order within each kind, reserving room for table
+    # originals before unrelated illustrations can fill the shortlist.
+    for record, identity in sorted(direct + linked, key=lambda item: not item[1].startswith('table-')):
         metadata = record.metadata
         name = metadata["document_name"]
         if (name, identity) in selected:
@@ -397,6 +400,7 @@ def prepare_references(records, *, diagnostics=None):
             if manifest.get("format_version") != 2:
                 raise ValueError("Incompatible source manifest")
             manifests[name] = {element["element_id"]: element for element in manifest["elements"]}
+            document_types[name] = manifest.get('source_type')
             pages_by_document[name] = page_assets(manifest)
         element = manifests[name].get(identity)
         if element is None:
@@ -414,7 +418,8 @@ def prepare_references(records, *, diagnostics=None):
         if (kind == 'image' and not image_identified(element)
                 and metadata.get('element_id') != identity):
             continue
-        if len(selected) >= REFERENCE_CANDIDATE_LIMIT:
+        if (len(selected) >= REFERENCE_CANDIDATE_LIMIT
+                or (kind == 'table' and sum(item['kind'] == 'table' for item in selected.values()) >= 5)):
             limited[(name, identity)] = kind
             continue
         label = f"V{len(selected) + 1}"
@@ -439,22 +444,34 @@ def prepare_references(records, *, diagnostics=None):
             # fragments establish row/column relationships for factual answers.
             "description": description[:1600],
             "pages": element.get("pages", []), "descriptor": descriptor, 'visual_inputs': []}
-        if kind == 'table' and table_evidence_count < TABLE_EVIDENCE_LIMIT:
+        if kind == 'table':
             # Private parent evidence comes from the exact source manifest, never
             # caption similarity. Context packing removes it from reference JSON.
             selected[(name, identity)]['table_element'] = element
-            table_evidence_count += 1
-        reference = selected[(name, identity)]
-        parts = ordered_visual_parts(element, records, name)
+            selected[(name, identity)]['requires_page_images'] = document_types[name] == 'pdf'
+    # Load table pages before illustration pixels. Each table keeps its related
+    # section pages as context without claiming they are one logical table.
+    table_frames, illustration_frames = set(), set()
+    for (name, identity), reference in sorted(selected.items(), key=lambda item: item[1]['kind'] != 'table'):
+        element = manifests[name][identity]
+        kind = element['kind']
+        metadata = next(record.metadata for record in records if record.metadata.get('document_name') == name)
+        if metadata.get('source_type') == 'learning_guide':
+            # Authored HTML tables have original cells; guide images are processed at ingestion.
+            reference['visual_coverage'] = {'expected_pages': [], 'unmapped_parts': 0, 'page_inputs': []}
+            continue
+        own_parts = ordered_visual_parts(element, records, name)
+        parts = [(part, 'table' if kind == 'table' else 'image') for part in own_parts]
+        if kind == 'table':
+            parts.extend((part, role) for part, role in table_page_parts(element, list(manifests[name].values()))
+                         if role == 'section_context')
         reference['pixel_source_labels'] = []
         reference['visual_coverage'] = {
-            'expected_pages': sorted({element_page(part) for part in parts if element_page(part) is not None}),
-            'unmapped_parts': sum(element_page(part) is None for part in parts), 'page_inputs': []}
-        # A linked table's pages share the same three-frame budget. No page
-        # relationship is inferred from adjacency, captions or element order.
-        for part in parts:
+            'expected_pages': sorted({element_page(part) for part, _ in parts if element_page(part) is not None}),
+            'unmapped_parts': sum(element_page(part) is None for part, _ in parts), 'page_inputs': []}
+        for part, role in parts:
             number = element_page(part)
-            coverage = {'page': number, 'source_label': None, 'extent': 'unavailable',
+            coverage = {'page': number, 'role': role, 'source_label': None, 'extent': 'unavailable',
                         'omission_reason': 'original_unavailable', 'context_omitted': False}
             reference['visual_coverage']['page_inputs'].append(coverage)
             if not settings.RAG_VISUAL_INPUTS:
@@ -486,7 +503,9 @@ def prepare_references(records, *, diagnostics=None):
                             else:
                                 reference.setdefault('page_regions', []).append(item)
                     break
-                if len(frames) >= 3:
+                budget = table_frames if kind == 'table' else illustration_frames
+                limit = settings.RAG_TABLE_PAGE_LIMIT if kind == 'table' else 3
+                if len(budget) >= limit:
                     coverage['omission_reason'] = 'image_limit'
                     break
                 try:
@@ -504,6 +523,7 @@ def prepare_references(records, *, diagnostics=None):
                     'source_fidelity_verified': metadata.get('source_fidelity_verified', False),
                     'content_type': kind, 'pixels_supplied': True, 'source_extent': extent,
                     'contains_table': kind == 'table',
+                    'requires_page_images': reference.get('requires_page_images', False),
                     'content': ('Original PDF page supplied; it can contain several references, headings and legends.'
                                 if extent == 'page' else 'Original crop supplied. Its description alone is not evidence.'),
                 }
@@ -523,7 +543,38 @@ def prepare_references(records, *, diagnostics=None):
                 reference['pixel_source_labels'].append(image_label)
                 coverage.update(source_label=image_label, extent=extent, omission_reason=None)
                 frames[key] = visual
+                budget.add(key)
                 break
+    # A few original table crops supplement full pages for dense symbols. Full
+    # pages are loaded first so detail images cannot displace legends or notes.
+    detail_count = 0
+    for (name, identity), reference in selected.items():
+        if reference['kind'] != 'table' or not settings.RAG_VISUAL_INPUTS:
+            continue
+        for part, _ in table_page_parts(manifests[name][identity], list(manifests[name].values())):
+            number, digest = element_page(part), part.get('asset_sha256')
+            coverage = next((page for page in reference['visual_coverage']['page_inputs']
+                             if page['page'] == number and page['extent'] == 'page'), None)
+            if not digest or not coverage or detail_count >= 3:
+                continue
+            key = (name, 'crop', None, digest)
+            visual = frames.get(key)
+            if visual is None:
+                label = f'V{REFERENCE_CANDIDATE_LIMIT + len(frames) + 1}'
+                try:
+                    image = original_image(settings.OUTPUT_DIR / 'assets' / name / digest, digest, label)
+                except (OSError, ValueError):
+                    continue  # Detail is optional; the full page remains available.
+                parent = frames[(name, 'page', number, pages_by_document[name][number]['asset_sha256'])]
+                visual = {'image_input': image, 'image_source': {
+                    **parent['image_source'], 'label': label, 'source_extent': 'crop',
+                    'title': f'Original table detail, PDF page {number}',
+                    'content': 'Enlarged original table crop. Inspect its full-page source for headers and notes.'}}
+                frames[key] = visual
+                reference['visual_inputs'].append(visual)
+                detail_count += 1
+            if visual['image_input'].label not in reference['pixel_source_labels']:
+                reference['pixel_source_labels'].append(visual['image_input'].label)
     if diagnostics is not None:
         diagnostics["unverified_image_omissions"] = [
             {"document_name": name, "element_id": identity}

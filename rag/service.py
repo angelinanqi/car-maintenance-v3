@@ -134,7 +134,7 @@ def verify_service_credentials(authorization):
 
 
 @app.post('/v1/visual-description')
-def visual_description(original: UploadFile = File(), source_page: UploadFile = File(),
+def visual_description(original: UploadFile = File(), source_page: UploadFile | None = File(default=None),
                        authorization: str = Header(default='')):
     verify_service_credentials(authorization)
     from pathlib import Path
@@ -144,6 +144,8 @@ def visual_description(original: UploadFile = File(), source_page: UploadFile = 
     with tempfile.TemporaryDirectory() as directory:
         paths = []
         for name, upload in [('original.png', original), ('page.png', source_page)]:
+            if upload is None:
+                continue
             data = upload.file.read(limit + 1)
             if not data or len(data) > limit:
                 raise HTTPException(413, 'Source image is empty or exceeds 10 MB.')
@@ -151,7 +153,7 @@ def visual_description(original: UploadFile = File(), source_page: UploadFile = 
             path.write_bytes(data)
             paths.append(path)
         result, reused = describe_asset(paths[0], settings.OUTPUT_DIR / 'visual-descriptions',
-                                        page_image=paths[1])
+                                        page_image=paths[1] if len(paths) > 1 else None)
     return {**result, 'cache_reused': reused}
 
 

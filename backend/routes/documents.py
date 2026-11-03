@@ -14,23 +14,24 @@ from backend.services.source_assets import extraction, element, image_bytes
 from shared.models import InputModel
 from shared.visual_identity import VisualIdentity
 from backend.services import document_review, review_questions, extraction_corrections
+from backend.services import document_tags
 
 router = APIRouter(prefix="/documents", tags=["Documents"])
-
-
-class WebsiteArticle(InputModel):
-    url: str = Field(min_length=1, max_length=2048)
-
-
-@router.post("/website", response_model=Document, status_code=201, dependencies=[Depends(auth.require_admin)])
-def add_website_article(request: WebsiteArticle):
-    from backend.services import website_articles
-    return website_articles.create(request.url)
 
 
 @router.get("", response_model=list[Document], dependencies=[Depends(auth.require_admin)])
 def list_documents(offset: int = Query(0, ge=0), limit: int = Query(settings.API_PAGE_SIZE, ge=1, le=1000)):
     return db.list_rows("documents", offset=offset, limit=limit)
+
+
+@router.get('/tags', dependencies=[Depends(auth.require_admin)])
+def list_tags():
+    return document_tags.summary()
+
+
+@router.post('/tags/change', dependencies=[Depends(auth.require_admin)])
+def change_tag(request: document_tags.TagChange):
+    return document_tags.change(request)
 
 
 @router.post("", response_model=Document, status_code=201, dependencies=[Depends(auth.require_admin)])
@@ -49,7 +50,7 @@ def process_batch(request: ProcessBatch):
     results = []
     for document_id in dict.fromkeys(request.ids):
         try:
-            row, queued = documents.queue(document_id, request.force)
+            row, _ = documents.queue(document_id, request.force)
             results.append({"id": str(document_id), "status": row["status"], "queued": queued})
         except HTTPException as error:
             results.append({"id": str(document_id), "error": error.detail})
@@ -137,7 +138,7 @@ def document_usage(document_id: UUID):
 
 @router.post("/{document_id}/process", response_model=Document, status_code=202, dependencies=[Depends(auth.require_admin)])
 def process_document(document_id: UUID, force: bool = False):
-    row, queued = documents.queue(document_id, force)
+    row, _ = documents.queue(document_id, force)
     return row
 
 

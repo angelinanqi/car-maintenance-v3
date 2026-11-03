@@ -48,3 +48,11 @@ async function remove(path, updatedAt) {
 }
 export const deletePlaybook = (id, updatedAt) => remove(`/emergency/playbooks/${id}`, updatedAt);
 export const deleteContact = (id, updatedAt) => remove(`/emergency/contacts/${id}`, updatedAt);
+
+export function uploadPlaybookMedia(id, stepId, file, description) {
+  const body = new FormData();
+  body.append('file', file);
+  body.append('step_id', stepId);
+  body.append('description', description || '');
+  return request(`/emergency/playbooks/${id}/media`, { method: 'POST', body, timeoutMs: 180000 });
+}

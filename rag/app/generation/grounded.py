@@ -4,10 +4,11 @@ import json
 import re
 import unicodedata
 from dataclasses import dataclass, field
+from decimal import Decimal
 from shared.table_evidence import table_literal_text
 
 from rag.app.generation.context import bounded_history, content, prepare_context
-from rag.app.safety import RESTRICTED_ANSWER, emergency_guidance, policy_risk, immediate_emergency
+from shared.safety import RESTRICTED_ANSWER, emergency_guidance, policy_risk, immediate_emergency
 from shared.safety import SOURCE_INJECTION
 
 INSUFFICIENT = "I couldn't establish an answer from the supplied source material."
@@ -146,7 +147,20 @@ def factual_numbers(text, *, personal=False):
     # Ordered-list markers are presentation, not manufacturer values.
     text = re.sub(r"(?m)^\s*\d+[.)]\s+", "", text)
     numbers = re.findall(r"\d+(?:[.,]\d+)*", text)
-    return [str(int(value)) if personal and value.isdecimal() else value for value in numbers]
+    # Saved monetary values serialize as decimals (e.g. 120.00); ordinary
+    # presentation as RM 120 or RM 120.0 must compare as the same amount.
+    if not personal:
+        return numbers
+    normalized = []
+    for value in numbers:
+        if re.fullmatch(r'\d{1,3}(?:,\d{3})+(?:\.\d+)?', value):
+            value = value.replace(',', '')
+        if re.fullmatch(r'\d+(?:\.\d+)?', value):
+            value = format(Decimal(value), 'f')
+            if '.' in value:
+                value = value.rstrip('0').rstrip('.')
+        normalized.append(value)
+    return normalized
 
 
 def numeric_error(text, source, *, specification=False):
@@ -200,6 +214,29 @@ def numeric_error(text, source, *, specification=False):
         if not matched:
             return "number_unit_mismatch"
     return None
+
+
+def original_page_cited(source, block_labels, sources, references):
+    """A crop or OCR citation needs a corresponding supplied full-page citation."""
+    for label in block_labels:
+        page = sources[label]
+        if not page.get('pixels_supplied') or page.get('source_extent') != 'page':
+            continue
+        if source['label'] == label:
+            return True
+        for reference in references:
+            evidence = reference.get('evidence_labels', [])
+            if source['label'] not in evidence or label not in evidence:
+                continue
+            if source.get('pixels_supplied'):
+                # Detail crops may belong to a related section page rather than
+                # the initially retrieved table. Require that crop's own page.
+                if source.get('physical_page') is not None and source['physical_page'] == page.get('physical_page'):
+                    return True
+            elif any(item.get('source_label') == label and item.get('role', 'table') == 'table'
+                     for item in reference.get('visual_coverage', {}).get('page_inputs', [])):
+                return True
+    return False
 
 
 @observed('answer_generation')
@@ -308,6 +345,18 @@ from the supplied headers, units, conditions and notes. row_range or supplied_ro
 cover only part of a table; complete describes coverage. Coordinates and spans are not
 manufacturer values; nearby_text_unverified notes do not prove footnote associations.
 Extracted text can contain OCR errors: do not turn unreadable codes into specifications.
+For a PDF table marked requires_page_images, inspect and cite its original full-page
+images before making any table-based claim. Extracted cells help locate and read
+the table; they cannot independently establish an answer. Check printed symbols,
+merged headers, units, legends, variant conditions and footnotes against the pixels.
+When clearly readable pixels disagree with OCR, use the original and explain a
+material discrepancy. If the pixels remain ambiguous, give a specific limitation
+without guessing an interval or value. If the required pages are unavailable,
+withhold the affected claim even if the extracted cells appear complete.
+Pages with role section_context are nearby tables under the same extracted section,
+not confirmed continuations. Inspect their printed context for applicability. A
+whole-schedule answer needs every applicable continuation page and its notes;
+a narrow item answer needs its row and all applicable headers, legends and notes.
 table_complete describes only the extracted element, not all continuation pages.
 Cross-page coverage is unknown unless established by the supplied originals. If
 the requested conclusion requires missing or unresolved rows, columns, headers,
@@ -355,6 +404,18 @@ factory specifications. P2 establishes supplied service records and server-calcu
 due status. Preserve saved values, dates, status labels and reminder qualifications;
 never recalculate them. Missing records do not prove a service never happened. Static
 manuals establish neither live measurements nor current photographs of a user's car.
+Saved service costs and spending_summary are historical user-recorded amounts in
+MYR (display as RM), not market prices, estimates or future workshop quotations.
+A null cost is unknown, not free; a recorded zero means RM 0.00. Use the supplied
+spending_summary total for all saved records of the active vehicle, even when
+service_history_omitted is true. State that it is recorded spending and disclose
+records_without_cost when nonzero; never present a partial known total as all actual
+spending. With no records_with_cost, say no costs are recorded rather than that
+the user spent nothing. recent_services is newest first and may omit older records.
+Latest services in tasks and standalone_services overlap recent_services: never add
+these lists together. Do not calculate new sums, averages, differences or filtered
+period/category totals; if the requested aggregate is not supplied, explain that
+gap and offer the available recorded amounts or all-records total with its scope.
 
 Assess the requested action. The risk field is advisory. Dangerous DIY repair of
 airbags/pretensioners, brake hydraulics, steering, high voltage or hazardous fuel
@@ -505,6 +566,25 @@ Input:\n"""
             return reject("model_wrote_citations")
         uses_table = any(labels[label].get('content_type') == 'table' or labels[label].get('contains_table')
                          for label in block_labels)
+        table_refs = [reference for reference in references if reference.get('kind') == 'table'
+                      and set(block_labels).intersection(reference.get('evidence_labels', []))]
+        if basis == 'source' and uses_table:
+            # Keep the original attached even when the model forgets to select it.
+            # Respect an explicit text-only request; pixels are still required input.
+            if outcome != 'text_answer':
+                selected_references = list(dict.fromkeys(
+                    [r['label'] for r in table_refs] + selected_references))[:5]
+            required = [labels[label] for label in block_labels if labels[label].get('requires_page_images')]
+            missing_pages = any(not original_page_cited(source, block_labels, labels, table_refs)
+                                for source in required)
+            if missing_pages:
+                limitation = ("I couldn't verify this table against its original PDF pages. "
+                              "Check the original table, its legend and notes before using its values.")
+                if limitation not in paragraphs:
+                    paragraphs.append(limitation)
+                if diagnostics is not None:
+                    diagnostics['table_original_withheld'] = True
+                continue
         if basis == 'source' and uses_table and block.get('table_context_sufficient') is not True:
             limitation = ("I couldn't establish the table context needed for this part of the answer. "
                           "Check the relevant headers, conditions and notes in the original manual.")

@@ -8,7 +8,10 @@ import DeleteConfirmModal from "@/components/modals/DeleteConfirmModal";
 import useUnsavedChanges from "@/components/admin/useUnsavedChanges";
 import CategoryInput from "@/components/admin/CategoryInput";
 import useEmergencyDraft from "@/components/admin/useEmergencyDraft";
-import { validImageUrl } from "@/api/emergency.mjs";
+import EmergencyMediaEditor from "@/components/admin/EmergencyMediaEditor";
+import { emergencyMediaError } from "@/lib/emergencyMedia.mjs";
+import ContentMedia from "@/components/ContentMedia";
+import { validImageUrl, uploadPlaybookMedia } from "@/api/emergency.mjs";
 import {
   Grid,
   Box,
@@ -123,11 +126,13 @@ export default function SOPManagerPage() {
     ) {
       toaster.create({
         title:
-          "Each step needs a title and description. Image links must start with http:// or https://.",
+          "Each step needs a title and written description.",
         type: "error",
       });
       return;
     }
+    const mediaError = emergencyMediaError(selectedSop.steps);
+    if (mediaError) { toaster.create({ title: mediaError, type: "error" }); return; }
     setSaving(true);
     try {
       const saved = await savePlaybook(selectedSop.id, {
@@ -141,11 +146,12 @@ export default function SOPManagerPage() {
         ...(selectedSop.id ? { expected_updated_at: selectedSop.updated_at } : { id: selectedSop.client_id }),
         ...(unpublish === true ? { status: "draft" } : {}),
         steps: selectedSop.steps.map(
-          ({ id, title, description, imageUrl }) => ({
+          ({ id, title, description, imageUrl, media }) => ({
             id,
             title,
             description,
             imageUrl,
+            media: media || [],
           }),
         ),
       });
@@ -176,6 +182,13 @@ export default function SOPManagerPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  async function uploadEmergencyMedia(stepId, file, description) {
+    if (saving || !selectedSop?.id) throw new Error("Save this step before uploading media.");
+    setSaving(true);
+    try { return await uploadPlaybookMedia(selectedSop.id, stepId, file, description); }
+    finally { setSaving(false); }
   }
 
   const handleToggleStepComplete = (id) => {
@@ -741,6 +754,7 @@ export default function SOPManagerPage() {
                                     {step.description}
                                   </Text>
 
+                                  <ContentMedia items={step.media || []} />
                                   {/^https?:\/\//i.test(step.imageUrl) && (
                                     <Box mt={2}>
                                       <Image
@@ -810,22 +824,11 @@ export default function SOPManagerPage() {
                                   }
                                 />
                               </Field.Root>
-                              <Field.Root>
-                                <Field.Label>Image URL (optional)</Field.Label>
-                                <Input
-                                  aria-label={`Step ${index + 1} image URL`}
-                                  placeholder="https://..."
-                                  maxLength={2048}
-                                  value={step.imageUrl}
-                                  onChange={(event) =>
-                                    handleStepChange(
-                                      step.id,
-                                      "imageUrl",
-                                      event.target.value,
-                                    )
-                                  }
-                                />
-                              </Field.Root>
+                              <EmergencyMediaEditor value={step.media || []}
+                                legacyImage={step.imageUrl} removeLegacy={() => handleStepChange(step.id, "imageUrl", "")}
+                                upload={selectedSop.id && sops.find(row => row.id === selectedSop.id)?.steps.some(row => row.id === step.id)
+                                  ? (file, description) => uploadEmergencyMedia(step.id, file, description) : undefined}
+                                onChange={media => handleStepChange(step.id, "media", media)} />
                               <HStack>
                                 <Button
                                   size="xs"

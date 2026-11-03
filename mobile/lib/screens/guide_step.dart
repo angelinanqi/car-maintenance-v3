@@ -5,6 +5,7 @@ import '../app_theme.dart';
 import '../models/content.dart';
 import '../widgets/design_widgets.dart';
 import '../widgets/guide_content.dart';
+import '../widgets/content_media.dart';
 import '../data/learning_errors.dart';
 
 class GuideStepPage extends StatefulWidget {
@@ -165,6 +166,7 @@ class _GuideStepPageState extends State<GuideStepPage> {
             ),
             const SizedBox(height: 16),
             GuideContent(content: section?.content ?? lesson.content),
+            ContentMediaList(items: lesson.media.where((item) => section == null || item['section_id'] == null || item['section_id'] == section.sectionId).toList()),
             const SizedBox(height: 16),
             Align(
               alignment: Alignment.centerLeft,

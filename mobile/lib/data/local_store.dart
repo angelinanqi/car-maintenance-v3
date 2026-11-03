@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:crypto/crypto.dart';
 
 class LocalStore {
   static const maxPhotoBytes = 10 * 1024 * 1024;
@@ -143,7 +144,13 @@ class LocalStore {
     final file = File(
       '${images.path}/${DateTime.now().microsecondsSinceEpoch}.img',
     );
-    await file.writeAsBytes(bytes, flush: true);
+    final staged = File('${file.path}.part');
+    try {
+      await staged.writeAsBytes(bytes, flush: true);
+      await staged.rename(file.path);
+    } finally {
+      if (await staged.exists()) await staged.delete();
+    }
     return file.path;
   }
 
@@ -157,5 +164,75 @@ class LocalStore {
 
   Future<void> removeEmergencyImage(String path) async {
     if (await hasEmergencyImage(path)) await File(path).delete();
+  }
+
+  Future<String> saveEmergencyMedia(
+    List<int> bytes, {
+    required String kind,
+    required String digest,
+    required int size,
+  }) async {
+    if (!RegExp(r'^[a-f0-9]{64}$').hasMatch(digest) ||
+        bytes.length != size ||
+        sha256.convert(bytes).toString() != digest ||
+        size <= 0 ||
+        size > 52428800 ||
+        !['image', 'video'].contains(kind)) {
+      throw const FormatException(
+        'Incomplete or damaged emergency media download',
+      );
+    }
+    if (kind == 'image') await validateImage(bytes);
+    final folder = Directory('${(await directory()).path}/emergency_media');
+    await folder.create(recursive: true);
+    final target = File(
+      '${folder.path}/$digest.${kind == 'video' ? 'mp4' : 'img'}',
+    );
+    final staged = File(
+      '${target.path}.${DateTime.now().microsecondsSinceEpoch}.part',
+    );
+    try {
+      await staged.writeAsBytes(bytes, flush: true);
+      await staged.rename(target.path);
+    } finally {
+      if (await staged.exists()) await staged.delete();
+    }
+    return target.path;
+  }
+
+  Future<bool> hasEmergencyMedia(
+    String path, {
+    String? digest,
+    int? size,
+  }) async {
+    final folder = await directory();
+    final file = File(path).absolute;
+    if (file.parent.path !=
+            Directory('${folder.path}/emergency_media').absolute.path &&
+        file.parent.path !=
+            Directory('${folder.path}/emergency_images').absolute.path)
+      return false;
+    if (file.path.endsWith('.part') ||
+        await FileSystemEntity.type(file.path, followLinks: false) !=
+            FileSystemEntityType.file)
+      return false;
+    final length = await file.length();
+    if (length <= 0 || length > 52428800 || (size != null && size != length))
+      return false;
+    return digest == null ||
+        (await sha256.bind(file.openRead()).first).toString() == digest;
+  }
+
+  Future<void> removeEmergencyMedia(String path) async {
+    // Missing/corrupt files still belong to the cache and may be removed safely.
+    final folder = await directory();
+    final file = File(path).absolute;
+    if ((file.parent.path ==
+                Directory('${folder.path}/emergency_media').absolute.path ||
+            file.parent.path ==
+                Directory('${folder.path}/emergency_images').absolute.path) &&
+        await file.exists()) {
+      await file.delete();
+    }
   }
 }

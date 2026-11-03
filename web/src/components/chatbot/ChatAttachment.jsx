@@ -7,8 +7,24 @@ import { API_URL } from "@/lib/config.mjs";
 
 function sourceEndpoint(value, kind) {
   return typeof value === "string" &&
-    /^\/chat\/sessions\/[0-9a-f-]+\/sources\/[0-9a-f-]+\/[0-9a-f-]+\/(image|table)-\d{5,}\/(image|original)$/.test(value) &&
+    /^\/chat\/sessions\/[0-9a-f-]+\/sources\/[0-9a-f-]+\/[0-9a-f-]+\/(image|table)-\d{5,}\/(?:pages\/[1-9]\d*\/)?(image|original)$/.test(value) &&
     value.endsWith(`/${kind}`);
+}
+
+function OriginalPage({ page }) {
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const available = page.asset_available !== false && sourceEndpoint(page.asset_endpoint, "image");
+  const url = available ? `${API_URL}${page.asset_endpoint}${attempt ? `?retry=${attempt}` : ""}` : "";
+  return <Box w="100%">
+    <Text fontSize="sm" fontWeight="medium">Original PDF page {page.page}{page.role === "section_context" ? " · Related table context" : ""}</Text>
+    {url && !failed ? <a href={url} target="_blank" rel="noopener noreferrer" aria-label={`Enlarge original PDF page ${page.page}`}>
+      <img src={url} crossOrigin="use-credentials" loading="lazy" alt={`Original PDF page ${page.page}, including table headers and notes`}
+        onError={() => setFailed(true)} style={{ display: "block", width: "100%", maxHeight: 440, objectFit: "contain", background: "white" }} />
+      <Text as="span" fontSize="sm">Enlarge page {page.page}</Text>
+    </a> : <Text fontSize="sm" role="alert">Page preview unavailable. Open the original source to check this page.</Text>}
+    {available && failed && <Button size="xs" variant="outline" onClick={() => { setAttempt(attempt + 1); setFailed(false); }}>Retry page</Button>}
+  </Box>;
 }
 
 export default function ChatAttachment({ attachment, sourceLabel }) {
@@ -26,6 +42,7 @@ export default function ChatAttachment({ attachment, sourceLabel }) {
     typeof attachment.html === "string" && attachment.html.length <= 1000000;
   const title = attachment.identity_review?.title || attachment.generated_identity?.title || attachment.caption || attachment.section_path?.at(-1) || "Manual illustration";
   const pages = (Array.isArray(attachment.pages) ? attachment.pages : []).join(", ");
+  const previews = attachment.kind === "table" && Array.isArray(attachment.page_previews) ? attachment.page_previews : [];
 
   async function loadOriginal() {
     if (!sourceEndpoint(attachment.source_endpoint, "original")) return;
@@ -47,6 +64,8 @@ export default function ChatAttachment({ attachment, sourceLabel }) {
     <Box as="figure" borderWidth="1px" borderRadius="md" p={3} m={0}>
       <Stack gap={2} align="start">
         <Text fontSize="sm" fontWeight="medium">{title}</Text>
+        {previews.map((page) => <OriginalPage key={page.page} page={page} />)}
+        {previews.length > 0 && available && <Text fontSize="sm">Enlarged table detail</Text>}
         {image && !imageFailed && <Box bg="white" borderRadius="sm" p={3} w="100%" minH="100px" display="flex" justifyContent="center" alignItems="center">
           <a href={image} target="_blank" rel="noopener noreferrer" aria-label="Enlarge source image (opens in a new tab)">
             <img key={image} src={image} crossOrigin="use-credentials"

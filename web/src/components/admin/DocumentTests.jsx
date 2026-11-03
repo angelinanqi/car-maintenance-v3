@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Badge, Box, Button, Flex, Grid, Heading, Stack, Text, Textarea } from "@chakra-ui/react";
+import { Badge, Box, Button, Flex, Heading, Stack, Text, Textarea } from "@chakra-ui/react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { request } from "@/api/client.mjs";
 import { originalDocumentUrl } from "@/api/documents.mjs";

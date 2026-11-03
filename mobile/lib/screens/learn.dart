@@ -6,6 +6,7 @@ import '../app_state.dart';
 import '../data/content_repository.dart';
 import '../models/content.dart';
 import '../widgets/guide_content.dart';
+import '../widgets/content_media.dart';
 import '../widgets/module_widgets.dart';
 import '../widgets/vehicle_selector.dart';
 import '../widgets/learning_road.dart';
@@ -827,6 +828,7 @@ class _LessonReaderState extends State<_LessonReader> {
                 ),
               const Divider(height: 40),
               GuideContent(content: lesson.content),
+              ContentMediaList(items: lesson.media),
               const Divider(height: 40),
               if (_error != null)
                 Semantics(

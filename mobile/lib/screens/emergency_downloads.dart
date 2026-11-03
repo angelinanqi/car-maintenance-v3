@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../data/content_repository.dart';
 import '../models/content.dart';
 import '../widgets/emergency_widgets.dart';
+import '../widgets/emergency_offline_status.dart';
 
 class EmergencyDownloads extends StatefulWidget {
   final ContentRepository content;
@@ -44,7 +45,7 @@ class _EmergencyDownloadsState extends State<EmergencyDownloads> {
           _message = widget.content.warning == null
               ? (guide == null
                     ? 'Published guides synced and saved for offline use.'
-                    : 'Guide and illustrations saved on this device.')
+                    : 'Guide and supporting media saved on this device.')
               : 'Could not refresh all content. Available local guidance has been kept. Retry when connected.';
         });
       }
@@ -93,7 +94,7 @@ class _EmergencyDownloadsState extends State<EmergencyDownloads> {
         const EmergencyNotice(
           title: 'Keep guidance on your phone',
           message:
-              'Published guides and their illustrations download automatically while connected. Removed copies stay removed until you save them again. Open the app online once before relying on offline guidance.',
+              'Published guides and their images and uploaded videos download automatically while connected. Removed copies stay removed until you save them again. Open the app online once before relying on offline guidance.',
         ),
         const SizedBox(height: 16),
         OutlinedButton.icon(
@@ -122,6 +123,8 @@ class _EmergencyDownloadsState extends State<EmergencyDownloads> {
                 ? 'Saved on this device'
                 : 'Internet needed until downloaded',
           ),
+          if (guide.available)
+            EmergencyOfflineStatus(guide: guide, store: widget.content.store),
           if (guide.available && !guide.legacy)
             Wrap(
               spacing: 8,

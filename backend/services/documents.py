@@ -4,6 +4,8 @@ from datetime import datetime, timezone
 import json
 import logging
 from hashlib import sha256
+from contextlib import contextmanager
+from functools import lru_cache
 from pathlib import Path
 import shutil
 from uuid import uuid4
@@ -88,9 +90,41 @@ def upload_source(document_id, source_type, data):
     return path
 
 
+class DuplicateDocument(HTTPException):
+    def __init__(self, row):
+        super().__init__(409, f'This file already exists as "{row["name"]}" '
+                         f'({row["id"]}). Open the existing document to manage its vehicle and category associations.')
+
+
+@lru_cache(maxsize=256)
+def source_checksum(path, revision):
+    # A replacement rotates source_revision even when a storage slot is reused.
+    # Cache only the digest; never retain source bytes in memory between uploads.
+    return sha256(db.bucket(settings.SUPABASE_DOCUMENT_BUCKET).download(path)).hexdigest()
+
+
+@contextmanager
+def unique_source(data, exclude_document_id=None):
+    digest = sha256(data).hexdigest()
+    # All source writers share this lock in the single backend process. Keep it
+    # through the metadata write so simultaneous uploads cannot pass the check.
+    with document_lock('document-source-' + digest):
+        for row in db.all_rows('documents', size_bytes=len(data)):
+            if str(row['id']) == str(exclude_document_id):
+                continue
+            if source_checksum(row['storage_path'], row['source_revision']) == digest:
+                raise DuplicateDocument(row)
+        yield
+
+
 @observed('document_upload')
 def create(file, metadata):
     filename, source_type, data = validate_upload(file)
+    with unique_source(data):
+        return _create_source(filename, source_type, data, metadata)
+
+
+def _create_source(filename, source_type, data, metadata):
     document_id = str(uuid4())
     emit('document_received', 'received', job_id=document_id)
     path = upload_source(document_id, source_type, data)
@@ -151,7 +185,7 @@ def reset_processing():
 
 def replace(document_id, file):
     filename, source_type, data = validate_upload(file)
-    with document_lock('schedule-sources'), document_lock(document_id):
+    with document_lock('schedule-sources'), document_lock(document_id), unique_source(data, document_id):
         row = editable(document_id)
         if db.all_rows('admin_review_questions', document_id=str(document_id)):
             raise HTTPException(409, "A saved clarification question references this original. Use Replace document to keep its source available for checking.")
@@ -192,7 +226,7 @@ def referencing_schedules(document_id):
 
 def delete(document_id):
     with document_lock('schedule-sources'), document_lock(document_id):
-        editable(document_id)
+        row = editable(document_id)
         if db.all_rows('admin_review_questions', document_id=str(document_id)):
             raise HTTPException(409, "Saved clarification questions reference this document. Keep the original so their sources can still be checked.")
         if referencing_schedules(document_id):

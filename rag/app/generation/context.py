@@ -42,6 +42,11 @@ def maintenance_source(context, budget):
     """Retain whole server-ordered entries, totals and an explicit coverage note."""
     result = {key: context[key] for key in ("vehicle_id", "as_of", "total_tasks", "total_standalone_services")}
     result.update(tasks=[], standalone_services=[], entries_omitted=False)
+    if context.get('spending_summary') is not None:
+        result['spending_summary'] = context['spending_summary']
+    result['total_service_records'] = context.get('total_service_records', 0)
+    result['recent_services'] = []
+    result['service_history_omitted'] = False
     plan = context.get('service_plan')
     if plan:
         # Plan evidence shares P2's budget and preserves complete item entries.
@@ -57,14 +62,16 @@ def maintenance_source(context, budget):
                     result['service_plan']['groups'][group].pop()
                     result['entries_omitted'] = True
                     break
-    for key in ("tasks", "standalone_services"):
-        for entry in context[key]:
+    for key in ("tasks", "standalone_services", "recent_services"):
+        for entry in context.get(key, []):
             result[key].append(entry)
             if encoded_size(json.dumps(result, ensure_ascii=False)) > budget:
                 result[key].pop()
                 break
-    result["entries_omitted"] = result['entries_omitted'] or any(len(result[key]) < len(context[key])
-                                    for key in ("tasks", "standalone_services"))
+    result['service_history_omitted'] = len(result['recent_services']) < result['total_service_records']
+    result["entries_omitted"] = result['entries_omitted'] or result['service_history_omitted'] or any(
+        len(result[key]) < context[total] for key, total in
+        (("tasks", "total_tasks"), ("standalone_services", "total_standalone_services")))
     return json.dumps(result, ensure_ascii=False)
 
 
@@ -183,6 +190,11 @@ def prepare_context(records, references, vehicle_profile=None, maintenance_conte
         if structured_table:
             item['evidence_type'] = 'table_cells_v1'
             item['element_id'] = metadata['element_id']
+            matching = next((reference for reference in references
+                             if reference.get('document_name') == metadata.get('document_name')
+                             and reference.get('element_id') == metadata['element_id']), None)
+            item['requires_page_images'] = (matching.get('requires_page_images', False) if matching
+                                            else metadata.get('source_kind') != 'website')
             fragment = json.loads(text)
             row_range = fragment.get('row_range', [])
             item['table_complete'] = bool(len(row_range) == 2 and row_range[0] == 0

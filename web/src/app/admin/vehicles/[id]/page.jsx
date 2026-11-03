@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import NextLink from "next/link";
 import {
   Badge,
@@ -15,6 +15,7 @@ import {
 } from "@chakra-ui/react";
 import AdminLayout from "@/components/layouts/AdminLayout";
 import { VehicleEditor } from "@/components/admin/CatalogueEditors";
+import CatalogueDeletionDialog from "@/components/admin/CatalogueDeletionDialog";
 import { useContent } from "@/components/ContentProvider";
 import { loadCatalogue, loadSchedules } from "@/api/admin";
 import { documentJourney, scheduleStatus } from "@/lib/adminJourney.mjs";
@@ -22,6 +23,7 @@ import { vehicleAvailability } from "@/lib/catalogue.mjs";
 
 export default function VehicleWorkspace() {
   const { id } = useParams();
+  const router = useRouter();
   const { documents, knowledge, configuration, refresh } = useContent();
   const [catalogue, setCatalogue] = useState(null);
   const [schedules, setSchedules] = useState([]);
@@ -29,6 +31,7 @@ export default function VehicleWorkspace() {
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
   const [editing, setEditing] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   useEffect(() => {
     let active = true;
     setLoading(true);
@@ -86,9 +89,12 @@ export default function VehicleWorkspace() {
             <NextLink href="/admin/vehicles">Back to vehicles</NextLink>
           </Button>
           {vehicle && (
+            <Flex gap={3} wrap="wrap">
             <Button variant="outline" onClick={() => setEditing(true)}>
               Edit vehicle details
             </Button>
+            <Button variant="outline" colorPalette="red" onClick={() => setDeleting(true)}>Delete vehicle</Button>
+            </Flex>
           )}
         </Flex>
         {loading && (
@@ -152,7 +158,7 @@ export default function VehicleWorkspace() {
               gap={6}
               alignItems="start"
             >
-              <Box bg="white" p={{ base: 5, md: 7 }} borderRadius="12px">
+              <Box id="vehicle-documents" scrollMarginTop="100px" bg="white" p={{ base: 5, md: 7 }} borderRadius="12px">
                 <Flex
                   justify="space-between"
                   gap={3}
@@ -264,6 +270,13 @@ export default function VehicleWorkspace() {
           </>
         )}
       </Stack>
+      {deleting && vehicle && <CatalogueDeletionDialog kind="vehicles" entry={vehicle}
+        onClose={() => setDeleting(false)} onComplete={(action) => {
+          setDeleting(false);
+          if (action === "deleted") router.push("/admin/vehicles");
+          else setCatalogue((previous) => ({ ...previous, vehicles: previous.vehicles.map((row) => row.id === id ? { ...row, active: false } : row) }));
+          void refresh({ documentsOnly: true });
+        }} />}
       {editing && vehicle && (
         <VehicleEditor
           data={catalogue}
