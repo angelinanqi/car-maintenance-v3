@@ -13,6 +13,11 @@ def encoded_size(value):
 
 def content(record):
     text = record.metadata.get("source_content") or record.text.split("Content:\n", 1)[-1]
+    preceding = record.metadata.get('preceding_source_context')
+    if preceding:
+        text = (f"Preceding text in the same column on PDF page {preceding['pdf_page']} "
+                "(neighbouring evidence, not an inferred parent section):\n"
+                + preceding['text'] + '\n\nRetrieved passage:\n' + text)
     return re.sub(r"^Image source:.*$", "", text, flags=re.M)
 
 
@@ -222,6 +227,22 @@ def prepare_context(records, references, vehicle_profile=None, maintenance_conte
                 section_key = (None, item["label"])
             sections.setdefault(section_key, []).append(item)
 
+    # Protect the ranked prose before optional originals and table packages.
+    # Previously these consumed the budget first, silently removing the very
+    # instructions retrieved for the user's question. Keep whole passages and
+    # reserve at least half of the remaining budget for visual/table evidence.
+    prose_budget = remaining // 2
+    prepacked_labels = set()
+    for source in manual_sources:
+        if source.get('content_type') != 'paragraph':
+            continue
+        size = encoded_size(source)
+        if size <= prose_budget:
+            result.sources.append(source)
+            prepacked_labels.add(source['label'])
+            prose_budget -= size
+            remaining -= size
+
     # Source identity, not caption similarity, associates a table with its cells.
     # Keep validated display references independent of factual evidence. Reserve
     # their metadata before packing sources; missing cells never imply the
@@ -236,7 +257,7 @@ def prepare_context(records, references, vehicle_profile=None, maintenance_conte
             continue
         result.references.append(reference)
         remaining -= size
-    grouped_labels = set()
+    grouped_labels = set(prepacked_labels)
     packed_pixels = set()
     table_references = {}
     # Pixel metadata is small and independent of extracted-cell size. A large
@@ -257,7 +278,6 @@ def prepare_context(records, references, vehicle_profile=None, maintenance_conte
                 packed_pixels.add(source['label'])
             reference['evidence_labels'].append(source['label'])
             remaining -= size
-    package_count = sum(reference['label'] in table_elements for reference in result.references)
     for reference in result.references:
         document_name, element_id = reference_identities[reference['label']]
         table_sources = [source for source in manual_sources
@@ -267,10 +287,10 @@ def prepare_context(records, references, vehicle_profile=None, maintenance_conte
                          and source.get('element_id') == element_id]
         element = table_elements.get(reference['label'])
         if element and table_sources:
-            # Give each selected table a share before duplicate fragments/prose.
-            # Whole small tables expand through the existing element identity.
-            allowance = remaining // max(1, package_count)
-            package_count -= 1
+            # Pack in relevance order. Dividing by every candidate table made
+            # the best small tables fail their minimum wrapper/header budget,
+            # while lower-ranked tables later received the unused space.
+            allowance = remaining
             source = dict(table_sources[0])
             source['evidence_type'] = 'table_cells_v2'
             source['table_complete'] = False
@@ -291,8 +311,6 @@ def prepare_context(records, references, vehicle_profile=None, maintenance_conte
             reference['evidence_omitted'] = reference['evidence_omitted'] or not package['complete']
             remaining -= encoded_size(source) + extra
             continue
-        if element:
-            package_count -= 1
         group = table_sources[:1]
         grouped_labels.update(source['label'] for source in group)
         if group:

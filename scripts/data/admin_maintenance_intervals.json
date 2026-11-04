@@ -1,0 +1,1634 @@
+{
+  "reviewed_on": "2026-11-04",
+  "scope": "Source-checked subset of uploaded normal-use schedules. Missing tasks remain unset. Engine/transmission-specific and irregular requirements retain their conditions and notes.",
+  "vehicles": [
+    {
+      "vehicle_code": "perodua-bezza-2020",
+      "source_document_id": "30706c98-cc8e-461c-a833-3891709afb14",
+      "source_revision": "472357b4-94c2-4109-938f-d171037de885",
+      "source_name": "bezza-2020---current-owner-manual-eng.pdf",
+      "entries": [
+        {
+          "item_title": "Replace engine oil",
+          "page": 220,
+          "type": "recurring",
+          "distanceKm": 10000,
+          "months": 6,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Severe driving: replace every 5,000 km or 3 months.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Replace engine oil filter",
+          "page": 220,
+          "type": "recurring",
+          "distanceKm": 10000,
+          "months": 6,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Severe driving: replace every 5,000 km or 3 months.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect engine air filter",
+          "page": 220,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. The table inspects at 20,000, 60,000 and 100,000 km, with replacement at 40,000 and 80,000 km.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Replace engine air filter",
+          "page": 220,
+          "type": "recurring",
+          "distanceKm": 40000,
+          "months": 24,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect engine for oil leaks",
+          "page": 220,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Also inspect at the initial 1,000 km / 1 month service.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Replace fuel filter",
+          "page": 221,
+          "type": "recurring",
+          "distanceKm": null,
+          "months": 96,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Replace engine coolant",
+          "page": 221,
+          "type": "informational",
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. First replace at 160,000 km, then every 80,000 km. The initial and later intervals differ; confirm service history before calculating the next replacement."
+        },
+        {
+          "item_title": "Inspect drive belts and tensioners",
+          "page": 221,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. The table specifies checking drive-belt looseness and damage.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Replace brake fluid",
+          "page": 221,
+          "type": "recurring",
+          "distanceKm": 40000,
+          "months": 24,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect steering linkage and rack boots",
+          "page": 221,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Check and adjust wheel alignment",
+          "page": 221,
+          "type": "recurring",
+          "distanceKm": 40000,
+          "months": 24,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Inspect wheel alignment; correct if necessary.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Check brake fluid level and condition",
+          "page": 221,
+          "type": "recurring",
+          "distanceKm": 10000,
+          "months": 6,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. The schedule specifies fluid level. Also check at the initial 1,000 km / 1 month service.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect brake hoses, pipes and connections",
+          "page": 221,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Also inspect at the initial 1,000 km / 1 month service.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect brake pads and discs",
+          "page": 222,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Inspect pad wear and clearance every 20,000 km / 12 months; disc wear and damage every 40,000 km / 24 months.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect brake shoes and drums",
+          "page": 222,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Inspect shoe lining and clearance every 20,000 km / 12 months; drum wear and damage every 40,000 km / 24 months.",
+          "conditions": ""
+        }
+      ]
+    },
+    {
+      "vehicle_code": "perodua-myvi-2021",
+      "source_document_id": "906df65b-16ad-4ffa-af28-38d6118c7de7",
+      "source_revision": "30a3875c-ff32-4ee4-a94a-5f86b6e198f3",
+      "source_name": "myvi-2021---current-owner-manual-eng.pdf",
+      "entries": [
+        {
+          "item_title": "Replace engine oil",
+          "page": 372,
+          "type": "recurring",
+          "distanceKm": 10000,
+          "months": 6,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Severe driving: replace every 5,000 km or 3 months.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Replace engine oil filter",
+          "page": 372,
+          "type": "recurring",
+          "distanceKm": 10000,
+          "months": 6,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Severe driving: replace every 5,000 km or 3 months.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect engine air filter",
+          "page": 372,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. The table inspects at 20,000, 60,000 and 100,000 km, with replacement at 40,000 and 80,000 km.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Replace engine air filter",
+          "page": 372,
+          "type": "recurring",
+          "distanceKm": 40000,
+          "months": 24,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect engine for oil leaks",
+          "page": 372,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Also inspect at the initial 1,000 km / 1 month service.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Replace fuel filter",
+          "page": 372,
+          "type": "recurring",
+          "distanceKm": null,
+          "months": 96,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Replace engine coolant",
+          "page": 372,
+          "type": "informational",
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. First replace at 160,000 km, then every 80,000 km. The initial and later intervals differ; confirm service history before calculating the next replacement."
+        },
+        {
+          "item_title": "Inspect drive belts and tensioners",
+          "page": 372,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. The table specifies checking drive-belt looseness and damage.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Replace brake fluid",
+          "page": 373,
+          "type": "recurring",
+          "distanceKm": 40000,
+          "months": 24,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect steering linkage and rack boots",
+          "page": 373,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Check and adjust wheel alignment",
+          "page": 373,
+          "type": "recurring",
+          "distanceKm": 40000,
+          "months": 24,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Inspect wheel alignment; correct if necessary.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Check brake fluid level and condition",
+          "page": 373,
+          "type": "recurring",
+          "distanceKm": 10000,
+          "months": 6,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. The schedule specifies fluid level. Also check at the initial 1,000 km / 1 month service.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect brake hoses, pipes and connections",
+          "page": 373,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Also inspect at the initial 1,000 km / 1 month service.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect brake pads and discs",
+          "page": 374,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Inspect pad wear and clearance every 20,000 km / 12 months; disc wear and damage every 40,000 km / 24 months.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect brake shoes and drums",
+          "page": 374,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Inspect shoe lining and clearance every 20,000 km / 12 months; drum wear and damage every 40,000 km / 24 months.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect tyre tread, wear and damage",
+          "page": 374,
+          "type": "recurring",
+          "distanceKm": 10000,
+          "months": 6,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Also inspect at the initial 1,000 km / 1 month service.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect wheels and wheel fasteners",
+          "page": 374,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect wheel bearings",
+          "page": 374,
+          "type": "recurring",
+          "distanceKm": 40000,
+          "months": 24,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Replace CVT fluid",
+          "page": 375,
+          "type": "recurring",
+          "distanceKm": 100000,
+          "months": null,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Only for the CVT fitted to this model; severe use requires a different interval.",
+          "conditions": "CVT-equipped vehicle under normal driving conditions."
+        },
+        {
+          "item_title": "Replace spark plugs",
+          "page": 375,
+          "type": "recurring",
+          "distanceKm": 100000,
+          "months": null,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Test 12-volt battery condition",
+          "page": 375,
+          "type": "recurring",
+          "distanceKm": 10000,
+          "months": 6,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Also test at the initial 1,000 km / 1 month service.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Replace cabin air filter",
+          "page": 377,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        }
+      ]
+    },
+    {
+      "vehicle_code": "perodua-axia-2023",
+      "source_document_id": "9434bca4-02d5-415b-9a14-3b95c3e0aa2c",
+      "source_revision": "1e3eb0fe-bef9-40fe-ba99-0e36a8f62aba",
+      "source_name": "axia-2023---current-owner-manual-eng.pdf",
+      "entries": [
+        {
+          "item_title": "Replace engine oil",
+          "page": 360,
+          "type": "recurring",
+          "distanceKm": 10000,
+          "months": 6,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Severe driving: replace every 5,000 km or 3 months.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Replace engine oil filter",
+          "page": 360,
+          "type": "recurring",
+          "distanceKm": 10000,
+          "months": 6,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Severe driving: replace every 5,000 km or 3 months.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect engine air filter",
+          "page": 360,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. The table inspects at 20,000, 60,000 and 100,000 km, with replacement at 40,000 and 80,000 km.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Replace engine air filter",
+          "page": 360,
+          "type": "recurring",
+          "distanceKm": 40000,
+          "months": 24,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect engine for oil leaks",
+          "page": 360,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Also inspect at the initial 1,000 km / 1 month service.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Replace fuel filter",
+          "page": 360,
+          "type": "recurring",
+          "distanceKm": null,
+          "months": 96,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Replace engine coolant",
+          "page": 360,
+          "type": "informational",
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. First replace at 160,000 km, then every 80,000 km. The initial and later intervals differ; confirm service history before calculating the next replacement."
+        },
+        {
+          "item_title": "Inspect drive belts and tensioners",
+          "page": 360,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. The table specifies checking drive-belt looseness and damage.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Replace brake fluid",
+          "page": 361,
+          "type": "recurring",
+          "distanceKm": 40000,
+          "months": 24,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect steering linkage and rack boots",
+          "page": 361,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Check and adjust wheel alignment",
+          "page": 361,
+          "type": "recurring",
+          "distanceKm": 40000,
+          "months": 24,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Inspect wheel alignment; correct if necessary.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Check brake fluid level and condition",
+          "page": 361,
+          "type": "recurring",
+          "distanceKm": 10000,
+          "months": 6,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. The schedule specifies fluid level. Also check at the initial 1,000 km / 1 month service.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect brake hoses, pipes and connections",
+          "page": 361,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Also inspect at the initial 1,000 km / 1 month service.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect brake pads and discs",
+          "page": 362,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Inspect pad wear and clearance every 20,000 km / 12 months; disc wear and damage every 40,000 km / 24 months.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect brake shoes and drums",
+          "page": 362,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Inspect shoe lining and clearance every 20,000 km / 12 months; drum wear and damage every 40,000 km / 24 months.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect tyre tread, wear and damage",
+          "page": 362,
+          "type": "recurring",
+          "distanceKm": 10000,
+          "months": 6,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Also inspect at the initial 1,000 km / 1 month service.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect wheels and wheel fasteners",
+          "page": 362,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect wheel bearings",
+          "page": 362,
+          "type": "recurring",
+          "distanceKm": 40000,
+          "months": 24,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        }
+      ]
+    },
+    {
+      "vehicle_code": "perodua-alza-2022",
+      "source_document_id": "5715a21e-5ca2-43e9-822c-1488f5c97e20",
+      "source_revision": "1dec2e8a-5603-465a-94a2-5e6dd0ebe028",
+      "source_name": "alza-2022---current-owner-manual-eng.pdf",
+      "entries": [
+        {
+          "item_title": "Replace engine oil",
+          "page": 398,
+          "type": "recurring",
+          "distanceKm": 10000,
+          "months": 6,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Severe driving: replace every 5,000 km or 3 months.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Replace engine oil filter",
+          "page": 398,
+          "type": "recurring",
+          "distanceKm": 10000,
+          "months": 6,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Severe driving: replace every 5,000 km or 3 months.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect engine air filter",
+          "page": 398,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. The table inspects at 20,000, 60,000 and 100,000 km, with replacement at 40,000 and 80,000 km.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Replace engine air filter",
+          "page": 398,
+          "type": "recurring",
+          "distanceKm": 40000,
+          "months": 24,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect engine for oil leaks",
+          "page": 398,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Also inspect at the initial 1,000 km / 1 month service.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Replace fuel filter",
+          "page": 398,
+          "type": "recurring",
+          "distanceKm": null,
+          "months": 96,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Replace engine coolant",
+          "page": 398,
+          "type": "informational",
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. First replace at 160,000 km, then every 80,000 km. The initial and later intervals differ; confirm service history before calculating the next replacement."
+        },
+        {
+          "item_title": "Inspect drive belts and tensioners",
+          "page": 398,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. The table specifies checking drive-belt looseness and damage.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Replace brake fluid",
+          "page": 399,
+          "type": "recurring",
+          "distanceKm": 40000,
+          "months": 24,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect steering linkage and rack boots",
+          "page": 399,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Check and adjust wheel alignment",
+          "page": 399,
+          "type": "recurring",
+          "distanceKm": 40000,
+          "months": 24,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Inspect wheel alignment; correct if necessary.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Check brake fluid level and condition",
+          "page": 399,
+          "type": "recurring",
+          "distanceKm": 10000,
+          "months": 6,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. The schedule specifies fluid level. Also check at the initial 1,000 km / 1 month service.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect brake hoses, pipes and connections",
+          "page": 399,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Also inspect at the initial 1,000 km / 1 month service.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect brake pads and discs",
+          "page": 400,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Inspect pad wear and clearance every 20,000 km / 12 months; disc wear and damage every 40,000 km / 24 months.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect brake shoes and drums",
+          "page": 400,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Inspect shoe lining and clearance every 20,000 km / 12 months; drum wear and damage every 40,000 km / 24 months.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect tyre tread, wear and damage",
+          "page": 400,
+          "type": "recurring",
+          "distanceKm": 10000,
+          "months": 6,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Also inspect at the initial 1,000 km / 1 month service.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect wheels and wheel fasteners",
+          "page": 400,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect wheel bearings",
+          "page": 400,
+          "type": "recurring",
+          "distanceKm": 40000,
+          "months": 24,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        }
+      ]
+    },
+    {
+      "vehicle_code": "perodua-bezza-2016",
+      "source_document_id": "968d72a7-51c7-489f-bec8-32da051f0316",
+      "source_revision": "190c382f-5603-4ed9-9a87-1e52e89cb2de",
+      "source_name": "bezza-2016-owner-manual-eng.pdf",
+      "entries": [
+        {
+          "item_title": "Replace engine oil",
+          "page": 196,
+          "type": "recurring",
+          "distanceKm": 10000,
+          "months": 6,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. The first oil/filter replacement in this normal-use table is at 10,000 km / 6 months. Severe driving: every 5,000 km or 3 months.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Replace engine oil filter",
+          "page": 196,
+          "type": "recurring",
+          "distanceKm": 10000,
+          "months": 6,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. The first oil/filter replacement in this normal-use table is at 10,000 km / 6 months. Severe driving: every 5,000 km or 3 months.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect engine air filter",
+          "page": 196,
+          "type": "recurring",
+          "distanceKm": 10000,
+          "months": 6,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Inspect at services between replacements. Severe driving requires more frequent cleaning and inspection.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Replace engine air filter",
+          "page": 196,
+          "type": "recurring",
+          "distanceKm": 40000,
+          "months": 24,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect cooling fan operation",
+          "page": 196,
+          "type": "recurring",
+          "distanceKm": 40000,
+          "months": 24,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect fuel lines and connections",
+          "page": 196,
+          "type": "recurring",
+          "distanceKm": 40000,
+          "months": 24,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect drive belts and tensioners",
+          "page": 197,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Also inspect at the initial 1,000 km service where shown.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Test 12-volt battery condition",
+          "page": 197,
+          "type": "recurring",
+          "distanceKm": 10000,
+          "months": 6,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Replace fuel filter",
+          "page": 197,
+          "type": "recurring",
+          "distanceKm": null,
+          "months": 72,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect exhaust system and mountings",
+          "page": 197,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect driveshafts and CV boots",
+          "page": 198,
+          "type": "recurring",
+          "distanceKm": 10000,
+          "months": 6,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect ball joints and suspension bushes",
+          "page": 198,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. The table specifies suspension/control arms, dust boots, springs and stabiliser.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect steering linkage and rack boots",
+          "page": 198,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Check and adjust wheel alignment",
+          "page": 198,
+          "type": "recurring",
+          "distanceKm": 40000,
+          "months": 24,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Inspect toe-in; adjust only if necessary.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Replace manual transmission oil",
+          "page": 198,
+          "type": "recurring",
+          "distanceKm": 40000,
+          "months": 24,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Use the manual-specified oil grade.",
+          "conditions": "Manual-transmission-equipped vehicle."
+        },
+        {
+          "item_title": "Replace automatic transmission fluid",
+          "page": 198,
+          "type": "recurring",
+          "distanceKm": 40000,
+          "months": 24,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Use the manual-specified ATF grade.",
+          "conditions": "Automatic-transmission-equipped vehicle."
+        },
+        {
+          "item_title": "Replace engine coolant",
+          "page": 196,
+          "type": "recurring",
+          "distanceKm": 40000,
+          "months": 24,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Replace spark plugs",
+          "page": 197,
+          "type": "informational",
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. 1KR engine: replace at 20,000 km / 12 month intervals. 1NR iridium plugs: replace at 100,000 km / 60 months. Confirm the engine and plug type; do not use one interval for both."
+        },
+        {
+          "item_title": "Replace brake fluid",
+          "page": 199,
+          "type": "recurring",
+          "distanceKm": 40000,
+          "months": 24,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect brake pads and discs",
+          "page": 199,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect brake shoes and drums",
+          "page": 199,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect brake hoses, pipes and connections",
+          "page": 199,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect tyre tread, wear and damage",
+          "page": 199,
+          "type": "recurring",
+          "distanceKm": 10000,
+          "months": 6,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        }
+      ]
+    },
+    {
+      "vehicle_code": "perodua-axia-2014",
+      "source_document_id": "841951a2-b904-40ab-8962-989220336209",
+      "source_revision": "22c723d7-515d-4f13-91c7-02542cda0f28",
+      "source_name": "axia-2014-owner-manual-eng.pdf",
+      "entries": [
+        {
+          "item_title": "Replace engine oil",
+          "page": 177,
+          "type": "recurring",
+          "distanceKm": 10000,
+          "months": 6,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. The first oil/filter replacement in this normal-use table is at 10,000 km / 6 months. Severe driving: every 5,000 km or 3 months.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Replace engine oil filter",
+          "page": 177,
+          "type": "recurring",
+          "distanceKm": 10000,
+          "months": 6,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. The first oil/filter replacement in this normal-use table is at 10,000 km / 6 months. Severe driving: every 5,000 km or 3 months.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect engine air filter",
+          "page": 177,
+          "type": "recurring",
+          "distanceKm": 10000,
+          "months": 6,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Inspect at services between replacements. Severe driving requires more frequent cleaning and inspection.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Replace engine air filter",
+          "page": 177,
+          "type": "recurring",
+          "distanceKm": 40000,
+          "months": 24,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect cooling fan operation",
+          "page": 177,
+          "type": "recurring",
+          "distanceKm": 40000,
+          "months": 24,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect fuel lines and connections",
+          "page": 177,
+          "type": "recurring",
+          "distanceKm": 40000,
+          "months": 24,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect drive belts and tensioners",
+          "page": 178,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Also inspect at the initial 1,000 km service where shown.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Test 12-volt battery condition",
+          "page": 178,
+          "type": "recurring",
+          "distanceKm": 10000,
+          "months": 6,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Replace fuel filter",
+          "page": 178,
+          "type": "recurring",
+          "distanceKm": null,
+          "months": 72,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect exhaust system and mountings",
+          "page": 178,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect driveshafts and CV boots",
+          "page": 179,
+          "type": "recurring",
+          "distanceKm": 10000,
+          "months": 6,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect ball joints and suspension bushes",
+          "page": 179,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. The table specifies suspension/control arms, dust boots, springs and stabiliser.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect steering linkage and rack boots",
+          "page": 179,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Check and adjust wheel alignment",
+          "page": 179,
+          "type": "recurring",
+          "distanceKm": 40000,
+          "months": 24,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Inspect toe-in; adjust only if necessary.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Replace manual transmission oil",
+          "page": 179,
+          "type": "recurring",
+          "distanceKm": 40000,
+          "months": 24,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Use the manual-specified oil grade.",
+          "conditions": "Manual-transmission-equipped vehicle."
+        },
+        {
+          "item_title": "Replace automatic transmission fluid",
+          "page": 179,
+          "type": "recurring",
+          "distanceKm": 40000,
+          "months": 24,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Use the manual-specified ATF grade.",
+          "conditions": "Automatic-transmission-equipped vehicle."
+        },
+        {
+          "item_title": "Replace engine coolant",
+          "page": 177,
+          "type": "recurring",
+          "distanceKm": 40000,
+          "months": 24,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Replace spark plugs",
+          "page": 178,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        }
+      ]
+    },
+    {
+      "vehicle_code": "perodua-alza-2018",
+      "source_document_id": "75da8572-040f-4a48-8af8-cd848916e445",
+      "source_revision": "f628104b-af4a-4241-b0e2-517804c16b2b",
+      "source_name": "alza-2018-owner-manual-eng.pdf",
+      "entries": [
+        {
+          "item_title": "Replace engine oil",
+          "page": 176,
+          "type": "recurring",
+          "distanceKm": 10000,
+          "months": 6,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Initial oil/filter replacement is also listed at 1,000 km / 1 month and 5,000 km / 3 months. Severe driving: every 5,000 km or 3 months.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Replace engine oil filter",
+          "page": 176,
+          "type": "recurring",
+          "distanceKm": 10000,
+          "months": 6,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Initial oil/filter replacement is also listed at 1,000 km / 1 month and 5,000 km / 3 months. Severe driving: every 5,000 km or 3 months.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect engine air filter",
+          "page": 176,
+          "type": "recurring",
+          "distanceKm": 10000,
+          "months": 6,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Inspect at services between replacements. Severe driving requires more frequent cleaning and inspection.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Replace engine air filter",
+          "page": 176,
+          "type": "recurring",
+          "distanceKm": 40000,
+          "months": 24,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect cooling fan operation",
+          "page": 176,
+          "type": "recurring",
+          "distanceKm": 40000,
+          "months": 24,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect fuel lines and connections",
+          "page": 176,
+          "type": "recurring",
+          "distanceKm": 40000,
+          "months": 24,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect drive belts and tensioners",
+          "page": 177,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Also inspect at the initial 1,000 km service where shown.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Test 12-volt battery condition",
+          "page": 177,
+          "type": "recurring",
+          "distanceKm": 10000,
+          "months": 6,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Replace fuel filter",
+          "page": 177,
+          "type": "recurring",
+          "distanceKm": null,
+          "months": 72,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect exhaust system and mountings",
+          "page": 177,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect driveshafts and CV boots",
+          "page": 178,
+          "type": "recurring",
+          "distanceKm": 10000,
+          "months": 6,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect ball joints and suspension bushes",
+          "page": 178,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. The table specifies suspension/control arms, dust boots, springs and stabiliser.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect steering linkage and rack boots",
+          "page": 178,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Check and adjust wheel alignment",
+          "page": 178,
+          "type": "recurring",
+          "distanceKm": 40000,
+          "months": 24,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Inspect toe-in; adjust only if necessary.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Replace manual transmission oil",
+          "page": 178,
+          "type": "recurring",
+          "distanceKm": 40000,
+          "months": 24,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Use the manual-specified oil grade.",
+          "conditions": "Manual-transmission-equipped vehicle."
+        },
+        {
+          "item_title": "Replace automatic transmission fluid",
+          "page": 178,
+          "type": "recurring",
+          "distanceKm": 40000,
+          "months": 24,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Use the manual-specified ATF grade.",
+          "conditions": "Automatic-transmission-equipped vehicle."
+        },
+        {
+          "item_title": "Replace engine coolant",
+          "page": 176,
+          "type": "informational",
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. First replace long-life coolant at 160,000 km, then every 80,000 km; confirm previous replacement before calculating due mileage."
+        },
+        {
+          "item_title": "Replace spark plugs",
+          "page": 177,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        }
+      ]
+    },
+    {
+      "vehicle_code": "perodua-myvi-2005",
+      "source_document_id": "41f20285-0eaf-45d9-ae6c-2f479ee4fc2e",
+      "source_revision": "41d6986b-c6c2-43c3-a11a-adc880622f53",
+      "source_name": "myvi-2005-owner-manual-eng.pdf",
+      "entries": [
+        {
+          "item_title": "Replace engine oil",
+          "page": 130,
+          "type": "recurring",
+          "distanceKm": 5000,
+          "months": 3,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. The table also lists the initial replacement at 1,000 km.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Replace engine oil filter",
+          "page": 130,
+          "type": "recurring",
+          "distanceKm": 5000,
+          "months": 3,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. The table also lists the initial replacement at 1,000 km.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect engine air filter",
+          "page": 130,
+          "type": "recurring",
+          "distanceKm": 5000,
+          "months": null,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Check and clean the filter.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Replace engine air filter",
+          "page": 130,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": null,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect fuel lines and connections",
+          "page": 130,
+          "type": "recurring",
+          "distanceKm": 30000,
+          "months": null,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Replace engine coolant",
+          "page": 130,
+          "type": "recurring",
+          "distanceKm": null,
+          "months": 24,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect drive belts and tensioners",
+          "page": 130,
+          "type": "recurring",
+          "distanceKm": 15000,
+          "months": null,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect spark plugs",
+          "page": 130,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": null,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. The table specifies cleaning and checking plug condition, gap and damage; it does not specify a replacement in this row.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Replace automatic transmission fluid",
+          "page": 131,
+          "type": "recurring",
+          "distanceKm": 45000,
+          "months": null,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Use the specified DEXRON II or III fluid.",
+          "conditions": "Automatic-transmission-equipped vehicle."
+        },
+        {
+          "item_title": "Inspect driveshafts and CV boots",
+          "page": 131,
+          "type": "recurring",
+          "distanceKm": 15000,
+          "months": null,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect exhaust system and mountings",
+          "page": 131,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect ball joints and suspension bushes",
+          "page": 131,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        }
+      ]
+    },
+    {
+      "vehicle_code": "proton-saga-2025",
+      "source_document_id": "49516d51-dde3-41cb-b0a0-745c61964465",
+      "source_revision": "4f4009a0-fec4-4d28-9df5-56119f461f8d",
+      "source_name": "all-new-saga-warranty-service-booklet.pdf",
+      "entries": [
+        {
+          "item_title": "Replace engine oil",
+          "page": 23,
+          "type": "recurring",
+          "distanceKm": 10000,
+          "months": 6,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Replace the drain-plug gasket at each oil service. Severe usage: every 5,000 km or 3 months.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Replace engine oil filter",
+          "page": 23,
+          "type": "recurring",
+          "distanceKm": 10000,
+          "months": 6,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Severe usage: every 5,000 km or 3 months.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Replace spark plugs",
+          "page": 23,
+          "type": "recurring",
+          "distanceKm": 40000,
+          "months": null,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Replace engine air filter",
+          "page": 23,
+          "type": "recurring",
+          "distanceKm": 40000,
+          "months": 24,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect engine air filter",
+          "page": 23,
+          "type": "recurring",
+          "distanceKm": 10000,
+          "months": 6,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Inspect between replacements; replace more frequently under severe usage.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Replace brake fluid",
+          "page": 23,
+          "type": "recurring",
+          "distanceKm": 40000,
+          "months": 24,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Replace engine coolant",
+          "page": 23,
+          "type": "recurring",
+          "distanceKm": 60000,
+          "months": 36,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. If coolant is dirty, the booklet recommends replacement at 40,000 km / 24 months. Inspect coolant every 40,000 km / 24 months.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect radiator, hoses and connections",
+          "page": 23,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Test 12-volt battery condition",
+          "page": 23,
+          "type": "recurring",
+          "distanceKm": 10000,
+          "months": 6,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect fuel lines and connections",
+          "page": 24,
+          "type": "recurring",
+          "distanceKm": 10000,
+          "months": 6,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect brake hoses, pipes and connections",
+          "page": 24,
+          "type": "recurring",
+          "distanceKm": 10000,
+          "months": 6,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect shock absorbers, struts and springs",
+          "page": 24,
+          "type": "recurring",
+          "distanceKm": 10000,
+          "months": 6,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Inspect the front and rear suspension systems.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect tyre tread, wear and damage",
+          "page": 24,
+          "type": "recurring",
+          "distanceKm": 10000,
+          "months": 6,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect wiper blades and washer operation",
+          "page": 24,
+          "type": "recurring",
+          "distanceKm": 10000,
+          "months": 6,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Check horn operation",
+          "page": 24,
+          "type": "recurring",
+          "distanceKm": 10000,
+          "months": 6,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Inspect seat belts and buckles",
+          "page": 24,
+          "type": "recurring",
+          "distanceKm": 10000,
+          "months": 6,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Rotate tyres",
+          "page": 25,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": null,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Recommended if necessary; inspect tyre condition before rotation.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Replace cabin air filter",
+          "page": 25,
+          "type": "recurring",
+          "distanceKm": 40000,
+          "months": 24,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Check air conditioning and heater operation",
+          "page": 25,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. The table covers air-conditioner function.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Top up windscreen washer fluid",
+          "page": 25,
+          "type": "recurring",
+          "distanceKm": 10000,
+          "months": 6,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Replace automatic transmission fluid",
+          "page": 23,
+          "type": "recurring",
+          "distanceKm": 60000,
+          "months": 36,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Severe usage uses 40,000 km / 24 months; confirm transmission identity.",
+          "conditions": "4F16 automatic transmission under normal usage."
+        },
+        {
+          "item_title": "Replace CVT fluid",
+          "page": 23,
+          "type": "recurring",
+          "distanceKm": 60000,
+          "months": 36,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Severe usage uses 40,000 km / 24 months; confirm transmission identity.",
+          "conditions": "CVT2 transmission under normal usage."
+        }
+      ]
+    },
+    {
+      "vehicle_code": "proton-saga-2022",
+      "source_document_id": "826a665c-e3a8-4f46-889f-f52939b7f9e3",
+      "source_revision": "7ed654f5-2270-48a6-bdc4-248ee351b599",
+      "source_name": "saga_warranty_service_booklet_mar2025.pdf",
+      "entries": [
+        {
+          "item_title": "Replace engine oil",
+          "page": 25,
+          "type": "recurring",
+          "distanceKm": 10000,
+          "months": 6,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Initial replacement at 1,000 km. Severe usage: every 5,000 km / 3 months.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Replace engine oil filter",
+          "page": 25,
+          "type": "recurring",
+          "distanceKm": 10000,
+          "months": 6,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Initial replacement at 1,000 km. Severe usage: every 5,000 km / 3 months.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Replace spark plugs",
+          "page": 25,
+          "type": "informational",
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. The shared booklet lists VVT: 30,000 km; D4F/CAMPRO/IAFM/CPS/IAFM+: 20,000 km; 4B10/4B11: 100,000 km; TURBO: 70,000 km. Confirm fitted engine before selecting an interval."
+        },
+        {
+          "item_title": "Replace engine air filter",
+          "page": 26,
+          "type": "recurring",
+          "distanceKm": 20000,
+          "months": 12,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Non-turbo engine schedule.",
+          "conditions": "Non-turbo engine."
+        },
+        {
+          "item_title": "Replace brake fluid",
+          "page": 26,
+          "type": "recurring",
+          "distanceKm": 40000,
+          "months": 24,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Replace engine coolant",
+          "page": 26,
+          "type": "recurring",
+          "distanceKm": 30000,
+          "months": 18,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre.",
+          "conditions": ""
+        },
+        {
+          "item_title": "Replace automatic transmission fluid",
+          "page": 25,
+          "type": "recurring",
+          "distanceKm": 60000,
+          "months": 36,
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. Inspect fluid at other 10,000 km / 6 month services.",
+          "conditions": "4F16 or F4S15 automatic transmission under normal usage."
+        },
+        {
+          "item_title": "Replace manual transmission oil",
+          "page": 25,
+          "type": "informational",
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. The shared booklet lists replacement at 100,000 km / 60 months for 5MTT200A, 5MT and 5T16. Confirm this transmission is fitted."
+        },
+        {
+          "item_title": "Replace CVT fluid",
+          "page": 25,
+          "type": "informational",
+          "notes": "Normal driving schedule. Severe driving may require shorter intervals; check the severe-use table with an authorised service centre. The shared booklet lists CVT2/CVT3 replacement at 60,000 km / 36 months; F1CJA at 100,000 km / 60 months. Confirm fitted transmission; this catalogue variant does not identify it."
+        }
+      ]
+    }
+  ]
+}

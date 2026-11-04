@@ -2,6 +2,8 @@ import 'dart:io';
 import 'package:image_picker/image_picker.dart';
 import 'local_store.dart';
 import 'mobile_repository.dart';
+import 'api_client.dart';
+import 'package:uuid/uuid.dart';
 
 class AccidentRepository {
   final LocalStore store;
@@ -16,12 +18,8 @@ class AccidentRepository {
   String get _draftsFile => 'accident_drafts_${owner ?? 'guest'}.json';
   String get _photoTargetFile =>
       'accident_photo_target_${owner ?? 'guest'}.json';
-  Future<void> _writes = Future.value();
-  Future<void> _write(Future<void> Function() operation) {
-    final result = _writes.then((_) => operation());
-    _writes = result.catchError((_) {});
-    return result;
-  }
+  Future<void> _write(Future<void> Function() operation) =>
+      store.synchronized('incidents:${owner ?? 'guest'}', operation);
 
   Future<Map<String, dynamic>> load() async {
     final saved = await drafts();
@@ -195,22 +193,31 @@ class AccidentRepository {
     await store.write('incident_backup_$owner.json', {'enabled': enabled});
   }
 
-  Future<void> importGuestRecords() => _write(() async {
+  Future<void> importGuestRecords() async {
     if (owner == null) return;
-    final guest = await AccidentRepository(store).records();
-    final current = await records();
-    final ids = current.map((r) => r['id']).toSet();
-    current.addAll(
-      guest
-          .where((r) => !ids.contains(r['id']))
-          .map((r) => {...r, 'pendingSync': true}),
+    final guestRepository = AccidentRepository(store);
+    await _write(
+      () => guestRepository._write(() async {
+        final guest = await guestRepository.records();
+        final current = await records();
+        final ids = current.map((r) => r['id']).toSet();
+        current.addAll(
+          guest
+              .where((r) => !ids.contains(r['id']))
+              .map((r) => {...r, 'pendingSync': true}),
+        );
+        await store.write(_recordsFile, {'records': current});
+        // Only clear the guest list after the account copy is durable. Photos are
+        // retained and can be referenced by both copies during this transaction.
+        await store.write('incidents_guest.json', {'records': []});
+      }),
     );
-    await store.write(_recordsFile, {'records': current});
-    // Only clear the guest list after the account copy is durable. Photos are
-    // retained and can be referenced by both copies during this transaction.
-    await store.write('incidents_guest.json', {'records': []});
-  });
-  Future<void> sync() async {
+  }
+
+  Future<void> sync() =>
+      store.synchronized('incident-sync:${owner ?? 'guest'}', _sync);
+
+  Future<void> _sync() async {
     if (!await backupEnabled() ||
         remote == null ||
         remote!.account.userId != owner) {
@@ -218,25 +225,50 @@ class AccidentRepository {
     }
     final token = remote!.token;
     final rows = await records();
+    final conflicts = <String>{};
     for (final record in rows.where((r) => r['pendingSync'] == true)) {
       if (remote!.account.userId != owner) return;
       final stamp = record['updatedAt'];
       // Durable local IDs make repeated PUT requests idempotent. Local photo
       // paths are never uploaded; the incident API does not support photo uploads.
-      final result = await remote!.api.put(
-        '/mobile/me/incidents/${Uri.encodeComponent(record['id'] as String)}',
-        {
-          ...record,
-          'photos': [],
-          'photoCount': (record['photos'] as List? ?? []).length,
-        },
-        token: token,
-      );
+      Map<String, dynamic> result;
+      try {
+        result = await remote!.api.put(
+          '/mobile/me/incidents/${Uri.encodeComponent(record['id'] as String)}',
+          {
+            for (final key in [
+              'version',
+              'id',
+              'type',
+              'mileage',
+              'location',
+              'occurredAt',
+              'name',
+              'plate',
+              'phone',
+              'insurer',
+              'details',
+              'updatedAt',
+              'pendingSync',
+              'cloudRevision',
+            ])
+              if (record.containsKey(key)) key: record[key],
+            'photos': [],
+            'photoCount': (record['photos'] as List? ?? []).length,
+          },
+          token: token,
+        );
+      } on ApiException catch (error) {
+        if (error.statusCode != 409) rethrow;
+        conflicts.add(record['id'] as String);
+        continue;
+      }
       await _write(() async {
         final current = await records();
         for (final row in current) {
           if (row['id'] == record['id']) {
             row['cloudRevision'] = result['cloudRevision'];
+            row.remove('cloudConflict');
             if (row['updatedAt'] == stamp) row['pendingSync'] = false;
           }
         }
@@ -253,7 +285,10 @@ class AccidentRepository {
       final byId = {for (final row in local) row['id']: row};
       for (final row in cloud) {
         final current = byId[row['id']];
-        if (current != null && current['pendingSync'] == true) continue;
+        if (current != null && current['pendingSync'] == true) {
+          if (conflicts.contains(row['id'])) current['cloudConflict'] = true;
+          continue;
+        }
         final cloudTime = DateTime.parse(row['updatedAt'] as String);
         if (current == null ||
             cloudTime.isAfter(DateTime.parse(current['updatedAt'] as String))) {
@@ -266,7 +301,60 @@ class AccidentRepository {
       }
       await store.write(_recordsFile, {'records': byId.values.toList()});
     });
+    if (conflicts.isNotEmpty) {
+      throw const ApiException(
+        'An incident changed on another device. Your local copy is safe. '
+        'Choose Keep both copies in Incident options to finish its backup.',
+        statusCode: 409,
+      );
+    }
   }
+
+  Future<void> keepBothCopies(String id) => store.synchronized(
+    'incident-sync:${owner ?? 'guest'}',
+    () async {
+      if (owner == null || remote?.account.userId != owner) {
+        throw const ApiException(
+          'Sign in to the original account to resolve this backup.',
+        );
+      }
+      final cloud = await remote!.api.listAll(
+        '/mobile/me/incidents',
+        token: remote!.token,
+      );
+      final saved = cloud.where((row) => row['id'] == id).firstOrNull;
+      if (saved == null) {
+        throw const ApiException(
+          'The cloud copy could not be found. Retry backup before continuing.',
+        );
+      }
+      if (remote!.account.userId != owner) {
+        throw const ApiException(
+          'Your account changed. Reopen Incident options.',
+        );
+      }
+      await _write(() async {
+        final local = await records();
+        final current = local.where((row) => row['id'] == id).firstOrNull;
+        if (current == null || current['cloudConflict'] != true) return;
+        final copy =
+            {
+                ...current,
+                'id': const Uuid().v4(),
+                'updatedAt': DateTime.now().toUtc().toIso8601String(),
+                'pendingSync': true,
+              }
+              ..remove('cloudRevision')
+              ..remove('cloudConflict');
+        local.removeWhere((row) => row['id'] == id);
+        local.addAll([
+          _validatedRow({...saved, 'photos': <String>[], 'pendingSync': false}),
+          copy,
+        ]);
+        await store.write(_recordsFile, {'records': local});
+      });
+    },
+  );
 
   Future<String?> pickPhoto(ImageSource source) async {
     final image = await picker.pickImage(

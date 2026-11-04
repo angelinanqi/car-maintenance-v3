@@ -129,11 +129,15 @@ class _CarModelViewState extends State<CarModelView> {
                         "const car=document.querySelector('model-viewer'); car.addEventListener('load',()=>Maintenance.postMessage('loaded')); car.addEventListener('error',()=>Maintenance.postMessage('error'));",
                     onWebViewCreated: (controller) async {
                       _startTimeout();
-                      await controller.addJavaScriptChannel(
-                        'Maintenance',
-                        onMessageReceived: (message) =>
-                            _message(message.message),
-                      );
+                      try {
+                        await controller.addJavaScriptChannel(
+                          'Maintenance',
+                          onMessageReceived: (message) =>
+                              _message(message.message),
+                        );
+                      } catch (_) {
+                        _message('error');
+                      }
                     },
                   )
                 : Center(

@@ -245,3 +245,81 @@ class RoadsideContact extends StatelessWidget {
     ),
   );
 }
+
+class FamilyContact extends StatefulWidget {
+  final AppState state;
+  const FamilyContact({super.key, required this.state});
+  @override
+  State<FamilyContact> createState() => _FamilyContactState();
+}
+
+class _FamilyContactState extends State<FamilyContact> {
+  late Future<Map<String, dynamic>?> _contact;
+  @override
+  void initState() {
+    super.initState();
+    _contact = _read();
+  }
+
+  Future<Map<String, dynamic>?> _read() async {
+    final data = await widget.state.store.read('ui_preferences.json');
+    if (data != null &&
+        ((data['familyName'] != null && data['familyName'] is! String) ||
+            (data['familyPhone'] != null && data['familyPhone'] is! String))) {
+      throw const FormatException('Invalid family contact');
+    }
+    return data;
+  }
+
+  Future<void> _edit() async {
+    await Navigator.push<void>(
+      context,
+      MaterialPageRoute(builder: (_) => Profile(state: widget.state)),
+    );
+    if (mounted) setState(() => _contact = _read());
+  }
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<Map<String, dynamic>?>(
+    future: _contact,
+    builder: (context, snapshot) {
+      final name = snapshot.data?['familyName'] as String? ?? '';
+      final phone = snapshot.data?['familyPhone'] as String? ?? '';
+      return Card.outlined(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Your family contact',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              if (snapshot.hasError)
+                const Text(
+                  'Saved contact could not be opened. Your file has been kept.',
+                )
+              else if (phone.isEmpty)
+                const Text('No family contact saved yet.')
+              else ...[
+                if (name.isNotEmpty) Text(name),
+                SelectableText(phone),
+                FilledButton.icon(
+                  onPressed: () => dialAssistance(context, phone),
+                  icon: const Icon(Icons.call),
+                  label: const Text('Call family contact'),
+                ),
+              ],
+              TextButton(
+                onPressed: _edit,
+                child: Text(
+                  phone.isEmpty ? 'Add family contact' : 'Edit family contact',
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}

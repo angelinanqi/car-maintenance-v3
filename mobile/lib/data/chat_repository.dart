@@ -25,6 +25,7 @@ class FastApiChatRepository implements ChatRepository {
     String? sessionToken,
     String? planId,
   }) async {
+    _checkAccount();
     final data = await api.post(
       '/chat/mechanic-questions',
       {
@@ -52,6 +53,7 @@ class FastApiChatRepository implements ChatRepository {
 
   @override
   Future<ChatReply> send(ChatRequest request) async {
+    _checkAccount();
     try {
       if (request.createSession) {
         await api.put('/chat/sessions/${request.sessionId}', {
@@ -89,6 +91,15 @@ class FastApiChatRepository implements ChatRepository {
     } on TypeError {
       throw const ApiException(
         'Chat response does not match the agreed contract.',
+      );
+    }
+  }
+
+  void _checkAccount() {
+    if (account != null && account!.userId == null) {
+      throw const ApiException(
+        'Sign in and verify your account to continue.',
+        statusCode: 401,
       );
     }
   }

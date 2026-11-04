@@ -10,7 +10,7 @@ class MobileRepository {
   MobileRepository(this.api, this.account);
   String get token {
     final value = account.token;
-    if (value == null) {
+    if (value == null || account.userId == null) {
       throw const ApiException('Sign in to continue.', statusCode: 401);
     }
     return value;

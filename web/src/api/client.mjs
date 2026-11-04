@@ -4,7 +4,7 @@ let requestIdentity = "";
 export function setRequestIdentity(value) { requestIdentity = value || ""; }
 
 function maintenancePath(path) {
-  return /^\/admin\/(catalogue|manufacturers|models|maintenance-items|schedules|schedule-drafts|maintenance-assistance)([/?]|$)/.test(path) ||
+  return /^\/admin\/(catalogue|manufacturers|models|maintenance-items|maintenance-intervals|schedules|schedule-drafts|maintenance-assistance)([/?]|$)/.test(path) ||
     /^\/knowledge\/(vehicles|manage)([/?]|$)/.test(path);
 }
 

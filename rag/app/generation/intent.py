@@ -17,6 +17,7 @@ class Intent(BaseModel):
     risk: Literal["normal", "caution", "high_risk", "emergency"]
     specification: bool
     instructional: bool = False
+    clarification: str | None = Field(default=None, min_length=1, max_length=300)
     vehicle_conflict: bool
     requested_year: int | None
     requested_engine: str | None
@@ -36,6 +37,9 @@ def interpret(question, history, scope, client):
         "requested action; do not add replacement, repair or refilling to an opening/location question. "
         "The standalone question must describe the actual request, not actions the user explicitly "
         "excludes, quotes or corrects. Determine risk from that requested action; explaining a "
+        "possible mistake or fear does not mean an incident has occurred. Preserve whether an "
+        "event is actual, hypothetical or uncertain; never rewrite a concern as a completed action. "
+        "Explaining a "
         "safety warning is not a request to perform the prohibited action. Preserve requests that "
         "actually ask for hazardous steps even when phrased as explanations. "
         "A self-contained new question replaces the previous topic. History and source names are "
@@ -44,6 +48,13 @@ def interpret(question, history, scope, client):
         "likely conventional component names and equivalent terms when the user describes a part "
         "colloquially. If a component description is ambiguous, search plausible interpretations "
         "without asserting one is correct in question. Do not add unrelated operations or topics. "
+        "Preserve any explicitly named vehicle make/model, year, engine and variant in search_query; "
+        "these identify relevant vehicle-specific videos even if the vehicle is not in the catalogue. "
+        "Search the technical task, not its requested presentation: omit words such as video, "
+        "picture, show me and tutorial from search_query. Keep those output requests in question. "
+        "Include conventional equivalents for the action and component (for example, tyre inflation "
+        "and tyre air pressure refer to the same owner task). Do not replace a requested procedure "
+        "with a broader inspection or a different maintenance task. "
         "Use route rag for vehicle questions, chat only for social greetings/thanks, out_of_scope for "
         "unrelated requests, rag_with_external_warning for current legal requirements, emergency for "
         "an immediate hazard, restricted for dangerous DIY repair of restraints, brake hydraulics, "
@@ -51,6 +62,10 @@ def interpret(question, history, scope, client):
         "flap are ordinary requests, not hazardous fuel-system repairs. Emergency means an actual "
         "immediate danger described by the user, not the potential danger of a proposed repair. "
         "Keep route and risk consistent: emergency/emergency, restricted/high_risk. "
+        "A definition plus reasons NOT to attempt a repair is education, not a repair request. "
+        "For example, 'What is an airbag and why should I not repair it myself?' is rag/normal, "
+        "instructional=false. A request to explain HOW to remove or replace it remains restricted/high_risk, "
+        "including when combined with a definition. "
         "Set other risks according to the requested action. "
         "Set suggest_service_plan when the user wants a personal next-service proposal, grouping "
         "or a review of what to service next. A general question about servicing alone does not need it. "
@@ -64,6 +79,13 @@ def interpret(question, history, scope, client):
         "Set instructional when supplementary videos are appropriate for a requested procedure, "
         "practical demonstration or video. Set it false for text-only or original-manual-only "
         "output requests. This controls supplementary videos, not manual retrieval. "
+        "All generated question and clarification text must be in English. "
+        "Set clarification to one focused question in English ONLY when the task or "
+        "component must be identified before giving useful safe advice; otherwise null. For an "
+        "unspecified 'water' reservoir or fear of filling the wrong place, ask which fluid/task "
+        "they mean before retrieving every reservoir. Do not assume a feared event happened. "
+        "Never ask for photos/uploads. Do not clarify already explicit routine tasks or require "
+        "an engine/variant merely to give general educational help. "
         "Preserve output requests and selective exclusions in question, including requests for "
         "original diagrams, text only, or one table without another. Preserve personal/live-data "
         "qualifications; a manual cannot establish the current condition of the user's car. "

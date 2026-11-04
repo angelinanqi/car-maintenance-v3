@@ -98,6 +98,8 @@ export const loadCatalogue = (): Promise<Catalogue> =>
   request("/admin/catalogue");
 export const loadItems = (): Promise<MaintenanceItem[]> =>
   listAll("/admin/maintenance-items");
+export const loadMaintenanceIntervals = (): Promise<Schedule[]> =>
+  listAll("/admin/maintenance-intervals");
 export const loadSchedules = (vehicleId: string): Promise<Schedule[]> =>
   listAll("/admin/schedules", { vehicle_id: vehicleId });
 export const saveManufacturer = (id: string, body: Omit<Manufacturer, "id"> & { id?: string }) =>

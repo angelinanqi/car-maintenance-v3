@@ -3,6 +3,19 @@ import ChatAttachment from "./ChatAttachment";
 import ChatAnswer from "./ChatAnswer";
 import ManualSourceLink from "./ManualSourceLink";
 import ContentMedia from "../ContentMedia";
+import { chatLayout } from "@/lib/chatLayout.mjs";
+
+function ManualOriginals({ attachments, heading = false }) {
+  if (!attachments.length) return null;
+  return <Box as="section" aria-label="Manual originals">
+    {heading && <Text fontSize="sm" fontWeight="semibold" mb={3}>From the manual</Text>}
+    <SimpleGrid columns={{ base: 1, sm: attachments.length > 1 ? 2 : 1 }} gap={3}>
+      {attachments.map(attachment => <ChatAttachment
+        key={`${attachment.document_id}-${attachment.source_revision}-${attachment.element_id}`}
+        attachment={attachment} sourceLabel={attachment.reference_label} />)}
+    </SimpleGrid>
+  </Box>;
+}
 
 const sourceTypes = {
   learning_guide: "Learning guide",
@@ -26,6 +39,7 @@ export default function ChatMessage({ message, onMaintenance, onEmergency, onGui
   const sources = (Array.isArray(message.sources) ? message.sources : []).filter(Boolean);
   const failed = ["generation_error", "retrieval_error"].includes(message.response_type);
   const attachments = (Array.isArray(message.attachments) ? message.attachments : []).filter(Boolean);
+  const layout = chatLayout(message.answer, message.answer_sections, attachments);
   const manualLinks = (Array.isArray(message.manual_links) ? message.manual_links : []).filter(Boolean);
   const guides = (Array.isArray(message.recommended_guides) ? message.recommended_guides : []).filter(Boolean);
 
@@ -48,16 +62,13 @@ export default function ChatMessage({ message, onMaintenance, onEmergency, onGui
         </Text>
         {isUser
           ? <Text fontSize="md" whiteSpace="pre-wrap" overflowWrap="anywhere" lineHeight="1.7">{message.answer}</Text>
-          : <ChatAnswer>{message.answer}</ChatAnswer>}
-        {!isUser && attachments.length > 0 && <Box as="section" aria-label="Manual originals">
-          <Text fontSize="sm" fontWeight="semibold" mb={3}>From the manual</Text>
-          <SimpleGrid columns={{ base: 1, sm: attachments.length > 1 ? 2 : 1 }} gap={3}>
-            {attachments.map((attachment) => (
-              <ChatAttachment key={`${attachment.document_id}-${attachment.source_revision}-${attachment.element_id}`}
-                attachment={attachment} sourceLabel={attachment.reference_label} />
-            ))}
-          </SimpleGrid>
-        </Box>}
+          : layout.sections.length
+            ? <Stack gap={4}>{layout.sections.map((section, index) => <Stack key={index} gap={3}>
+                <ChatAnswer>{section.text}</ChatAnswer>
+                <ManualOriginals attachments={section.attachments} />
+              </Stack>)}</Stack>
+            : <ChatAnswer>{message.answer}</ChatAnswer>}
+        {!isUser && <ManualOriginals attachments={layout.remainingAttachments} heading />}
         {!isUser && <ContentMedia items={Array.isArray(message.content_media) ? message.content_media : []} />}
         {isUser && message.failed && (
           <Text fontSize="sm" color="red.600">
@@ -145,7 +156,7 @@ export default function ChatMessage({ message, onMaintenance, onEmergency, onGui
               >
                 <Stack gap={2} align="start">
                   <Text fontSize="sm" color="gray.600">
-                    Supplementary video
+                    Related video · External tutorial{video.channel_title ? ` · ${video.channel_title}` : ""}
                   </Text>
                   <Text
                     fontSize="sm"
@@ -153,6 +164,12 @@ export default function ChatMessage({ message, onMaintenance, onEmergency, onGui
                     overflowWrap="anywhere"
                   >
                     {video.title}
+                  </Text>
+                  <Text fontSize="xs" color="gray.600">
+                    {video.matched_using === "title_and_description"
+                      ? "Matched using its title and description. "
+                      : ""}
+                    Content and vehicle compatibility have not been verified.
                   </Text>
                   {typeof video.timestamp === "number" &&
                     Number.isFinite(video.timestamp) &&

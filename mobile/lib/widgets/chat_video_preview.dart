@@ -30,7 +30,8 @@ class ChatVideoPreview extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final thumbnail = youtubeThumbnail(video['url'] as String? ?? '');
-    final seconds = (video['timestamp'] as num? ?? 0).toInt().clamp(0, 86400);
+    final timestamp = video['timestamp'] as num?;
+    final seconds = (timestamp ?? 0).toInt().clamp(0, 86400);
     final time =
         '${seconds ~/ 60}:${(seconds % 60).toString().padLeft(2, '0')}';
     const fallback = SizedBox(
@@ -68,6 +69,8 @@ class ChatVideoPreview extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      Text('Related video · External tutorial',
+                          style: theme.textTheme.labelSmall),
                       Text(
                         video['title'] as String? ?? 'Watch related video',
                         style: theme.textTheme.titleSmall,
@@ -76,7 +79,14 @@ class ChatVideoPreview extends StatelessWidget {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'YouTube · $time · Opens externally',
+                        'YouTube${video['channel_title'] == null || video['channel_title'] == '' ? '' : ' · ${video['channel_title']}'}'
+                        '${timestamp == null ? '' : ' · $time'} · Opens externally',
+                        style: theme.textTheme.bodySmall,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '${video['matched_using'] == 'title_and_description' ? 'Matched using its title and description. ' : ''}'
+                        'Content and vehicle compatibility have not been verified.',
                         style: theme.textTheme.bodySmall,
                       ),
                     ],

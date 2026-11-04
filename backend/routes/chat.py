@@ -13,7 +13,9 @@ router = APIRouter()
 @router.put('/chat/sessions/{session_id}')
 def create_session(session_id: UUID, request: ChatSessionInput, user=Depends(auth.require_user)):
     from backend.services.chat import create_session
-    return create_session(str(session_id), request.session_token, user)
+    return create_session(str(session_id), request.session_token, user,
+                          scope_type=request.scope_type,
+                          scope_id=str(request.scope_id) if request.scope_id else None)
 
 
 @router.post("/chat")

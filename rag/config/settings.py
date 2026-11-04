@@ -47,13 +47,15 @@ CHUNK_SIZE = int(os.getenv("CHUNK_SIZE") or "2000")
 RAG_RETRIEVAL_MODE = os.getenv("RAG_RETRIEVAL_MODE") or "hybrid"
 RAG_CANDIDATES = int(os.getenv("RAG_CANDIDATES") or "20")
 # Normal chat retrieves 3 * max(RAG_TOP_K, RAG_CANDIDATES) manual candidates
-# (60 by default), then retains RAG_TOP_K prose chunks plus separate visual evidence.
+# (60 by default), then jointly reranks manual/guide prose and retains RAG_TOP_K
+# text chunks plus separate visual evidence.
 # Increasing the context budget does not increase this prose selection limit.
 RAG_RRF_K = int(os.getenv("RAG_RRF_K") or "60")
 RAG_CONTEXT_CHARS = int(os.getenv("RAG_CONTEXT_CHARS") or "16000")
 # In the chat path this reranks retrieved visual candidates before their budgets;
 # paragraph order stays hybrid-ranked. These are the evaluated candidate defaults.
 RAG_RERANK = (os.getenv("RAG_RERANK") or "true").lower() == "true"
+RAG_GROUNDING_REVIEW = (os.getenv("RAG_GROUNDING_REVIEW") or "true").lower() == "true"
 # Supply a bounded set of original pages/crops in the existing answer call.
 RAG_VISUAL_INPUTS = (os.getenv('RAG_VISUAL_INPUTS') or 'true').lower() == 'true'
 # Table originals have their own budget, independent of illustration selection.

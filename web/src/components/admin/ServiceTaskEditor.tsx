@@ -33,6 +33,7 @@ export default function ServiceTaskEditor({
   onRemove,
   onSource,
   onClarify,
+  initiallyOpen = false,
 }: {
   entry: ScheduleEntry;
   index: number;
@@ -43,6 +44,7 @@ export default function ServiceTaskEditor({
   onRemove: () => void;
   onSource: (documentId?: string, page?: number) => void;
   onClarify: () => void;
+  initiallyOpen?: boolean;
 }) {
   const item = items.find((item) => item.id === entry.itemId);
   const source = sources.find(
@@ -61,8 +63,8 @@ export default function ServiceTaskEditor({
     onChange({ ...entry, rule: { ...entry.rule, ...values } });
   }
   return (
-    <Box id={`schedule-task-${index + 1}`} bg="white" borderWidth="1px" borderRadius="10px" p={4}>
-      <Collapsible.Root defaultOpen={!entry.itemId}>
+    <Box id={`schedule-task-${index + 1}`} scrollMarginTop="24px" bg="white" borderWidth="1px" borderRadius="10px" p={4}>
+      <Collapsible.Root defaultOpen={!entry.itemId || initiallyOpen}>
         <Grid templateColumns={{ base: "1fr", lg: "minmax(0, 1fr) minmax(0, 1fr)" }} gap={3} alignItems="start">
           <Box minW={0}>
             <Text fontSize="xs" color="muted">Task {index + 1} · {entry.action}</Text>

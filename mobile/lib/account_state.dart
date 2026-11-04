@@ -153,6 +153,12 @@ class AccountState extends ChangeNotifier {
   });
 
   void _apply(AccountSession? session) {
+    if (recoveringPassword) return;
+    if (session != null && !repository.hasSession) {
+      throw const ApiException(
+        'Your session ended. Sign in again to continue.',
+      );
+    }
     pendingSession = session?.accessAllowed == false ? session : null;
     _accept(session?.accessAllowed == true ? session : null);
   }

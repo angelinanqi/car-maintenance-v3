@@ -96,6 +96,7 @@ class Request(BaseModel):
 
 class Answer(BaseModel):
     answer: str = Field(min_length=1)
+    answer_sections: list[dict] = Field(default_factory=list, max_length=16)
     route: str = 'rag'
     videos: list[dict] = Field(default_factory=list)
     sources: list[dict] = Field(default_factory=list)

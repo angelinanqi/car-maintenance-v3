@@ -65,6 +65,14 @@ class ActivityUpdate(InputModel):
 
 class ChatSessionInput(InputModel):
     session_token: str = Field(min_length=32, max_length=128)
+    scope_type: Literal['vehicle', 'category'] | None = None
+    scope_id: UUID | None = None
+
+    @model_validator(mode='after')
+    def paired_scope(self):
+        if bool(self.scope_type) != bool(self.scope_id):
+            raise ValueError('Supply both scope_type and scope_id.')
+        return self
 
 
 class PlanPreviewInput(InputModel):

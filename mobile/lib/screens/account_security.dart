@@ -172,11 +172,15 @@ class _AccountSecurityState extends State<AccountSecurity> {
       await account.resetPassword(_password.text);
       return;
     }
+    final factors =
+        account.pendingSession?.factorIds ??
+        account.user?.factorIds ??
+        <String>[];
     final factorId =
         _enrollment?.id ??
-        _selectedFactor ??
-        (account.pendingSession?.factorIds ?? account.user?.factorIds ?? [])
-            .firstOrNull;
+        (factors.contains(_selectedFactor)
+            ? _selectedFactor
+            : factors.firstOrNull);
     if (factorId == null) return;
     final success = await account.verifyFactor(factorId, _code.text.trim());
     if (!mounted || !success) return;
@@ -246,6 +250,9 @@ class _AccountSecurityState extends State<AccountSecurity> {
     final recovery = account.recoveringPassword;
     final session = account.pendingSession ?? account.user;
     final factors = session?.factorIds ?? [];
+    final selectedFactor = factors.contains(_selectedFactor)
+        ? _selectedFactor
+        : factors.firstOrNull;
     final busy = _loading || account.busy;
     final enrollment = _enrollment;
     return PopScope(
@@ -324,7 +331,7 @@ class _AccountSecurityState extends State<AccountSecurity> {
                 if (factors.isNotEmpty && enrollment == null)
                   DropdownButtonFormField<String>(
                     key: ValueKey(factors.join(',')),
-                    initialValue: _selectedFactor ?? factors.first,
+                    initialValue: selectedFactor,
                     decoration: const InputDecoration(
                       labelText: 'Authenticator',
                     ),
@@ -361,14 +368,11 @@ class _AccountSecurityState extends State<AccountSecurity> {
                 if (!widget.requiredFlow &&
                     factors.length > 1 &&
                     _verifiedFactor != null &&
-                    (_selectedFactor ?? factors.first) != _verifiedFactor)
+                    selectedFactor != _verifiedFactor)
                   TextButton(
                     onPressed: busy
                         ? null
-                        : () => _remove(
-                            account,
-                            _selectedFactor ?? factors.first,
-                          ),
+                        : () => _remove(account, selectedFactor!),
                     child: const Text('Remove selected authenticator'),
                   ),
               ],

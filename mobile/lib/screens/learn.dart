@@ -451,7 +451,7 @@ class _LearnState extends State<Learn> {
                 const Padding(
                   padding: EdgeInsets.only(top: 12),
                   child: Text(
-                    'Weekly goal tracks guides completed in this app session. Account synchronization will be added later.',
+                    'Your weekly goal counts guides completed since Monday. Progress is saved to your account when online.',
                     style: TextStyle(fontSize: 12, color: AppColors.muted),
                   ),
                 ),

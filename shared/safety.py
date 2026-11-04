@@ -20,9 +20,34 @@ RESTRICTED_ANSWER = (
 )
 
 
+def requested_action_text(question):
+    """Exclude explicit negated actions, keeping any other requested repair verbs."""
+    return re.sub(
+        r"\b(?:(?:should|must|would|can|do)\s+(?:i|we|you)\s+(?:not|never)|"
+        r"(?:shouldn't|mustn't|wouldn't|can't|cannot|don't)\s+(?:i|we|you))\s+"
+        r"(?:ever\s+)?(?:try to\s+|attempt to\s+)?"
+        r"(?:repair|rebuild|replace|change|remove|install|service|disassemble|bypass|disable|disconnect|bleed|rewire|fix|modify|deactivate|tamper)\b",
+        "", question.lower())
+
+
+def educational_only(question):
+    """Only explicit reasons not to repair can override a mistaken refusal."""
+    text = requested_action_text(question)
+    return bool(text != question.lower()
+                and re.match(r"\s*(?:what (?:is|are|does)|how does|why (?:should|shouldn't|must|is|are))\b", question.lower())
+                and not re.search(REPAIR, text)
+                and not re.search(r"\b(?:steps?|instructions?|procedure|walk me through|how to|show me|teach me|"
+                                  r"way|method|technique|guide|approach|take out|detach|cut|unplug)\b", text))
+
+
 def immediate_emergency(question):
     """Existing conservative fast path; repair requests require interpretation."""
     text = question.lower()
+    # An explicit current Malay overheating report should not wait for model
+    # interpretation. Conditional/educational Malay reports remain ordinary.
+    if (re.search(r'\benjin\b.{0,50}\b(?:terlalu panas|overheat)\b.{0,35}\bsekarang\b', text)
+            and not re.search(r'\b(kalau|jika|sekiranya)\b', text)):
+        return True
     explanation = bool(re.match(r"\s*(what (?:is|are|does)|how does|explain)\b", text))
     current_marker = bool(re.search(r"\b(right now|currently|just happened)\b", text))
     hypothetical = bool(re.match(
@@ -47,7 +72,7 @@ def policy_risk(question):
     """Backstop over the resolved request, not excluded actions in raw history."""
     if immediate_emergency(question):
         return "emergency"
-    text = question.lower()
+    text = requested_action_text(question)
     interval = bool(re.search(r"\b(how often|interval|schedule)\b|when.*\b(change|replace|service)\b", text))
     if not interval and re.search(REPAIR, text) and any(re.search(component, text) for component in RESTRICTED_COMPONENTS):
         return "high_risk"
@@ -67,7 +92,14 @@ def policy_risk(question):
 
 def enforce_policy(intent):
     """Produce a consistent route/risk once for all downstream consumers."""
-    risks = {policy_risk(intent.question), intent.risk}
+    action_risk = policy_risk(intent.question)
+    if educational_only(intent.question) and action_risk == 'normal':
+        if intent.route == 'restricted':
+            intent.route = 'rag'
+        if intent.risk == 'high_risk':
+            intent.risk = 'normal'
+        intent.instructional = False
+    risks = {action_risk, intent.risk}
     if intent.route == "emergency" or "emergency" in risks:
         intent.route, intent.risk = "emergency", "emergency"
     elif intent.route == "restricted" or "high_risk" in risks:
@@ -100,7 +132,7 @@ def emergency_topics(text):
 def emergency_guidance(question):
     """General safety advice; no diagnosis or vehicle-specific manoeuvre."""
     text = question.lower()
-    if "overheat" in text:
+    if ('overheat' in text or re.search(r'\benjin\b.{0,50}\bpanas\b|\b(?:steam|wap)\b', text)):
         return (
             "General safety advice: stop driving and pull over as soon as it is safe. "
             "Switch off the engine once safely stopped and arrange roadside assistance. "

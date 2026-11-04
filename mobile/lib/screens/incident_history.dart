@@ -1,6 +1,7 @@
 import '../app_spacing.dart';
 import 'package:flutter/material.dart';
 import '../data/accident_repository.dart';
+import '../data/api_client.dart';
 import 'accident_form.dart';
 import 'accident_reports.dart';
 import '../widgets/design_widgets.dart';
@@ -56,10 +57,12 @@ class _IncidentHistoryState extends State<IncidentHistory> {
       await operation();
       await _load();
     } catch (error) {
+      if (mounted) await _load();
       if (mounted) {
         setState(
-          () => _error =
-              'Could not complete this action. Local records remain saved. Check your connection and retry.',
+          () => _error = error is ApiException
+              ? error.message
+              : 'Could not complete this action. Local records remain saved. Check your connection and retry.',
         );
       }
     } finally {
@@ -329,29 +332,55 @@ class _IncidentHistoryState extends State<IncidentHistory> {
           ),
         ..._records.map(
           (r) => Card.outlined(
-            child: ListTile(
-              title: Text(r['type'] as String? ?? 'Incident'),
-              subtitle: Text(
-                '${_incidentTime(context, r)}\n${r['location'] ?? ''}\n${r['pendingSync'] == false
-                    ? 'Text backed up'
-                    : _backup
-                    ? 'Waiting for text backup'
-                    : 'Saved locally'}',
-              ),
-              trailing: const Icon(Icons.edit_outlined),
-              onTap: () async {
-                await Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => AccidentForm(
-                      repository: widget.repository,
-                      record: r,
-                      onHelp: widget.onHelp,
+            child: Column(
+              children: [
+                ListTile(
+                  title: Text(r['type'] as String? ?? 'Incident'),
+                  subtitle: Text(
+                    '${_incidentTime(context, r)}\n${r['location'] ?? ''}\n${r['pendingSync'] == false
+                        ? 'Text backed up'
+                        : _backup
+                        ? 'Waiting for text backup'
+                        : 'Saved locally'}',
+                  ),
+                  trailing: const Icon(Icons.edit_outlined),
+                  onTap: () async {
+                    await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => AccidentForm(
+                          repository: widget.repository,
+                          record: r,
+                          onHelp: widget.onHelp,
+                        ),
+                      ),
+                    );
+                    if (mounted) await _load();
+                  },
+                ),
+                if (r['cloudConflict'] == true)
+                  Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      children: [
+                        const Text(
+                          'This incident has different local and cloud copies. Keep both to preserve each version and your local photos.',
+                        ),
+                        OutlinedButton(
+                          onPressed: _busy
+                              ? null
+                              : () => _operation(() async {
+                                  await widget.repository.keepBothCopies(
+                                    r['id'] as String,
+                                  );
+                                  await widget.repository.sync();
+                                }),
+                          child: const Text('Keep both copies'),
+                        ),
+                      ],
                     ),
                   ),
-                );
-                await _load();
-              },
+              ],
             ),
           ),
         ),

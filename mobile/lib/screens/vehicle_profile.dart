@@ -200,45 +200,47 @@ class _VehicleProfilePageState extends State<VehicleProfilePage> {
     }
   }
 
-  Future<T?> _pick<T>(String title, List<T> values, String Function(T) label) =>
-      showModalBottomSheet<T>(
-        context: context,
-        isScrollControlled: true,
-        useSafeArea: true,
-        builder: (context) => DraggableScrollableSheet(
-          expand: false,
-          initialChildSize: .65,
-          builder: (context, controller) => StatefulBuilder(
-            builder: (context, update) => Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: TextField(
-                    decoration: InputDecoration(labelText: 'Search $title'),
-                    onChanged: (value) => update(() => _search = value),
-                  ),
+  Future<T?> _pick<T>(String title, List<T> values, String Function(T) label) {
+    _search = '';
+    return showModalBottomSheet<T>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (context) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: .65,
+        builder: (context, controller) => StatefulBuilder(
+          builder: (context, update) => Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: TextField(
+                  decoration: InputDecoration(labelText: 'Search $title'),
+                  onChanged: (value) => update(() => _search = value),
                 ),
-                Expanded(
-                  child: ListView(
-                    controller: controller,
-                    children: [
-                      for (final value in values.where(
-                        (v) => label(
-                          v,
-                        ).toLowerCase().contains(_search.toLowerCase()),
-                      ))
-                        ListTile(
-                          title: Text(label(value)),
-                          onTap: () => Navigator.pop(context, value),
-                        ),
-                    ],
-                  ),
+              ),
+              Expanded(
+                child: ListView(
+                  controller: controller,
+                  children: [
+                    for (final value in values.where(
+                      (v) => label(
+                        v,
+                      ).toLowerCase().contains(_search.toLowerCase()),
+                    ))
+                      ListTile(
+                        title: Text(label(value)),
+                        onTap: () => Navigator.pop(context, value),
+                      ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
-      );
+      ),
+    );
+  }
 
   Widget _choice(String label, String value, VoidCallback? tap) => Padding(
     padding: const EdgeInsets.only(bottom: AppSpacing.standard),

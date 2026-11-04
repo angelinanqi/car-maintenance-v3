@@ -18,6 +18,7 @@ import ListFilters from "@/components/admin/ListFilters";
 import FormField from "@/components/admin/FormField";
 import { AdminSelect } from "@/components/admin/NativeControls";
 import MaintenanceItemEditor from "@/components/admin/MaintenanceItemEditor";
+import ServiceTaskIntervals, { useMaintenanceIntervals } from "@/components/admin/ServiceTaskIntervals";
 import { loadItems, type MaintenanceItem } from "@/api/admin";
 import { useContent } from "@/components/ContentProvider";
 
@@ -43,6 +44,8 @@ export default function MaintenanceItemsPage() {
   const [status, setStatus] = useState("all");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const intervals = useMaintenanceIntervals();
+  const [vehicleId, setVehicleId] = useState("");
   useEffect(() => {
     let active = true;
     loadItems()
@@ -66,6 +69,7 @@ export default function MaintenanceItemsPage() {
     if (loading) return;
     setLoading(true);
     setError("");
+    intervals.reload();
     try {
       setItems(await loadItems());
       setLoaded(true);
@@ -108,10 +112,22 @@ export default function MaintenanceItemsPage() {
   return (
     <AdminLayout
       title="Service Task Library"
-      description="The names of service tasks used across vehicles, such as checking tyres or replacing engine oil. Open a vehicle to set when each task is needed."
+      description="Manage service tasks and see their maintenance intervals by vehicle. Published intervals are available to drivers; drafts and unset intervals need review against the vehicle’s manual."
     >
       <Stack gap={5}>
         {notice && <Text role="status">{notice}</Text>}
+        {intervals.error && <Box role="alert">
+          <Text>Vehicle intervals could not be loaded: {intervals.error}</Text>
+          <Button variant="outline" mt={2} onClick={intervals.reload}>Retry intervals</Button>
+        </Box>}
+        <FormField label="Show maintenance intervals for" hint="Intervals can differ by model year and equipment. Choose a vehicle to check its schedule.">
+          <AdminSelect value={vehicleId} disabled={intervals.loading} onChange={(event) => setVehicleId(event.target.value)}>
+            <option value="">All vehicles</option>
+            {intervals.vehicles.map((vehicle) => <option key={vehicle.id} value={vehicle.id}>
+              {[vehicle.name, vehicle.year, vehicle.variant].filter(Boolean).join(" · ")}
+            </option>)}
+          </AdminSelect>
+        </FormField>
         {error && (
           <Box role="alert">
             <Text>{error}</Text>
@@ -243,6 +259,8 @@ export default function MaintenanceItemsPage() {
                     Edit
                   </Button>
                 </Flex>
+                <ServiceTaskIntervals itemId={row.id} schedules={intervals.schedules} vehicles={intervals.vehicles}
+                  vehicleId={vehicleId} loading={intervals.loading} error={intervals.error} />
                 <Box bg="canvas" px={3} py={2} borderRadius="6px" mt={4}>
                   <Text fontSize="sm" fontWeight="600">
                     Related learning guides

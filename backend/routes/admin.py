@@ -140,12 +140,17 @@ def validate_schedule(values, publishing=False):
     db.get("knowledge_vehicles", vehicle_id)
     if publishing:
         review_questions.check_schedule(values)
+    item_ids = {entry['itemId'] for entry in values['entries'] if entry['itemId']}
+    item_rows = {row['id']: row for row in db.all_rows('maintenance_items', id=list(item_ids))} if item_ids else {}
+    documents, associations, source_reviews = {}, {}, {}
     items = set()
     for index, entry in enumerate(values["entries"], 1):
         item_id = entry["itemId"]
         task = f"Task {index}"
         if item_id:
-            item = db.get("maintenance_items", item_id)
+            item = item_rows.get(item_id)
+            if item is None:
+                raise HTTPException(404, "Record not found.")
             task += f" ({item['title']})"
             if item_id in items:
                 raise HTTPException(422, "A schedule cannot contain duplicate maintenance items.")
@@ -158,16 +163,24 @@ def validate_schedule(values, publishing=False):
         document_id = rule["sourceDocumentId"]
         markdown_source = False
         if document_id:
-            document = db.get("documents", document_id)
+            # These facts are shared by many rows in one locked save/publication.
+            # Keep the cache local so the next request checks current data again.
+            if document_id not in documents:
+                documents[document_id] = db.get("documents", document_id)
+                associations[document_id] = db.all_rows("document_vehicles", document_id=document_id, vehicle_id=vehicle_id)
+            document = documents[document_id]
             markdown_source = document['source_type'] == 'md'
             if rule.get('sourceRevision') and rule['sourceRevision'] != document['source_revision']:
                 raise HTTPException(409, 'The schedule source revision changed. Review and import its current source again.')
-            if not db.all_rows("document_vehicles", document_id=document_id, vehicle_id=vehicle_id):
+            if not associations[document_id]:
                 raise HTTPException(422, "The source document must be associated with the selected vehicle.")
             if rule.get('sourceTableId'):
                 if not rule.get('sourceRevision'):
                     raise HTTPException(422, 'A table reference requires its document revision.')
-                reviews = db.all_rows('maintenance_assistance', document_id=document_id, source_revision=rule['sourceRevision'])
+                review_key = (document_id, rule['sourceRevision'])
+                if review_key not in source_reviews:
+                    source_reviews[review_key] = db.all_rows('maintenance_assistance', document_id=document_id, source_revision=rule['sourceRevision'])
+                reviews = source_reviews[review_key]
                 review = reviews[0] if reviews else None
                 allowed = ({s['table_id'] for s in review['selections']} | {b['table_id'] for b in review['bookmarks']}) if review else set()
                 if rule['sourceTableId'] not in allowed:
@@ -271,6 +284,13 @@ def edit_item(item_id: UUID, request: ItemInput):
 def schedule_drafts(offset: int = Query(0, ge=0), limit: int = Query(settings.API_PAGE_SIZE, ge=1, le=1000)):
     rows = db.list_rows("manufacturer_schedules", offset=offset, limit=limit, status="draft")
     return [{key: row.get(key) for key in ("id", "vehicle_id", "revision", "updated_at", "admin_note")} for row in rows]
+
+
+@router.get("/maintenance-intervals")
+def maintenance_intervals(offset: int = Query(0, ge=0), limit: int = Query(settings.API_PAGE_SIZE, ge=1, le=1000)):
+    # Keep drafts visible for review without presenting them as driver guidance.
+    return db.list_rows("manufacturer_schedules", offset=offset, limit=limit,
+                        status=["draft", "published"])
 
 
 @router.get("/schedules")

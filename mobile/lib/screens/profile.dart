@@ -15,8 +15,8 @@ class Profile extends StatefulWidget {
 }
 
 class _ProfileState extends State<Profile> {
-  String _familyName = '', _familyPhone = '', _unit = 'km';
-  bool _reminders = false, _busy = false;
+  String _familyName = '', _familyPhone = '';
+  bool _busy = false;
   String? _feedback;
   @override
   void initState() {
@@ -31,8 +31,6 @@ class _ProfileState extends State<Profile> {
         setState(() {
           _familyName = data['familyName'] as String? ?? '';
           _familyPhone = data['familyPhone'] as String? ?? '';
-          _unit = data['unit'] as String? ?? 'km';
-          _reminders = data['reminders'] == true;
         });
     } catch (_) {
       if (mounted)
@@ -42,17 +40,10 @@ class _ProfileState extends State<Profile> {
     }
   }
 
-  Future<void> _preferences({
-    String? name,
-    String? phone,
-    String? unit,
-    bool? reminders,
-  }) async {
+  Future<void> _preferences({String? name, String? phone}) async {
     final data = {
       'familyName': name ?? _familyName,
       'familyPhone': phone ?? _familyPhone,
-      'unit': unit ?? _unit,
-      'reminders': reminders ?? _reminders,
     };
     setState(() => _busy = true);
     try {
@@ -61,13 +52,12 @@ class _ProfileState extends State<Profile> {
         setState(() {
           _familyName = data['familyName'] as String;
           _familyPhone = data['familyPhone'] as String;
-          _unit = data['unit'] as String;
-          _reminders = data['reminders'] as bool;
           _feedback = 'Preference saved on this device.';
         });
     } catch (_) {
       if (mounted)
         setState(() => _feedback = 'Preference could not be saved. Try again.');
+      rethrow;
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -80,15 +70,17 @@ class _ProfileState extends State<Profile> {
       builder: (_) => _ContactEditor(
         name: family ? _familyName : widget.state.contactName,
         phone: family ? _familyPhone : widget.state.contactPhone,
-        onSave: family ? null : widget.state.saveContact,
+        onSave: family
+            ? (name, phone) => _preferences(name: name, phone: phone)
+            : widget.state.saveContact,
       ),
     );
     if (value == null || !mounted) return;
-    if (family) {
-      await _preferences(name: value.$1, phone: value.$2);
-      return;
-    }
-    setState(() => _feedback = 'Roadside contact saved on this device.');
+    setState(
+      () => _feedback = family
+          ? 'Family contact saved on this device.'
+          : 'Roadside contact saved on this device.',
+    );
   }
 
   @override
@@ -166,29 +158,12 @@ class _ProfileState extends State<Profile> {
             trailing: StatusPill(_familyPhone.isEmpty ? 'Add' : 'Edit'),
           ),
           const SizedBox(height: 8),
-          Text('Preferences', style: Theme.of(context).textTheme.titleMedium),
+          Text(
+            'Maintenance tracking',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
           const SizedBox(height: AppSpacing.standard),
           SurfaceCard(
-            onTap: _busy
-                ? null
-                : () async {
-                    final unit = await showDialog<String>(
-                      context: context,
-                      builder: (_) => SimpleDialog(
-                        title: const Text('Distance units'),
-                        children: [
-                          for (final unit in ['km', 'mi'])
-                            SimpleDialogOption(
-                              onPressed: () => Navigator.pop(context, unit),
-                              child: Text(
-                                unit == 'km' ? 'Kilometres (km)' : 'Miles (mi)',
-                              ),
-                            ),
-                        ],
-                      ),
-                    );
-                    if (unit != null && mounted) await _preferences(unit: unit);
-                  },
             child: Row(
               children: [
                 const Expanded(
@@ -197,23 +172,18 @@ class _ProfileState extends State<Profile> {
                     style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
                   ),
                 ),
-                Text(_unit, style: const TextStyle(color: AppColors.muted)),
-                const Icon(Icons.chevron_right),
+                const Text('km', style: TextStyle(color: AppColors.muted)),
               ],
             ),
           ),
           SurfaceCard(
-            child: SwitchListTile(
+            child: const ListTile(
               contentPadding: EdgeInsets.zero,
-              title: const Text('Reminders'),
-              subtitle: const Text(
-                'Preference only; notifications are not scheduled yet.',
+              title: Text('Service reminders'),
+              subtitle: Text(
+                'Check Home and My Car for upcoming and overdue work. Update your odometer and service history to keep reminders current.',
                 style: TextStyle(fontSize: 12),
               ),
-              value: _reminders,
-              onChanged: _busy
-                  ? null
-                  : (value) => _preferences(reminders: value),
             ),
           ),
           if (_busy || account?.busy == true) const LinearProgressIndicator(),

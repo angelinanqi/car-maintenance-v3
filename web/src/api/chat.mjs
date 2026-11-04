@@ -19,8 +19,8 @@ export async function sendChatMessage(payload, signal) {
   return result;
 }
 
-export const createChatSession = (session, signal) => request(`/chat/sessions/${session.id}`, {
-  method: 'PUT', body: { session_token: session.token }, signal,
+export const createChatSession = (session, signal, scope = {}) => request(`/chat/sessions/${session.id}`, {
+  method: 'PUT', body: { session_token: session.token, ...scope }, signal,
 });
 export const resumeChat = (id, { messageId, signal } = {}) => request(
   `/chat/sessions/${id}/resume${messageId ? `?message_id=${encodeURIComponent(messageId)}` : ''}`,

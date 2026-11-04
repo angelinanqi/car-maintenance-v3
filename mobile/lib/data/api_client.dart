@@ -60,10 +60,12 @@ class ApiClient {
     Duration? requestTimeout,
   }) async {
     final logPath = remote == null ? path.split('?').first : 'external image';
+    final abort = Completer<void>();
     try {
-      final request = http.Request(
+      final request = http.AbortableRequest(
         method,
         remote ?? endpoint(path, query: query),
+        abortTrigger: abort.future,
       );
       if (body != null) {
         request.headers['Content-Type'] = 'application/json';
@@ -130,6 +132,9 @@ class ApiClient {
         'ERROR [mobile-api] $method $logPath returned an invalid response.',
       );
       throw const ApiException('The backend returned an unexpected response.');
+    } finally {
+      // Future.timeout alone leaves the socket/download running in the background.
+      if (!abort.isCompleted) abort.complete();
     }
   }
 
@@ -187,8 +192,14 @@ class ApiClient {
     String path, {
     Map<String, String>? query,
     String? token,
+    Duration? requestTimeout,
   }) async {
-    final response = await _request(path, query: query, token: token);
+    final response = await _request(
+      path,
+      query: query,
+      token: token,
+      requestTimeout: requestTimeout,
+    );
     try {
       final decoded = jsonDecode(response.body);
       if (decoded is! List ||
@@ -212,13 +223,12 @@ class ApiClient {
     final rows = <Map<String, dynamic>>[];
     final timer = Stopwatch()..start();
     final identities = <String>{};
+    final budget = totalTimeout ?? timeout;
     if (pageSize < 1 || pageSize > 1000)
       throw const ApiException('Invalid pagination configuration.');
     while (true) {
-      final remaining = totalTimeout == null
-          ? null
-          : totalTimeout - timer.elapsed;
-      if (remaining != null && remaining <= Duration.zero) {
+      final remaining = budget - timer.elapsed;
+      if (remaining <= Duration.zero) {
         throw const ApiException(
           'Loading the catalogue timed out. Please retry.',
         );
@@ -227,25 +237,22 @@ class ApiClient {
         path,
         query: {...query, 'offset': '${rows.length}', 'limit': '$pageSize'},
         token: token,
+        requestTimeout: remaining < timeout ? remaining : timeout,
       );
       List<Map<String, dynamic>> page;
       try {
-        page = remaining == null
-            ? await operation
-            : await operation.timeout(remaining);
+        page = await operation.timeout(remaining);
       } on TimeoutException {
         throw const ApiException(
           'Loading the catalogue timed out. Please retry.',
         );
       }
-      if (totalTimeout != null) {
-        for (final row in page) {
-          final id = row['id'];
-          if (id is! String || id.isEmpty || !identities.add(id)) {
-            throw const ApiException(
-              'The catalogue returned invalid or repeating records. Please refresh.',
-            );
-          }
+      for (final row in page) {
+        final id = row['id'];
+        if (id is! String || id.isEmpty || !identities.add(id)) {
+          throw const ApiException(
+            'The catalogue returned invalid or repeating records. Please refresh.',
+          );
         }
       }
       rows.addAll(page);

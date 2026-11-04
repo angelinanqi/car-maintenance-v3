@@ -15,6 +15,7 @@ from backend.services import vehicle_profiles
 from backend.services import personal_maintenance
 from backend import settings
 from shared.safety import immediate_emergency, emergency_guidance
+from shared.answer_sections import validated_sections
 
 # One process is the existing supported backend deployment. Concurrent turns
 # in one conversation are rejected instead of interleaving their histories.
@@ -22,14 +23,27 @@ _active = set()
 EMERGENCY_PROTOCOL_TIMEOUT = 1.0
 
 
-def create_session(session_id, token, user):
+def create_session(session_id, token, user, *, scope_type=None, scope_id=None):
     from backend.locks import content_lock
+    if scope_type and user.get('role') != 'admin':
+        raise HTTPException(403, 'Catalogue test sessions require administrator access.')
+    if scope_type:
+        scopes.resolve(scope_type, scope_id)
     with content_lock('chat:' + session_id):
         existing = db.all_rows('chat_sessions', id=session_id)
         if existing:
             row = authorize_session(session_id, token, user)
-            enforce_automatic_vehicle(row, user)
+            if scope_type:
+                if row.get('automatic') or row.get(scope_type + '_id') != scope_id:
+                    raise HTTPException(409, 'Start a new conversation to change knowledge scope.')
+            else:
+                enforce_automatic_vehicle(row, user)
         else:
+            if scope_type:
+                db.insert('chat_sessions', {'id': session_id, 'automatic': False,
+                    'user_id': user['id'], scope_type + '_id': scope_id,
+                    'token_hash': hashlib.sha256(token.encode()).hexdigest()})
+                return {'session_id': session_id, 'session_token': token}
             vehicle = vehicle_profiles.active_vehicle(user)
             values = {'id': session_id, 'automatic': True, 'user_id': user['id'],
                       'user_vehicle_id': vehicle['id'] if vehicle else None,
@@ -144,7 +158,7 @@ def load(request, user, *, safety_only=False):
     scope = conversation_scope(kind, identity, safety_only=safety_only)
     if safety_only:
         return row, token, scope, [], None, None
-    profile = vehicle_profiles.load(user)
+    profile = None if user.get('role') == 'admin' and not row.get('user_vehicle_id') else vehicle_profiles.load(user)
     personal_id = profile['vehicle_id'] if profile else None
     if user.get('role') != 'admin' and personal_id != row.get('user_vehicle_id'):
         raise HTTPException(409, 'The active vehicle changed. Start or restore its separate conversation.')
@@ -243,6 +257,8 @@ async def send(request, user):
             await run_in_threadpool(enforce_vehicle, user, scope['scope_type'], scope['scope_id'], row.get('user_vehicle_id'))
         from backend.services.source_assets import attachments, resolve_manual_sources
         answer['attachments'] = await run_in_threadpool(attachments, answer.get('attachments', []), current, identity)
+        answer['answer_sections'] = validated_sections(
+            answer['answer'], answer.get('answer_sections', []), answer['attachments'])
         answer['sources'], answer['manual_links'] = await run_in_threadpool(
             resolve_manual_sources, answer.get('sources', []), current, identity, user,
             browse=answer.get('response_type') == 'insufficient_information')
@@ -253,7 +269,8 @@ async def send(request, user):
             final_scope = await run_in_threadpool(scopes.resolve, scope['scope_type'], scope['scope_id'])
             if final_scope != scope:
                 raise HTTPException(409, 'Knowledge associations changed while resolving sources. Retry your question.')
-        current_profile = await run_in_threadpool(vehicle_profiles.load, user)
+        current_profile = (None if user.get('role') == 'admin' and not row.get('automatic')
+                           and not row.get('user_vehicle_id') else await run_in_threadpool(vehicle_profiles.load, user))
         if current_profile != profile:
             raise HTTPException(409, 'Your active vehicle profile changed. Please retry your question.')
         current_maintenance = await run_in_threadpool(personal_maintenance.load, user, current_profile)
@@ -364,6 +381,13 @@ def resume(session_id, user, message_id=None):
 def restore_messages(messages, scope, session_id, user):
     content = {(source['source_type'], source['source_id']): source for source in scope.get('content_sources', [])}
     result = []
+    from backend.services.youtube import restore_recommendations
+    channel_ids = set()
+    if scope.get('video_ids') is None and any((message.get('reply') or {}).get('videos') for message in messages):
+        try:
+            channel_ids = {row['channel_id'] for row in db.all_rows('youtube_channels') if row.get('channel_id')}
+        except Exception as error:
+            logging.getLogger(__name__).warning('Saved video eligibility unavailable (%s)', type(error).__name__)
     for message in messages:
         reply = deepcopy(message.get('reply') or {})
         reply.pop('request_hash', None)
@@ -396,7 +420,11 @@ def restore_messages(messages, scope, session_id, user):
             except (HTTPException, ValueError):
                 continue
         reply.update(answer=message['content'], sources=valid + resolved, manual_links=links,
-                     attachments=restored_attachments, videos=[], message_id=message['id'])
+                     attachments=restored_attachments,
+                     videos=restore_recommendations(reply.get('videos', []), scope, channel_ids),
+                     message_id=message['id'])
+        reply['answer_sections'] = validated_sections(
+            reply['answer'], reply.get('answer_sections', []), restored_attachments)
         from backend.services.content_sources import resolve_content_media
         reply['content_media'] = resolve_content_media(valid, scope.get('content_sources', []),
                                                       emergency=reply.get('route') == 'emergency')

@@ -42,7 +42,8 @@ class AccountRepository {
   String? incidentOwnerId;
   bool get hasSession => client?.auth.currentSession != null;
   String? get token => client?.auth.currentSession?.accessToken;
-  String? get userId => _userId;
+  String? get userId =>
+      client?.auth.currentSession?.user.id == _userId ? _userId : null;
   AccountRepository(this.api, {FlutterSecureStorage? storage, this.client})
     : storage = storage ?? const FlutterSecureStorage();
 
@@ -81,25 +82,44 @@ class AccountRepository {
   Future<AccountSession> login(String email, String password) async {
     _checkTransport();
     await auth.signInWithPassword(email: email.trim(), password: password);
-    return (await restore())!;
+    final session = await restore();
+    if (session == null) {
+      throw const ApiException('Sign-in ended. Please sign in again.');
+    }
+    return session;
   }
 
   Future<AccountSession?> restore() async {
     incidentOwnerId = await storage.read(key: incidentOwnerKey);
     await storage.delete(key: storageKey);
-    _userId = null;
-    if (!hasSession) return null;
-    _checkTransport();
-    if (auth.currentSession!.isExpired) await auth.refreshSession();
-    final session = AccountSession.fromJson(
-      await api.get('/accounts/me', token: token),
-    );
-    if (session.accessAllowed) {
-      await storage.write(key: incidentOwnerKey, value: session.id);
-      incidentOwnerId = session.id;
-      _userId = session.id;
+    if (!hasSession) {
+      _userId = null;
+      return null;
     }
-    return session;
+    try {
+      _checkTransport();
+      if (auth.currentSession!.isExpired) await auth.refreshSession();
+      final session = AccountSession.fromJson(
+        await api.get('/accounts/me', token: token),
+      );
+      if (auth.currentSession?.user.id != session.id) {
+        throw const ApiException('Your account changed. Sign in again.');
+      }
+      if (session.accessAllowed) {
+        await storage.write(key: incidentOwnerKey, value: session.id);
+        if (auth.currentSession?.user.id != session.id) {
+          throw const ApiException('Your account changed. Sign in again.');
+        }
+        incidentOwnerId = session.id;
+        _userId = session.id;
+      } else {
+        _userId = null;
+      }
+      return session;
+    } catch (_) {
+      _userId = null;
+      rethrow;
+    }
   }
 
   Future<void> requestRecovery(String email) =>

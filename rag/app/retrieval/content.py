@@ -101,7 +101,11 @@ def render_emergency(records):
     parts = []
     for number, record in enumerate(records, 1):
         metadata = record.metadata
+        # Diagram descriptions are navigation metadata, not additional safety
+        # instructions. Keep the published advice verbatim and its source in the
+        # existing citation card rather than exposing internal reference paths.
+        text = '\n'.join(line for line in metadata['source_content'].splitlines()
+                         if not line.strip().startswith('Diagram reference:'))
         parts.append(f"Reviewed emergency protocol: {metadata['title']} [S{number}]\n\n"
-                     + metadata['source_content'] + '\n\nSource reference: '
-                     + metadata['source_reference'])
+                     + text.strip())
     return '\n\n'.join(parts)

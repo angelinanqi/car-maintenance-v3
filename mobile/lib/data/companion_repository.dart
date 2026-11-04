@@ -9,6 +9,12 @@ class CompanionRepository {
   CompanionRepository(this.chat) : _owner = chat.account?.userId;
   ApiClient get api => chat.api;
   String? get token {
+    if (_owner == null) {
+      throw const ApiException(
+        'Sign in and verify your account to continue.',
+        statusCode: 401,
+      );
+    }
     if (chat.account?.userId != _owner)
       throw const ApiException('Your account changed. Reopen this activity.');
     return chat.account?.token;
@@ -21,6 +27,11 @@ class CompanionRepository {
   Future<List<Lesson>> guides() async =>
       (await api.listAll('/guides')).map(Lesson.fromJson).toList();
   Future<void> progress(Lesson lesson, int step, {bool? completed}) async {
+    if (lesson.sections.isEmpty && completed == null) return;
+    if (lesson.sections.isNotEmpty &&
+        (step < 0 || step >= lesson.sections.length)) {
+      throw const ApiException('This guide changed. Reopen it to continue.');
+    }
     await api.put('/mobile/me/progress/${lesson.id}', {
       if (completed != null) 'completed': completed,
       if (lesson.sections.isNotEmpty)

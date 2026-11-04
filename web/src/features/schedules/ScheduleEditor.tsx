@@ -101,6 +101,7 @@ export default function ScheduleEditor() {
   );
   const [reviewed, setReviewed] = useState(false);
   const [preview, setPreview] = useState(false);
+  const focusedTask = useRef("");
   const [creatingItem, setCreatingItem] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
   const {
@@ -201,6 +202,22 @@ export default function ScheduleEditor() {
       active = false;
     };
   }, [vehicleId, reloadKey, search]);
+
+  useEffect(() => {
+    const itemId = search.get("item");
+    if (loading || scheduleLoading || !itemId || loadedVehicleId !== vehicleId) return;
+    const key = `${schedule?.id}:${itemId}`;
+    const index = entries.findIndex((entry) => entry.itemId === itemId);
+    if (index < 0 || focusedTask.current === key) return;
+    const frame = requestAnimationFrame(() => {
+      const target = document.getElementById(`schedule-task-${index + 1}`);
+      if (target) {
+        focusedTask.current = key;
+        target.scrollIntoView({ block: "start" });
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [loading, scheduleLoading, loadedVehicleId, vehicleId, schedule?.id, search, entries]);
 
   useEffect(() => {
     if (pdfId) return;
@@ -800,6 +817,7 @@ export default function ScheduleEditor() {
                         index={index}
                         items={items}
                         sources={sources}
+                        initiallyOpen={search.get("item") === entry.itemId}
                         disabled={locked || !canEdit}
                         onChange={(next) => changeEntry(index, next)}
                         onClarify={() => {

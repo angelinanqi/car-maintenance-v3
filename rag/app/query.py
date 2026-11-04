@@ -1,5 +1,6 @@
 """Interpret the conversation, retrieve scoped evidence, generate a cited answer."""
 from shared.observability import observed
+from shared.answer_sections import validated_sections
 import asyncio
 from dataclasses import replace
 import json
@@ -18,7 +19,7 @@ from rag.app.generation.context import bounded_history
 from rag.app.generation.grounded import applicable, generate, GeneratedReply, INSUFFICIENT, CLARIFY
 from shared.safety import immediate_emergency, policy_risk, videos_allowed, emergency_guidance, RESTRICTED_ANSWER
 from rag.app.youtube.retrieval import retrieve_youtube, timestamp_url
-from rag.app.youtube.selection import select_videos
+from rag.app.youtube.selection import select_videos, recommendation_candidates
 from rag.app.retrieval.content import retrieve_content, retrieve_emergency, render_emergency, public_source
 
 MODEL_UNAVAILABLE = "I couldn't complete the answer right now. Please try again shortly."
@@ -26,6 +27,31 @@ MANUAL_UNAVAILABLE = "The manual search is temporarily unavailable. Please try a
 EXTERNAL_WARNING = "Verify current legal requirements with the relevant official transport authority."
 REFERENCE_CANDIDATE_LIMIT = 8
 logger = logging.getLogger(__name__)
+
+
+def requested_video(question):
+    """Availability messaging follows the actual output request, not a rewrite."""
+    if re.search(r'\b(?:text.only|no videos?|without videos?)\b', question, re.I):
+        return False
+    return bool(re.search(r'\bvideos?\b|\bwatch(?:ing)?\b|'
+        r'\bsee\b.{0,35}\b(?:someone|somebody)\b.{0,25}\bdo(?:ing)?\b|'
+        r'\b(?:tutorial|demonstration|clip)s?\b|'
+        r'\bshow\s+me\s+doing\b|\btengok\s+orang\s+buat\b', question, re.I))
+
+
+def ambiguous_fluid_fill(question, history):
+    """An unspecified prospective 'water' fill cannot identify a reservoir."""
+    named = r'\b(?:coolant|radiator|windscreen|windshield|washer|wiper|brake|clutch|transmission|battery|oil|fuel|petrol|diesel)\b'
+    if (not re.search(r'\b(?:water|fluid)\b', question, re.I)
+            or re.search(named, question, re.I)
+            or re.search(r'\b(?:already|poured|added|filled)\b|\b(?:have|just|I) put\b', question, re.I)):
+        return False
+    # Preserve a genuine follow-up to an explicitly named fluid in user history.
+    previous = next((m['content'] for m in reversed(history or []) if m.get('role') == 'user'), '')
+    if re.search(named, previous, re.I):
+        return False
+    return bool(re.search(r'\b(?:which|where|scared|afraid|worried|might|should|want|check)\b', question, re.I)
+                and re.search(r'\b(?:pour|put|fill|add|check|tank|reservoir)\b|\btop[ -]?up\b', question, re.I))
 
 
 @observed('query_preparation')
@@ -43,8 +69,8 @@ def retrieve_manual(query_embedding, top_k, *, scope, query):
     if not store.collection.count():
         raise ValueError("The prepared manual collection is empty")
     # A scoped lexical search still works if the embedding service is unavailable.
-    # Query-time reranking belongs to visual selection below; paragraph search
-    # keeps its hybrid order even when that optional component is enabled.
+    # Keep broad candidates here; joint prose/guide reranking happens after
+    # applicability checks, independently of visual selection.
     candidate_limit = max(top_k, settings.RAG_CANDIDATES) * 3
     results = search(store, query, query_embedding, scope["document_ids"], top_k=candidate_limit,
                      mode="lexical" if query_embedding is None else None, use_reranker=False)
@@ -76,12 +102,19 @@ async def handle_query(query, *, scope, history=None, vehicle_profile=None,
     client = GenerationClient()
     records, eligible, videos, attachments, excluded = [], [], [], [], []
     reference_candidates = []
+    answer_sections = []
     recommended_guides = []
     useful = False
     cited_labels = []
     relevance = {}
     answer, response_type, route = MODEL_UNAVAILABLE, "generation_error", "rag"
     intent = None
+
+    def append_note(message):
+        nonlocal answer
+        answer += '\n\n' + message
+        if answer_sections:
+            answer_sections.append({'text': message, 'reference_labels': []})
     phase = perf_counter()
     try:
         # Immediate explicit hazards don't wait for a model round trip.
@@ -89,6 +122,10 @@ async def handle_query(query, *, scope, history=None, vehicle_profile=None,
             intent = Intent(question=query, route="emergency",
                             risk="emergency", specification=False, vehicle_conflict=False,
                             requested_year=None, requested_engine=None, requested_variant=None)
+        elif ambiguous_fluid_fill(query, history):
+            intent = Intent(question=query, route='rag', risk='normal', specification=False,
+                vehicle_conflict=False, requested_year=None, requested_engine=None, requested_variant=None,
+                clarification='Do you mean windscreen washer fluid, engine coolant, or another fluid?')
         else:
             intent = await asyncio.to_thread(interpret, query, history, scope, client)
     except Exception as error:
@@ -116,8 +153,19 @@ async def handle_query(query, *, scope, history=None, vehicle_profile=None,
             response_type = "emergency_protocol" if eligible else "emergency"
         elif route == "restricted":
             answer, response_type = RESTRICTED_ANSWER, "restricted"
+        elif intent.route in {'chat', 'out_of_scope'}:
+            route = response_type = intent.route
+            answer = ("I'm here to help with your vehicle. What would you like to know?" if route == 'chat'
+                      else 'I can help with car questions, maintenance and roadside guidance.')
         elif intent.vehicle_conflict:
-            answer, response_type = CLARIFY, "insufficient_information"
+            vehicle = scope.get('vehicle') or {}
+            identity = vehicle.get('name') or scope.get('label', 'your saved vehicle')
+            if vehicle.get('year'):
+                identity += ' (' + str(vehicle['year']) + ')'
+            answer = f'Your selected vehicle is {identity}. Are you asking about this car or a different vehicle?'
+            response_type = 'clarification'
+        elif intent.clarification:
+            answer, response_type = intent.clarification, 'clarification'
         else:
             phase = perf_counter()
             retrieval_query = intent.search_query or intent.question
@@ -135,11 +183,24 @@ async def handle_query(query, *, scope, history=None, vehicle_profile=None,
             video_diagnostics = {}
 
             def search_manuals():
-                return retrieve_manual(embedding, top_k, scope=scope, query=retrieval_query)
+                found = retrieve_manual(embedding, top_k, scope=scope, query=retrieval_query)
+                parts = [part.strip() for part in re.findall(r'[^?]+\?', query)]
+                if len(parts) > 1:
+                    from rag.app.retrieval.hybrid import fuse
+                    for part in parts[:3]:
+                        try:
+                            part_embedding = prepare_retrieval(part) if embedding is not None else None
+                            additional = retrieve_manual(part_embedding, top_k, scope=scope, query=part)
+                        except Exception as error:
+                            logger.warning('Subquestion retrieval unavailable (%s)', type(error).__name__)
+                            continue
+                        found = fuse(found, additional)
+                return found
 
             def search_content():
                 sources = scope.get('content_sources', [])
-                found = retrieve_content(retrieval_query, sources, top_k, query_embedding=embedding)
+                found = retrieve_content(retrieval_query, sources, max(top_k, settings.RAG_CANDIDATES),
+                                         query_embedding=embedding)
                 if activity_context and activity_context.get('kind') == 'guide':
                     # Keep the selected published guide available without blocking topic changes.
                     from rag.app.retrieval.content import records_for
@@ -150,9 +211,21 @@ async def handle_query(query, *, scope, history=None, vehicle_profile=None,
                 return found
 
             def search_videos():
-                if video_ids == [] or embedding is None or not videos_allowed(intent):
+                # Only discover supplementary videos when requested. The resolved
+                # turn preserves short follow-ups; explicit exclusions take priority.
+                video_request = (requested_video(query) or requested_video(intent.question))
+                excluded = re.search(r'\b(?:text.only|no videos?|without videos?|original.only|manual.only)\b', query, re.I)
+                if (not video_request or excluded or video_ids == [] or embedding is None
+                        or not videos_allowed(intent)):
                     return []
-                return retrieve_youtube(retrieval_query, top_k, query_embedding=embedding,
+                # Manual queries can add the selected model. Keep the resolved
+                # user's request for discovery, so an explicitly general
+                # tutorial isn't buried beneath unrelated model-specific clips.
+                video_query = intent.question
+                video_embedding = embedding if video_query == retrieval_query else prepare_retrieval(video_query)
+                # Transcript chunks can repeat one video. Overfetch before
+                # deduplicating so metadata-only videos also get considered.
+                return retrieve_youtube(video_query, max(40, top_k * 8), query_embedding=video_embedding,
                                         video_ids=video_ids, guide_video_ids=scope.get('guide_video_ids', []),
                                         diagnostics=video_diagnostics)
 
@@ -160,16 +233,23 @@ async def handle_query(query, *, scope, history=None, vehicle_profile=None,
                 asyncio.to_thread(search_manuals), asyncio.to_thread(search_content),
                 asyncio.to_thread(search_videos), return_exceptions=True)
             manual_failed, content_failed, video_failed = [isinstance(value, Exception) for value in (records, published, candidates)]
+            if video_failed:
+                diagnostics['video_retrieval_error'] = type(candidates).__name__
+                logger.warning('Video retrieval unavailable (%s)', type(candidates).__name__)
             records = [] if manual_failed else records
             manual_failed = manual_failed or bool(scope.get('unavailable_documents'))
             published = [] if content_failed else published
             candidates = [] if video_failed else candidates
             eligible, excluded = applicable(intent.question, records, scope, intent=intent)
             # Give text and visual descriptions separate budgets within one ranked search.
-            paragraphs = [r for r in eligible if r.metadata.get("content_type") == "paragraph"][:top_k]
+            paragraphs = [r for r in eligible if r.metadata.get("content_type") == "paragraph"]
             media_candidates = [r for r in eligible if r.metadata.get("content_type") in {"image", "table"}]
-            # Interleave by ordinal rank, without comparing unrelated score scales.
-            eligible = sorted(paragraphs + published, key=lambda record: record.rank)
+            from rag.app.retrieval.prose import select_prose
+            # The resolved question supplies follow-up context; preserve explicit
+            # user question boundaries when there are multiple requested parts.
+            ranking_question = query if query.count('?') > 1 else intent.question
+            eligible = await asyncio.to_thread(select_prose, ranking_question, paragraphs + published,
+                                               top_k, diagnostics=diagnostics)
             ranked_media = await asyncio.to_thread(rank_visuals, retrieval_query, media_candidates,
                                                   diagnostics=diagnostics)
             reference_candidates = prepare_references(eligible + ranked_media, diagnostics=diagnostics)
@@ -192,6 +272,10 @@ async def handle_query(query, *, scope, history=None, vehicle_profile=None,
                 for r in media_candidates]
             videos = await select_videos(intent.question, candidates, (scope.get("vehicle") or {}).get("code"),
                                          video_diagnostics.get("metric") or "l2", intent=intent)
+            video_candidates = recommendation_candidates(videos)
+            for video, candidate in zip(videos, video_candidates):
+                video['metadata'] = {**video['metadata'], 'channel_title': candidate['channel_title']}
+            diagnostics['video_candidates'] = video_candidates
             diagnostics.update(retrieved=len(records), eligible=len(eligible), excluded=len(excluded),
                                source_exclusions=excluded,
                                unavailable_manual_count=len(scope.get('unavailable_documents', [])))
@@ -222,11 +306,16 @@ async def handle_query(query, *, scope, history=None, vehicle_profile=None,
                         maintenance_context=maintenance_context if personal_context == 'maintenance' else None,
                         activity_context=activity_context, assistance=assistance,
                         diagnostics=diagnostics, intent=intent, history=history, latest_message=query,
+                        supplementary_videos=video_candidates,
                         references=[{k: v for k, v in item.items() if k not in {'descriptor', 'visual_inputs'}}
                                     for item in reference_candidates], **visual_options)
                 answer = generated.text
+                answer_sections = generated.answer_sections
                 cited_labels = generated.cited_labels
                 useful = generated.status == "answered"
+                videos = [video for index, video in enumerate(videos, 1)
+                          if f'Y{index}' in generated.video_labels][:2]
+                diagnostics['selected_videos'] = generated.video_labels
                 if useful:
                     recommended_guides = [public_source(record, f'S{index}')
                         for index, record in enumerate(eligible, 1) if f'S{index}' in generated.guide_labels]
@@ -247,6 +336,8 @@ async def handle_query(query, *, scope, history=None, vehicle_profile=None,
                 diagnostics.update(relevance, selected_references=generated.reference_labels)
             except Exception as error:
                 logger.warning("RAG generation failed (%s)", type(error).__name__)
+                videos = []
+                answer_sections = []
                 answer, response_type = MODEL_UNAVAILABLE, "generation_error"
                 diagnostics["decision_reason"] = "generation_error"
             timings["generation_ms"] = round((perf_counter() - phase) * 1000, 1)
@@ -260,20 +351,32 @@ async def handle_query(query, *, scope, history=None, vehicle_profile=None,
                 elif relevance.get("profile_relevant"):
                     response_type = "profile_and_manual" if relevance.get("manual_relevant") else "profile_only"
             if manual_failed or content_failed:
-                answer += "\n\n" + MANUAL_UNAVAILABLE
+                append_note(MANUAL_UNAVAILABLE)
                 if not useful and not attachments:
                     response_type = "retrieval_error"
             if video_failed:
-                answer += "\n\nVideo recommendations are temporarily unavailable."
+                append_note("Video recommendations are temporarily unavailable.")
+            elif (requested_video(query) and not videos and route in {'rag', 'rag_with_external_warning'}
+                  and response_type not in {'generation_error', 'retrieval_error'}
+                  and not re.search(r'\bvideo\b', answer, re.I)):
+                append_note("I don't have a matching video available for this request.")
             if videos and useful and response_type == "manual_only":
                 response_type = "manual_and_video"
             if videos and not useful and response_type == "insufficient_information":
                 response_type = "video_only"
             if route == "rag_with_external_warning":
-                answer += "\n\n" + EXTERNAL_WARNING
+                append_note(EXTERNAL_WARNING)
     public_videos = [{"title": v["metadata"].get("video_title", v["metadata"]["video_id"]),
-                      "url": timestamp_url(v["metadata"]["video_id"], v["metadata"].get("start_seconds")),
-                      "timestamp": v["metadata"].get("start_seconds")} for v in videos]
+                      "channel_title": v['metadata'].get('channel_title', ''),
+                      "channel_id": v['metadata'].get('channel_id', ''),
+                      "url": timestamp_url(v["metadata"]["video_id"],
+                          v["metadata"].get("start_seconds") if v["metadata"].get("retrieval_content") == 'transcript' else None),
+                      "timestamp": v["metadata"].get("start_seconds") if v["metadata"].get("retrieval_content") == 'transcript' else None,
+                      "matched_using": ('title_and_transcript' if v['metadata'].get('retrieval_content') == 'transcript'
+                                        else 'title_and_description'),
+                      "content_verified": False,
+                      "notice": "External video. Content and vehicle compatibility have not been verified."}
+                     for v in videos]
     sources = []
     if useful:
         for index, record in enumerate(eligible, 1):
@@ -313,6 +416,7 @@ async def handle_query(query, *, scope, history=None, vehicle_profile=None,
     logger.info("rag_query %s", json.dumps({"scope_id": scope["scope_id"], "response_type": response_type,
                 "provider": client.provider, "model": client.model, **timings, **diagnostics}))
     return {"route": route, "answer": answer, "videos": public_videos, "attachments": attachments,
+            "answer_sections": validated_sections(answer, answer_sections, attachments),
             "recommended_guides": recommended_guides,
             "suggested_activity": 'service_plan' if intent and intent.suggest_service_plan and vehicle_profile
                 and route in {'rag', 'rag_with_external_warning'} and response_type not in {'restricted', 'emergency'} else None,
@@ -327,7 +431,21 @@ def rank_visuals(search_query, records, *, diagnostics=None):
     from rag.app.retrieval.hybrid import rerank
     started = perf_counter()
     try:
-        ranked = rerank(search_query, records)
+        # Generated crop descriptions can omit the component name (e.g. an
+        # engine-oil gauge becomes just "Oil Level Gauge"). Restore the indexed
+        # section as a search aid, never as factual evidence about the image.
+        search_records = []
+        for record in records:
+            path = record.metadata.get('section_path') or []
+            if isinstance(path, str):
+                path = json.loads(path)
+            text = record.text
+            if 'Generated identification (unverified):' in text:
+                text = 'Section: ' + ' > '.join(path)[:240] + '\n' + text
+            search_records.append(replace(record, text=text))
+        originals = {record.chunk_id: record for record in records}
+        ranked = [replace(originals[record.chunk_id], rank=record.rank)
+                  for record in rerank(search_query, search_records)]
     except Exception as error:
         logger.warning('Visual reranking unavailable; retaining hybrid order (%s)', type(error).__name__)
         if diagnostics is not None:
@@ -385,9 +503,10 @@ def prepare_references(records, *, diagnostics=None):
         if isinstance(ids, str):
             ids = json.loads(ids)
         linked.extend((record, identity) for identity in ids)
-    # Preserve retrieval order within each kind, reserving room for table
-    # originals before unrelated illustrations can fill the shortlist.
-    for record, identity in sorted(direct + linked, key=lambda item: not item[1].startswith('table-')):
+    # Preserve relevance across kinds. Promoting every table above illustrations
+    # displaced oil-check diagrams with unrelated schedules and warranty tables.
+    # Selected tables still receive their independent original-page budget below.
+    for record, identity in direct + linked:
         metadata = record.metadata
         name = metadata["document_name"]
         if (name, identity) in selected:
@@ -504,13 +623,17 @@ def prepare_references(records, *, diagnostics=None):
                                 reference.setdefault('page_regions', []).append(item)
                     break
                 budget = table_frames if kind == 'table' else illustration_frames
-                limit = settings.RAG_TABLE_PAGE_LIMIT if kind == 'table' else 3
+                # Supply originals for the bounded illustration shortlist. A
+                # separate three-page limit left useful lower-ranked diagrams
+                # visible only as generated descriptions, which cannot establish
+                # their appearance or component location.
+                limit = settings.RAG_TABLE_PAGE_LIMIT if kind == 'table' else REFERENCE_CANDIDATE_LIMIT
                 if len(budget) >= limit:
                     coverage['omission_reason'] = 'image_limit'
                     break
                 try:
                     # Factual pixel-source labels must not also name attachments.
-                    image_label = f'V{REFERENCE_CANDIDATE_LIMIT + len(frames) + 1}'
+                    image_label = f'I{len(frames) + 1}'
                     image = original_image(settings.OUTPUT_DIR / 'assets' / name / digest, digest, image_label)
                 except (OSError, ValueError):
                     logger.warning('Original %s unavailable for generation: %s/%s', extent, name, identity)
@@ -560,7 +683,7 @@ def prepare_references(records, *, diagnostics=None):
             key = (name, 'crop', None, digest)
             visual = frames.get(key)
             if visual is None:
-                label = f'V{REFERENCE_CANDIDATE_LIMIT + len(frames) + 1}'
+                label = f'I{len(frames) + 1}'
                 try:
                     image = original_image(settings.OUTPUT_DIR / 'assets' / name / digest, digest, label)
                 except (OSError, ValueError):

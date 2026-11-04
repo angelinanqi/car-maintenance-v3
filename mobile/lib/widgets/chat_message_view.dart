@@ -4,6 +4,7 @@ import 'design_widgets.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../data/chat_repository.dart';
 import '../models/chat_message.dart';
+import '../models/chat_layout.dart';
 import 'chat_attachment.dart';
 import 'chat_answer.dart';
 import 'manual_source_link.dart';
@@ -85,6 +86,19 @@ class ChatMessageView extends StatelessWidget {
     }
   }
 
+  Widget _attachment(Map<String, dynamic> attachment) {
+    final apiRepository = repository as FastApiChatRepository;
+    return Padding(
+      padding: const EdgeInsets.only(top: 16),
+      child: ChatAttachment(
+        key: ValueKey('${attachment['document_id']}:${attachment['source_revision']}:${attachment['element_id']}'),
+        attachment: attachment,
+        api: apiRepository.api,
+        token: apiRepository.account?.token,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -123,6 +137,7 @@ class ChatMessageView extends StatelessWidget {
       );
     }
     final sources = reply?.sources ?? [];
+    final layout = chatLayout(message.text, reply?.answerSections ?? [], reply?.attachments ?? []);
     return Container(
       margin: const EdgeInsets.only(left: 32, top: 8, bottom: 12),
       decoration: BoxDecoration(
@@ -147,7 +162,16 @@ class ChatMessageView extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 10),
-          ChatAnswer(text: message.text),
+          if (layout.sections.isEmpty)
+            ChatAnswer(text: message.text)
+          else
+            for (final section in layout.sections) ...[
+              ChatAnswer(text: section.text),
+              if (repository is FastApiChatRepository)
+                for (final attachment in section.attachments)
+                  _attachment(attachment),
+              const SizedBox(height: 12),
+            ],
           ContentMediaList(items: reply?.contentMedia ?? [], content: content),
           if (onEmergency != null &&
               (reply?.route == 'emergency' ||
@@ -188,19 +212,8 @@ class ChatMessageView extends StatelessWidget {
               ),
           ],
           if (repository is FastApiChatRepository)
-            for (final attachment
-                in reply?.attachments ?? <Map<String, dynamic>>[])
-              Padding(
-                padding: const EdgeInsets.only(top: 16),
-                child: ChatAttachment(
-                  key: ValueKey(
-                    '${attachment['document_id']}:${attachment['source_revision']}:${attachment['element_id']}',
-                  ),
-                  attachment: attachment,
-                  api: (repository as FastApiChatRepository).api,
-                  token: (repository as FastApiChatRepository).account?.token,
-                ),
-              ),
+            for (final attachment in layout.remainingAttachments)
+              _attachment(attachment),
           if (reply?.externalWarning == true)
             const _ReplyNote(
               'This answer includes information outside the available manuals.',

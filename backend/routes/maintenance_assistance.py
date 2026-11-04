@@ -13,6 +13,10 @@ from shared.schedule_drafting import Action, DraftRule
 router = APIRouter(prefix='/admin/maintenance-assistance', tags=['Maintenance assistance'],
                    dependencies=[Depends(auth.require_admin)])
 Index = Annotated[int, Field(strict=True, ge=0)]
+# The schedule opens its preview and review data concurrently. Queue these reads
+# briefly while preserving the document lock for lazy review initialization and
+# source replacement/deletion. Stay below the admin client's 30-second deadline.
+READ_LOCK_TIMEOUT = 10
 
 
 class Edit(InputModel):
@@ -88,7 +92,7 @@ def matches(name: str = Query(min_length=1, max_length=500)):
 
 @router.get('/documents/{document_id}')
 def detail(document_id: UUID, source_revision: UUID):
-    with content_lock(document_id):
+    with content_lock(document_id, timeout=READ_LOCK_TIMEOUT):
         document, state = context(document_id, source_revision)
         return service.view(document, state)
 
@@ -97,7 +101,7 @@ def detail(document_id: UUID, source_revision: UUID):
 def tables(document_id: UUID, source_revision: UUID, q: str = Query('', max_length=200),
            classification: Literal['likely', 'possible', 'other'] | None = None,
            offset: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=1000)):
-    with content_lock(document_id):
+    with content_lock(document_id, timeout=READ_LOCK_TIMEOUT):
         document, state = context(document_id, source_revision)
         rows = service.view(document, state)['catalogue']['tables']
         if classification:
@@ -113,7 +117,7 @@ def tables(document_id: UUID, source_revision: UUID, q: str = Query('', max_leng
 
 @router.get('/documents/{document_id}/original')
 def original(document_id: UUID, source_revision: UUID):
-    with content_lock(document_id):
+    with content_lock(document_id, timeout=READ_LOCK_TIMEOUT):
         # Historical schedules retain their immutable originals after replacement.
         document = service.current_document(document_id, source_revision, allow_superseded=True)
         data = db.bucket(settings.SUPABASE_DOCUMENT_BUCKET).download(document['storage_path'])
@@ -140,7 +144,7 @@ def generate(document_id: UUID, request: Edit, identity=Depends(auth.require_adm
 def suggestions(document_id: UUID, source_revision: UUID,
                 status: Literal['suggested', 'accepted', 'rejected'] | None = None,
                 offset: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=1000)):
-    with content_lock(document_id):
+    with content_lock(document_id, timeout=READ_LOCK_TIMEOUT):
         _, state = context(document_id, source_revision)
         rows = state['suggestions']
         if status:

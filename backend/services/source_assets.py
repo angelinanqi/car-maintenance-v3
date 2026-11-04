@@ -147,6 +147,10 @@ def resolve_manual_sources(sources, scope, session_id, user, *, browse=False):
     manuals = []
     if browse:
         for metadata in allowed.values():
+            # Indexed guides share the retrieval pool but are not documents
+            # with original manual downloads (especially emergency protocols).
+            if metadata.get('source_type', 'manual') != 'manual':
+                continue
             item = link(metadata)
             if item.get('source_endpoint'):
                 manuals.append(item)

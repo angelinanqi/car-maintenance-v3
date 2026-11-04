@@ -77,6 +77,7 @@ class ChatReply {
   final List<Map<String, dynamic>> videos;
   final List<Map<String, dynamic>> sources;
   final List<Map<String, dynamic>> attachments;
+  final List<Map<String, dynamic>> answerSections;
   final List<Map<String, dynamic>> manualLinks;
   final List<Map<String, dynamic>> recommendedGuides;
   final List<Map<String, dynamic>> contentMedia;
@@ -94,6 +95,7 @@ class ChatReply {
     this.videos = const [],
     this.sources = const [],
     this.attachments = const [],
+    this.answerSections = const [],
     this.manualLinks = const [],
     this.recommendedGuides = const [],
     this.contentMedia = const [],
@@ -114,6 +116,9 @@ class ChatReply {
     }
     return ChatReply(
       reply,
+      answerSections: (json['answer_sections'] as List? ?? [])
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item)).toList(),
       contentMedia: (json['content_media'] as List? ?? [])
           .map((item) => Map<String, dynamic>.from(item as Map)).toList(),
       videos: (json['videos'] as List? ?? [])

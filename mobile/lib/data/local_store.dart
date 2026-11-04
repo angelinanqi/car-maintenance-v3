@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
@@ -6,6 +7,27 @@ import 'package:path_provider/path_provider.dart';
 import 'package:crypto/crypto.dart';
 
 class LocalStore {
+  static final Map<String, Future<void>> _operations = {};
+
+  // Different screens and repository instances can edit the same manifest.
+  // Coordinate by disk path so a read/modify/write cannot lose another edit.
+  Future<T> synchronized<T>(String name, Future<T> Function() operation) async {
+    final folder = await directory();
+    final key = '${folder.absolute.path}/$name';
+    final previous = _operations[key] ?? Future<void>.value();
+    final completion = Completer<void>();
+    _operations[key] = completion.future;
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      completion.complete();
+      if (identical(_operations[key], completion.future)) {
+        _operations.remove(key);
+      }
+    }
+  }
+
   static const maxPhotoBytes = 10 * 1024 * 1024;
   static Future<void> validateImage(List<int> bytes) async {
     if (bytes.isEmpty || bytes.length > maxPhotoBytes)
@@ -50,14 +72,21 @@ class LocalStore {
     return jsonDecode(await file.readAsString()) as Map<String, dynamic>;
   }
 
-  Future<void> write(String name, Map<String, dynamic> data) async {
+  Future<void> write(
+    String name,
+    Map<String, dynamic> data,
+  ) => synchronized('write:$name', () async {
     final folder = await directory();
     await folder.create(recursive: true);
     final file = File('${folder.path}/$name.tmp');
-    await file.writeAsString(jsonEncode(data), flush: true);
-    // Replace only after a complete write; a failed write keeps the old file.
-    await file.rename('${folder.path}/$name');
-  }
+    try {
+      await file.writeAsString(jsonEncode(data), flush: true);
+      // Replace only after a complete write; a failed write keeps the old file.
+      await file.rename('${folder.path}/$name');
+    } finally {
+      if (await file.exists()) await file.delete();
+    }
+  });
 
   Future<String> savePhoto(String source) async {
     final original = File(source);

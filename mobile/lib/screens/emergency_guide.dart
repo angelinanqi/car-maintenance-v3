@@ -12,6 +12,7 @@ import '../widgets/emergency_widgets.dart';
 import '../widgets/content_media.dart';
 import '../widgets/emergency_offline_status.dart';
 import '../data/emergency_progress.dart';
+import '../data/emergency_speech.dart';
 import 'emergency_safety.dart';
 import 'emergency_help.dart';
 import 'accident_form.dart';
@@ -39,6 +40,7 @@ class _EmergencyGuidePageState extends State<EmergencyGuidePage> {
   final _images = <String, Future<Uint8List>>{};
   late final EmergencyProgressStore _progress;
   final _scroll = ScrollController();
+  late final EmergencySpeech _speech;
   Set<String> _completed = {};
   int _current = 0;
   bool _safe = false, _loading = true, _overview = false, _largeText = false;
@@ -51,11 +53,13 @@ class _EmergencyGuidePageState extends State<EmergencyGuidePage> {
   void initState() {
     super.initState();
     _progress = EmergencyProgressStore(widget.state.store);
+    _speech = EmergencySpeech();
     _restore();
   }
 
   @override
   void dispose() {
+    _speech.dispose();
     _scroll.dispose();
     super.dispose();
   }
@@ -119,6 +123,7 @@ class _EmergencyGuidePageState extends State<EmergencyGuidePage> {
 
   void _go(int step) {
     if (_finishing) return;
+    _speech.stop();
     setState(() {
       _current = step;
       _overview = false;
@@ -127,25 +132,32 @@ class _EmergencyGuidePageState extends State<EmergencyGuidePage> {
     _save();
   }
 
-  void _help() => openEmergencyHelp(
-    context,
-    widget.state,
-    widget.content ?? ContentRepository(widget.state.store),
-  );
+  void _help() {
+    _speech.stop();
+    openEmergencyHelp(
+      context,
+      widget.state,
+      widget.content ?? ContentRepository(widget.state.store),
+    );
+  }
 
-  void _record() => Navigator.push(
-    context,
-    MaterialPageRoute(
-      builder: (_) => AccidentForm(
-        repository: widget.accidents,
-        incidentType: widget.guide.title,
-        onHelp: _help,
+  void _record() {
+    _speech.stop();
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => AccidentForm(
+          repository: widget.accidents,
+          incidentType: widget.guide.title,
+          onHelp: _help,
+        ),
       ),
-    ),
-  );
+    );
+  }
 
   Future<void> _finish() async {
     if (_finishing) return;
+    _speech.stop();
     setState(() => _finishing = true);
     ++_saveRevision;
     // Wait for pending checkpoints before removing this completed session.
@@ -378,6 +390,7 @@ class _EmergencyGuidePageState extends State<EmergencyGuidePage> {
                         ),
                       TextButton(
                         onPressed: () {
+                          _speech.stop();
                           setState(() {
                             _completed.clear();
                             _current = 0;
@@ -451,14 +464,34 @@ class _EmergencyGuidePageState extends State<EmergencyGuidePage> {
                         _image(step),
                       ],
                       const SizedBox(height: 16),
-                      const OutlinedButton(
-                        onPressed: null,
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
+                      AnimatedBuilder(
+                        animation: _speech,
+                        builder: (context, _) => Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            Icon(Icons.volume_up_outlined),
-                            SizedBox(width: 8),
-                            Flexible(child: Text('Read aloud · Coming soon')),
+                            OutlinedButton.icon(
+                              onPressed: () => _speech.active
+                                  ? _speech.stop()
+                                  : _speech.read(
+                                      EmergencySpeech.instruction(
+                                        guide,
+                                        _current,
+                                      ),
+                                    ),
+                              icon: Icon(
+                                _speech.active
+                                    ? Icons.stop_circle_outlined
+                                    : Icons.volume_up_outlined,
+                              ),
+                              label: Text(
+                                _speech.active ? 'Stop reading' : 'Read aloud',
+                              ),
+                            ),
+                            if (_speech.error != null)
+                              Semantics(
+                                liveRegion: true,
+                                child: Text(_speech.error!),
+                              ),
                           ],
                         ),
                       ),
@@ -484,7 +517,10 @@ class _EmergencyGuidePageState extends State<EmergencyGuidePage> {
                             child: OutlinedButton(
                               onPressed: _current > 0
                                   ? () => _go(_current - 1)
-                                  : () => setState(() => _safe = false),
+                                  : () {
+                                      _speech.stop();
+                                      setState(() => _safe = false);
+                                    },
                               child: const Text('Back'),
                             ),
                           ),
@@ -511,7 +547,10 @@ class _EmergencyGuidePageState extends State<EmergencyGuidePage> {
                         ],
                       ),
                       TextButton(
-                        onPressed: () => setState(() => _overview = true),
+                        onPressed: () {
+                          _speech.stop();
+                          setState(() => _overview = true);
+                        },
                         child: const Text('All steps / jump to a step'),
                       ),
                       Text(
@@ -527,15 +566,18 @@ class _EmergencyGuidePageState extends State<EmergencyGuidePage> {
                     const SizedBox(height: 16),
                     if (guide.isAccident)
                       TextButton(
-                        onPressed: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => AccidentReports(
-                              repository: widget.accidents,
-                              onHelp: _help,
+                        onPressed: () {
+                          _speech.stop();
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => AccidentReports(
+                                repository: widget.accidents,
+                                onHelp: _help,
+                              ),
                             ),
-                          ),
-                        ),
+                          );
+                        },
                         child: const Text('Accident forms and saved drafts'),
                       ),
                     EmergencyOfflineStatus(

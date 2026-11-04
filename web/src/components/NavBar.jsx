@@ -14,6 +14,8 @@ const groups = [
       ["Home", "/admin/home"],
       ["Questions to Clarify", "/admin/review-questions"],
       ["Vehicles", "/admin/vehicles"],
+      ["Service Schedules", "/admin/schedules"],
+      ["Service Task Library", "/admin/maintenance-items"],
       ["Reference Library", "/admin/kb"],
     ],
   },
@@ -32,7 +34,6 @@ const groups = [
   {
     label: "Other Tools",
     items: [
-      ["Service Task Library", "/admin/maintenance-items"],
       ["Topics & Videos", "/admin/scopes"],
       ["Account Security", "/admin/account-security"],
     ],
@@ -99,8 +100,6 @@ export default function NavBar() {
                   pathname === href ||
                   (["/admin/kb", "/admin/vehicles"].includes(href) &&
                     pathname.startsWith(`${href}/`)) ||
-                  (href === "/admin/vehicles" &&
-                    pathname === "/admin/schedules") ||
                   (href === "/admin/learn-cards" &&
                     pathname.startsWith("/admin/learn-cards/create"));
                 return (

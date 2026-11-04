@@ -194,7 +194,7 @@ class _LearningActivityState extends State<LearningActivity> {
             ),
             ListTile(
               title: const Text('Save this guide'),
-              onTap: widget.onSave,
+              onTap: widget.busy ? null : widget.onSave,
             ),
           ],
         ),
@@ -205,17 +205,21 @@ class _LearningActivityState extends State<LearningActivity> {
           children: [
             if (widget.index > 0)
               OutlinedButton(
-                onPressed: () => widget.onStep(widget.index - 1),
+                onPressed: widget.busy
+                    ? null
+                    : () => widget.onStep(widget.index - 1),
                 child: const Text('Previous section'),
               ),
             if (section != null && widget.index < lesson.sections.length - 1)
               FilledButton(
-                onPressed: () => widget.onStep(widget.index + 1),
+                onPressed: widget.busy
+                    ? null
+                    : () => widget.onStep(widget.index + 1),
                 child: const Text('Continue'),
               )
             else
               OutlinedButton(
-                onPressed: widget.onComplete,
+                onPressed: widget.busy ? null : widget.onComplete,
                 child: const Text('Mark as completed'),
               ),
           ],
@@ -223,7 +227,9 @@ class _LearningActivityState extends State<LearningActivity> {
         if ((section == null || widget.index == lesson.sections.length - 1) &&
             lesson.relatedLessonIds.isNotEmpty)
           TextButton(
-            onPressed: () => widget.onRelated(lesson.relatedLessonIds.first),
+            onPressed: widget.busy
+                ? null
+                : () => widget.onRelated(lesson.relatedLessonIds.first),
             child: const Text('Explore a related guide'),
           ),
       ],

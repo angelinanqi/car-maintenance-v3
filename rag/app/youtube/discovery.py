@@ -1,6 +1,10 @@
 from rag.config.settings import YOUTUBE_API_TIMEOUT, YOUTUBE_PAGE_SIZE
 import json
 import re
+import socket
+import ssl
+
+import certifi
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -24,15 +28,28 @@ def api_get(resource, api_key, **parameters):
     )
     # Keep the key out of URLs and exception messages.
     request = Request(url, headers={"X-Goog-Api-Key": api_key})
+    # Python framework installs may lack a default CA bundle. Add Mozilla's
+    # roots while retaining system and explicitly configured trust certificates.
+    context = ssl.create_default_context()
+    context.load_verify_locations(cafile=certifi.where())
     try:
-        with urlopen(request, timeout=YOUTUBE_API_TIMEOUT) as response:
+        with urlopen(request, timeout=YOUTUBE_API_TIMEOUT, context=context) as response:
             return json.load(response)
     except HTTPError as error:
         raise RuntimeError(
             f"YouTube Data API {resource}: HTTP {error.code}; check API key, API enablement and quota."
         ) from None
-    except URLError:
-        raise RuntimeError(f"YouTube Data API {resource}: connection failed.") from None
+    except (URLError, TimeoutError) as error:
+        reason = error.reason if isinstance(error, URLError) else error
+        if isinstance(reason, ssl.SSLCertVerificationError):
+            detail = "TLS certificate verification failed; check trusted CA certificates and HTTPS proxy settings."
+        elif isinstance(reason, socket.gaierror):
+            detail = "DNS lookup failed; check your network and DNS settings."
+        elif isinstance(reason, TimeoutError):
+            detail = "connection timed out; check your network or retry syncing."
+        else:
+            detail = "connection failed; check your network and proxy settings."
+        raise RuntimeError(f"YouTube Data API {resource}: {detail}") from None
 
 
 def discover_videos(channel_filter, api_key):

@@ -102,6 +102,7 @@ class _EmergencyHelpState extends State<EmergencyHelp> {
           ),
           const SizedBox(height: 12),
           RoadsideContact(state: widget.state),
+          FamilyContact(state: widget.state),
           for (final contact in _contacts.where(
             (c) =>
                 (c['phone'] as String).replaceAll(RegExp(r'[^0-9]'), '') !=
