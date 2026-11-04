@@ -139,14 +139,3 @@ so downloaded written guides remain reachable without the AI backend. AI-generat
 chat itself still requires the existing online service; no local model or second
 emergency reasoning engine is added. Offline videos target Android/iOS; device codec support
 and airplane-mode operation must be checked on the release devices.
-
-## Verification
-
-Restore the test trees from the evaluation archive before running regression tests.
-Run `.venv/bin/python -m unittest discover -s tests -p 'test_*.py'` and
-`node --test tests/*.test.mjs`, `npm run build` in `web`, and
-`flutter test` in `mobile`. Guide tests exercise HTML adaptation, structured tables,
-image source resolution, publication/revision checks, worker reuse and cleanup,
-and the real shared parsing/chunking/persistent Chroma path using fixed embeddings
-instead of provider calls. Live Gemini, Supabase and YouTube integration requires
-the configured services and the database migration.

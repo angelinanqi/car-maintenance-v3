@@ -1,4 +1,4 @@
-# Developer backend monitoring
+# Backend monitoring
 
 From the repository root on the MacBook, use the same Python environment as the application:
 
@@ -90,7 +90,7 @@ Set these string values in `app.config.json`, or override them with environment 
 
 `--interval 5` changes the terminal refresh rate. It does not change worker polling or service heartbeats. If telemetry files cannot be written, processing continues; missing/stale telemetry is never treated as proof of health.
 
-## Troubleshooting and a demonstration
+## Troubleshooting workflow
 
 1. Open the monitor and start the app. Local processes should transition from starting to running/busy. Database/vector state remains unknown until actual instrumented operations supply evidence.
 2. Start Windows OCR and verify the health line changes from disconnected to available. If it does not, check `MINERU_API_URL`, Tailscale connectivity, Windows firewall, the native API port and `output/logs/ocr.log`. An incompatible health response requires MinerU 3.4.5/task protocol 2. A CLI OCR setup without `MINERU_API_URL` remains a local `ocr_extraction` operation, with no remote health evidence.
@@ -100,16 +100,3 @@ Set these string values in `app.config.json`, or override them with environment 
 6. If an operation looks stuck, check whether its enclosing process heartbeat is still fresh. A fresh heartbeat shows the process can report telemetry; it does not prove the stage will make progress. Read exception types/stack locations, document status/error in the existing application, and legacy logs for the underlying dependency failure. A disappeared process will become disconnected, never automatically completed.
 
 For a viva, keep the terminal beside the existing document/chat interface. No monitoring UI needs to be built into the admin web or Flutter app.
-
-## Verification performed
-
-Run the offline checks with:
-
-```sh
-.venv/bin/python -m unittest discover -s tests -v
-.venv/bin/python -m compileall -q shared backend rag
-```
-
-The tests cover concurrent async/thread correlation, private-data exclusion, disk-write failure isolation, disabling, HTTP 503 reporting, rotation/partial records/stale heartbeats, caught-failure reporting, the real RAG emergency route, the real RAG generation-error fallback, and the remote OCR client with a simulated task API, network outage/reconnection, and actual ZIP extraction. In-process backend health and authenticated RAG emergency HTTP smoke checks also pass, without running service startup/background queues.
-
-At implementation time the local HTTP services were not running and the configured Windows OCR health endpoint was unreachable, including a check outside the sandbox. Full live MinerU extraction, model-based retrieval/generation, and remote GPU timing could not be verified. The simulated worker test is not a claim of a successful live OCR run. Use the demonstration above to validate those integrations when both machines are available.

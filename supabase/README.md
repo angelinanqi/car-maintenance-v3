@@ -61,42 +61,11 @@ It adds the archive flag and server-only functions for removal previews and
 transactional guide reassignment/deletion. It does not archive, move or delete
 existing content. Fresh installs include the same definitions in `init.sql`.
 
-The 12 additive migrations, original `initial_schema.sql` and previous
-`fresh_schema.sql` are archived unchanged under
-`dumpster/database-migrations/supabase/`, preserving their original relative paths.
-The archive is excluded from Git by the root `/dumpster/` rule and is local only:
-retain a separate copy if an existing deployment still needs an upgrade. Fresh
-clones receive only `init.sql`. No Supabase CLI migration ledger, automatic migration
-runner or startup reference to these files was found in the repository.
-
-For existing databases, use only the missing additive upgrades from that archive
-after checking the deployed schema; do not substitute `init.sql`. In particular,
-`supabase_auth.sql`, `mobile_learning.sql`, `mobile_maintenance.sql` and
-`admin_maintenance.sql` remain relevant to installations that have not deployed
-those features. Moving the files does not apply any upgrade to those installations.
-
-Historical replay order used for validation:
-
-1. `initial_schema.sql`. This already incorporates `admin_review_workflow.sql`,
-   `maintenance_assistance.sql` and `youtube_channels.sql`; their non-idempotent
-   DDL must not be applied again. It also includes the initial document review,
-   document testing and companion structures.
-2. `migrations/automatic_chat_context.sql`
-3. `migrations/learning_companion.sql`
-4. `migrations/document_testing.sql`
-5. `migrations/document_test_follow_up.sql`
-6. `migrations/document_review_progress.sql`
-7. `migrations/supabase_auth.sql`
-8. `migrations/mobile_learning.sql`
-9. `migrations/mobile_maintenance.sql`
-10. `migrations/admin_maintenance.sql`
-
-This is a dependency order, not a deployment ledger: historical filenames have no
-numeric ordering. The archived automatic-chat migration conditionally replaces
-only the original starter presets, preserving administrator edits. A fresh install
-seeds the final presets directly. Existing learning completion dates are deliberately
-not backfilled by the mobile-learning migration. Auth identity linking remains an
-explicit administrative operation; no accounts or live records are seeded.
+For an existing database, compare its deployed schema with the matching release
+before applying missing additive migrations from `migrations/`. Older deployments
+that lack earlier features require the upgrade files from their release history;
+this repository does not provide an automatic migration ledger or startup runner.
+Do not substitute `init.sql` for an upgrade or reapply non-idempotent historical DDL.
 
 ## Initialise the database
 
@@ -168,17 +137,12 @@ for atomic publication changes.
 
 ## Authentication and access
 
-For an existing Auth-enabled installation, run
-[`migrations/20261103_link_auth_profiles.sql`](migrations/20261103_link_auth_profiles.sql)
-in Supabase SQL Editor to backfill application profiles for confirmed Auth users.
-It preserves `app_users.id` and all dependent foreign keys, assigns only `user`
-to newly created profiles, and can be rerun without changing linked profiles.
-It relies on the existing unique `auth_user_id` foreign key from `init.sql` or
-the historical Auth upgrade. Email collisions stop the transaction for explicit
-operator linking; existing admins can use `scripts/link_supabase_admin.py`.
-Future profiles continue to be created by FastAPI on first verified sign-in;
-this migration adds no Auth signup trigger. It does not promote administrators
-or migrate legacy passwords.
+FastAPI creates a regular-user application profile on first verified sign-in.
+Existing application profiles retain their identities and dependent records.
+Email collisions require explicit operator linking; existing administrators can
+use `scripts/link_supabase_admin.py` with a confirmed Auth identity. This setup
+utility preserves their application ID and administrator role. No Auth signup
+trigger promotes administrators or migrates legacy passwords.
 
 Supabase Auth owns credentials and sessions. FastAPI verifies Supabase access
 tokens and loads server-managed roles from `app_users` through `auth_user_id`.
@@ -240,32 +204,7 @@ maintenance records, incident synchronization, manual downloads, scoped chat and
 source access. A successful backend health check establishes process liveness;
 it does not verify those integrations.
 
-## Consolidation validation
-
-Validated on disposable local PostgreSQL 18 databases on 2 November 2026, comparing
-the historical replay above with `init.sql`. Catalogue comparisons matched all
-33 tables, 319 columns (types, defaults, nullability and comments), constraints,
-85 indexes (including constraint indexes), 27 triggers, four functions (bodies,
-signatures, security settings, search paths and execute grants), RLS settings,
-table grants, public schema permissions, types, two buckets and starter presets.
-There are no application enums, standalone custom types, views, procedures or
-direct-client RLS/Storage policies. Function body comparison ignores formatting
-and comments; column order and creation timestamps are not compared.
-
-Database smoke checks passed for service-role writes, unique Auth identity links,
-composite ownership foreign keys, retained service history, learning progress,
-immutable chat ownership, stale schedule rejection and publication history,
-document indexing/publication checks, timestamp triggers, and denied anonymous
-and authenticated table/RPC access. Test writes were rolled back.
-Repeated initialization was rejected without changing seed values or timestamps.
-A forced mid-script index conflict rolled back all newly created application
-tables and preserved pre-existing sentinel data.
-
-The local test supplied minimal stand-ins for `auth.users`, `storage.buckets` and
-Supabase roles. This verifies PostgreSQL schema equivalence in that environment,
-not live Supabase Auth, Storage, PostgREST, backend HTTP workflows or hosted default
-privileges. Those integrations still require a disposable Supabase project and the
-operational checks above. The live project was not accessed or modified.
+## Emergency media deployment
 
 Emergency step uploads and persistent indexing additionally require
 `migrations/20261103_emergency_media_indexing.sql` after the content-media and

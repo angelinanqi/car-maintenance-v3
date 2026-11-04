@@ -5,7 +5,10 @@ SOURCE_INJECTION = re.compile(r"ignore (?:all |previous |the )?(?:instructions|r
 
 
 RISKS = ("normal", "caution", "high_risk", "emergency")
-REPAIR = r"\b(repair|rebuild|replace|change|remove|install|service|disassemble|bypass|disable|disconnect|bleed|rewire|fix|modify|deactivate|tamper)\b|\bwork on\b"
+REPAIR = (r"\b(repair(?:ing)?|rebuild(?:ing)?|replac(?:e|ing)|chang(?:e|ing)|remov(?:e|ing)|"
+          r"install(?:ing)?|servic(?:e|ing)|disassembl(?:e|ing)|bypass(?:ing)?|disabl(?:e|ing)|"
+          r"disconnect(?:ing)?|bleed(?:ing)?|rewir(?:e|ing)|fix(?:ing)?|modify(?:ing)?|"
+          r"deactivat(?:e|ing)|tamper(?:ing)?)\b|\bwork(?:ing)? on\b")
 RESTRICTED_COMPONENTS = (
     r"\b(airbags?|inflator|srs|supplemental restraint|pretensioner)\b",
     r"\b(brake|braking)\b.*\b(hydraulic|master cylinder|calipers?|lines?|hoses?|system|reservoir|fluid)\b",
@@ -76,18 +79,35 @@ def policy_risk(question):
     interval = bool(re.search(r"\b(how often|interval|schedule)\b|when.*\b(change|replace|service)\b", text))
     if not interval and re.search(REPAIR, text) and any(re.search(component, text) for component in RESTRICTED_COMPONENTS):
         return "high_risk"
-    if re.search(r"\b(repair|rebuild|fix|disable|bypass)\b.*\b(brakes?|braking|steering)\b", text):
+    if (re.search(r"\b(repair|rebuild|fix|disable|bypass)\b.*\b(brakes?|braking|steering)\b", text)
+            and not re.search(r'\bbrake (?:pads?|discs?|rotors?)\b', text)):
         return "high_risk"
     if re.search(r"\b(bleed|bypass|disable)\b.*\b(brakes?|braking|abs)\b", text):
         return "high_risk"
     # Level identification remains normal; handling hot fluids, lifting a car,
     # or working on brakes requires selective review of precautions.
-    if re.search(r"\b(jack|lift|torque|brake pads?|brake discs?)\b", text) or (
+    if re.search(r"\b(jack|lift|torque|brake pads?|brake discs?|brake rotors?|alternator)\b", text) or (
+        re.search(r'\b(punctur\w*|flat tyre|flat tire|spare wheel|spare tyre|spare tire)\b', text)
+        and re.search(r'\b(fix|repair|chang\w*|replac\w*|plug\w*)\b', text)
+    ) or (
         re.search(r"\b(change|replace|drain|remove|open)\b", text)
         and re.search(r"\b(coolant|radiator|fuel|battery)\b", text)
     ):
         return "caution"
     return "normal"
+
+
+def caution_maintenance(question):
+    """Recognised components do not by themselves request a hazardous operation."""
+    return bool(policy_risk(question) == 'caution'
+                and re.search(r'\b(brake pads?|brake discs?|brake rotors?|alternator)\b', question, re.I)
+                and not any(re.search(component, question, re.I) for component in RESTRICTED_COMPONENTS))
+
+
+def professional_overview(question):
+    """Known maintenance education, never permission for hydraulic/other repairs."""
+    return bool(caution_maintenance(question)
+                and re.search(r'\b(replac\w*|chang\w*|repair\w*|fix\w*|remov\w*|install\w*|servic\w*)\b', question, re.I))
 
 
 def enforce_policy(intent):
@@ -99,6 +119,15 @@ def enforce_policy(intent):
         if intent.risk == 'high_risk':
             intent.risk = 'normal'
         intent.instructional = False
+    elif (caution_maintenance(intent.question) or (
+            action_risk == 'caution' and re.search(
+                r'\b(punctur\w*|flat tyre|flat tire|spare wheel|spare tyre|spare tire)\b', intent.question, re.I))):
+        # These recognised tasks still require precautions. A variable semantic
+        # risk label must not turn the same educational request into a refusal.
+        if intent.route == 'restricted':
+            intent.route = 'rag'
+        if intent.risk == 'high_risk':
+            intent.risk = 'caution'
     risks = {action_risk, intent.risk}
     if intent.route == "emergency" or "emergency" in risks:
         intent.route, intent.risk = "emergency", "emergency"
@@ -111,7 +140,7 @@ def enforce_policy(intent):
 
 def videos_allowed(intent):
     return bool(intent and intent.route in {"rag", "rag_with_external_warning"}
-                and intent.risk == "normal" and intent.instructional and not intent.specification)
+                and intent.risk in {"normal", "caution"} and intent.instructional and not intent.specification)
 
 
 def emergency_topics(text):

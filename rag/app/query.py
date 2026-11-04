@@ -16,6 +16,7 @@ from shared.source_elements import element_parts
 from rag.app.generation.provider import GenerationClient
 from rag.app.generation.intent import Intent, interpret
 from rag.app.generation.context import bounded_history
+from shared.chat_preferences import requested_video, videos_excluded, followup_topic
 from rag.app.generation.grounded import applicable, generate, GeneratedReply, INSUFFICIENT, CLARIFY
 from shared.safety import immediate_emergency, policy_risk, videos_allowed, emergency_guidance, RESTRICTED_ANSWER
 from rag.app.youtube.retrieval import retrieve_youtube, timestamp_url
@@ -27,16 +28,6 @@ MANUAL_UNAVAILABLE = "The manual search is temporarily unavailable. Please try a
 EXTERNAL_WARNING = "Verify current legal requirements with the relevant official transport authority."
 REFERENCE_CANDIDATE_LIMIT = 8
 logger = logging.getLogger(__name__)
-
-
-def requested_video(question):
-    """Availability messaging follows the actual output request, not a rewrite."""
-    if re.search(r'\b(?:text.only|no videos?|without videos?)\b', question, re.I):
-        return False
-    return bool(re.search(r'\bvideos?\b|\bwatch(?:ing)?\b|'
-        r'\bsee\b.{0,35}\b(?:someone|somebody)\b.{0,25}\bdo(?:ing)?\b|'
-        r'\b(?:tutorial|demonstration|clip)s?\b|'
-        r'\bshow\s+me\s+doing\b|\btengok\s+orang\s+buat\b', question, re.I))
 
 
 def ambiguous_fluid_fill(question, history):
@@ -131,7 +122,9 @@ async def handle_query(query, *, scope, history=None, vehicle_profile=None,
     except Exception as error:
         diagnostics["interpretation_fallback"] = type(error).__name__
         logger.warning("RAG interpretation failed (%s)", type(error).__name__)
-        intent = Intent(question=query, search_query=query, route="rag", risk="normal",
+        topic = followup_topic(query, history)
+        resolved = topic + '\nFollow-up: ' + query if topic else query
+        intent = Intent(question=resolved, search_query=topic or query, route="rag", risk="normal",
                         specification=False, vehicle_conflict=False, requested_year=None,
                         requested_engine=None, requested_variant=None)
     timings["interpretation_ms"] = round((perf_counter() - phase) * 1000, 1)
@@ -211,18 +204,16 @@ async def handle_query(query, *, scope, history=None, vehicle_profile=None,
                 return found
 
             def search_videos():
-                # Only discover supplementary videos when requested. The resolved
-                # turn preserves short follow-ups; explicit exclusions take priority.
-                video_request = (requested_video(query) or requested_video(intent.question))
-                excluded = re.search(r'\b(?:text.only|no videos?|without videos?|original.only|manual.only)\b', query, re.I)
-                if (not video_request or excluded or video_ids == [] or embedding is None
+                # Practical answers can proactively offer a strong match.
+                # Exclusions are shared with generation and availability messaging.
+                if (videos_excluded(query) or video_ids == [] or embedding is None
                         or not videos_allowed(intent)):
                     return []
                 # Manual queries can add the selected model. Keep the resolved
                 # user's request for discovery, so an explicitly general
                 # tutorial isn't buried beneath unrelated model-specific clips.
-                video_query = intent.question
-                video_embedding = embedding if video_query == retrieval_query else prepare_retrieval(video_query)
+                video_query = retrieval_query
+                video_embedding = embedding
                 # Transcript chunks can repeat one video. Overfetch before
                 # deduplicating so metadata-only videos also get considered.
                 return retrieve_youtube(video_query, max(40, top_k * 8), query_embedding=video_embedding,
@@ -270,8 +261,10 @@ async def handle_query(query, *, scope, history=None, vehicle_profile=None,
                  (r.metadata.get('document_id', r.metadata['document_name']),
                   r.metadata.get('element_id')) in selected_elements}
                 for r in media_candidates]
-            videos = await select_videos(intent.question, candidates, (scope.get("vehicle") or {}).get("code"),
-                                         video_diagnostics.get("metric") or "l2", intent=intent)
+            videos = await select_videos(intent.question, candidates, scope.get("vehicle"),
+                                         video_diagnostics.get("metric") or "l2", intent=intent,
+                                         known_vehicle_codes=scope.get('vehicle_codes', []),
+                                         proactive=not (requested_video(query) or requested_video(intent.question)))
             video_candidates = recommendation_candidates(videos)
             for video, candidate in zip(videos, video_candidates):
                 video['metadata'] = {**video['metadata'], 'channel_title': candidate['channel_title']}
@@ -370,12 +363,17 @@ async def handle_query(query, *, scope, history=None, vehicle_profile=None,
                       "channel_title": v['metadata'].get('channel_title', ''),
                       "channel_id": v['metadata'].get('channel_id', ''),
                       "url": timestamp_url(v["metadata"]["video_id"],
-                          v["metadata"].get("start_seconds") if v["metadata"].get("retrieval_content") == 'transcript' else None),
-                      "timestamp": v["metadata"].get("start_seconds") if v["metadata"].get("retrieval_content") == 'transcript' else None,
-                      "matched_using": ('title_and_transcript' if v['metadata'].get('retrieval_content') == 'transcript'
+                          v["metadata"].get("start_seconds") if v["metadata"].get("retrieval_content") == 'transcript'
+                          and v.get('retrieval_method') != 'title_keywords' else None),
+                      "timestamp": v["metadata"].get("start_seconds") if v["metadata"].get("retrieval_content") == 'transcript'
+                          and v.get('retrieval_method') != 'title_keywords' else None,
+                      "matched_using": ('title' if v.get('retrieval_method') == 'title_keywords'
+                                        else 'title_and_transcript' if v['metadata'].get('retrieval_content') == 'transcript'
                                         else 'title_and_description'),
                       "content_verified": False,
-                      "notice": "External video. Content and vehicle compatibility have not been verified."}
+                      "vehicle_match": v.get('vehicle_match', 'generic'),
+                      "notice": ("Generic demonstration. " if v.get('vehicle_match') == 'generic' else "External video. ")
+                                + "Content and vehicle compatibility have not been verified."}
                      for v in videos]
     sources = []
     if useful:

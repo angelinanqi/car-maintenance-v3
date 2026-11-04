@@ -22,7 +22,7 @@ def content(record):
 
 
 def bounded_history(history, budget=None):
-    """Keep the newest contiguous exchanges, with no partial messages."""
+    """Keep whole recent messages; a long answer must not erase its user topic."""
     budget = settings.RAG_CONTEXT_CHARS // 2 if budget is None else budget
     messages = [{"role": m["role"], "content": m["content"]}
                 for m in (history or [])[-settings.CHAT_HISTORY_LIMIT:]
@@ -37,7 +37,12 @@ def bounded_history(history, budget=None):
     for exchange in reversed(exchanges):
         size = encoded_size(exchange)
         if size > budget:
-            break
+            # Assistant prose is context, not evidence. Retain the whole user
+            # request if its answer is too large, rather than losing all history.
+            exchange = exchange[:1]
+            size = encoded_size(exchange)
+            if size > budget:
+                break
         selected.insert(0, exchange)
         budget -= size
     return [message for exchange in selected for message in exchange]

@@ -40,9 +40,49 @@ def timestamp_url(video_id, start_seconds):
 
 def group_by_video(results):
     best = {}
-    for result in sorted(results, key=lambda result: result["distance"]):
+    for result in sorted(results, key=lambda result: (
+            result.get('retrieval_method') != 'title_keywords',
+            result['distance'] if result.get('distance') is not None else float('inf'))):
         best.setdefault(result["metadata"]["video_id"], result)
     return list(best.values())
+
+
+def title_candidates(store, query, where, limit=4):
+    """Complement dense recall with scoped title matches, using existing BM25.
+
+    These are discovery candidates, never factual evidence or a fabricated
+    vector score. The writer still checks the operation and vehicle match.
+    """
+    import re
+    from rag.app.retrieval.hybrid import lexical_search, tokenize
+    from rag.app.retrieval.search import RetrievalResult
+
+    def normalise(text):
+        text = re.sub(r'\b(?:tyres?|tires?)\b', 'tyre', text.lower())
+        text = re.sub(r'\breplac(?:e|es|ed|ing|ement)\b', 'replace', text)
+        return re.sub(r'\b([a-z]{3,})s\b', r'\1', text)
+
+    data = store.collection.get(where=where, include=['documents', 'metadatas'])
+    records, originals, rows = [], {}, []
+    seen = set()
+    for identity, text, metadata in zip(data['ids'], data['documents'], data['metadatas']):
+        metadata = metadata or {}
+        title = metadata.get('video_title', '')
+        video_id = metadata.get('video_id')
+        if not video_id or video_id in seen:
+            continue
+        seen.add(video_id)
+        rows.append((identity, text, metadata, normalise(title)))
+    tokens = tokenize([normalise(query)] + [row[3] for row in rows])
+    query_terms = set(tokens[0])
+    for (identity, text, metadata, title), title_terms in zip(rows, tokens[1:]):
+        # A single shared component/creator word is too weak for this fallback.
+        if len(query_terms & set(title_terms)) < 2:
+            continue
+        records.append(RetrievalResult(1, identity, 0, title, metadata))
+        originals[identity] = dict(id=identity, text=text, metadata=metadata,
+                                  distance=None, retrieval_method='title_keywords')
+    return [originals[r.chunk_id] for r in lexical_search(normalise(query), records, limit)]
 
 
 def retrieve_youtube(
@@ -97,21 +137,11 @@ def retrieve_youtube(
     response = store.search(embedding, top_k=limit, **options)
     distances = (response or {}).get("distances") or []
 
-    if not distances or not distances[0]:
-        return []
-
-    distance_row = distances[0]
-
-    if distance_row is None:
-        return []
-
     documents = (response or {}).get("documents") or []
     metadatas = (response or {}).get("metadatas") or []
     ids = (response or {}).get("ids") or []
 
-    if not documents or not metadatas or not ids:
-        return []
-
+    distance_row = distances[0] if distances and distances[0] else []
     results = [
         {
             "id": chunk_id,
@@ -120,7 +150,26 @@ def retrieve_youtube(
             "distance": distance_row[i],
         }
         for i, chunk_id in enumerate(ids[0])
-    ]
+    ] if distance_row and documents and metadatas and ids else []
+
+    where = ({'video_id': {'$in': sorted(set(video_ids))}} if video_ids is not None
+             else options.get('extra_where'))
+    try:
+        lexical = title_candidates(store, query, where)
+    except Exception as error:
+        import logging
+        logging.getLogger(__name__).warning('Video title search unavailable (%s)', type(error).__name__)
+        lexical = []
+        if diagnostics is not None:
+            diagnostics['title_search_error'] = type(error).__name__
+    if diagnostics is not None:
+        diagnostics['title_candidate_ids'] = [item['metadata']['video_id'] for item in lexical]
+    lexical_ids = {item['metadata']['video_id'] for item in lexical}
+    # Keep a real dense score where available; lexical-only rows have no score.
+    results = [{**item, 'retrieval_method': 'title_keywords'} if item['metadata']['video_id'] in lexical_ids
+               else item for item in results]
+    existing = {item['metadata']['video_id'] for item in results}
+    results.extend(item for item in lexical if item['metadata']['video_id'] not in existing)
 
     return results
 

@@ -11,12 +11,19 @@ from rag.app.generation.context import bounded_history, content, prepare_context
 from rag.config import settings
 from rag.app.generation.answer_prompt import answer_instructions
 from shared.safety import RESTRICTED_ANSWER, emergency_guidance, policy_risk, immediate_emergency
-from shared.safety import SOURCE_INJECTION, educational_only
+from shared.safety import SOURCE_INJECTION, educational_only, professional_overview, caution_maintenance
+from shared.chat_preferences import videos_excluded, presentation_followup, originals_only, requested_video
+from shared.chat_preferences import puncture_repair_request, broad_dashboard_request
 
 INSUFFICIENT = "I couldn't establish an answer from the supplied source material."
 REFERENCE_ONLY = ("I couldn't establish a textual answer from the supplied source material. "
                   "The selected original reference material is shown below. Please read its details and notes directly.")
 CLARIFY = "Please confirm the vehicle model, year, engine and variant for this question."
+DASHBOARD_COVERAGE = ('The lights and diagrams covered here are a selection from the available references, '
+                      'not a complete list of every dashboard indicator.')
+PUNCTURE_DISTINCTION = ('In general, repairing a puncture treats damage to the tyre; fitting a spare wheel '
+                        'is a separate, temporary measure. A tyre specialist needs to assess whether '
+                        'the damaged tyre can be repaired.')
 INJECTION = SOURCE_INJECTION
 INLINE_CITATIONS = re.compile(r'\[([SPVI]\d+(?:\s*,\s*[SPVI]\d+)*)\]')
 MODEL_CITATIONS = re.compile(INLINE_CITATIONS.pattern + r'|(?im:^sources:)')
@@ -42,6 +49,29 @@ def engine_bay_direction(text):
                               r'\b(?:on|at|to|towards?|from)\s+(?:the\s+)?(?:far\s+)?(?:left|right)\b|'
                               r'\b(?:driver|passenger)(?:\x27s)?[- ]side\b|'
                               r'\b(?:upper|lower|middle)[- ](?:left|right|corner)\b', text, re.I))
+
+
+def operational_overview(text):
+    """Keep professional education at stage/purpose level, not dismantling steps."""
+    pattern = (r'\bunbolt\w*\b|\bremov\w*\b.{0,40}\b(?:wheels?|calipers?)\b|'
+               r'\b(?:compress\w*|retract\w*|push\w*|press\w*)\b.{0,40}\bpistons?\b|'
+               r'\bdisconnect\w*\b.{0,40}\b(?:batter(?:y|ies)|cables?|terminals?)\b')
+    for match in re.finditer(pattern, text, re.I):
+        prefix = text[max(0, match.start() - 30):match.start()]
+        if not re.search(r'\b(?:not|never|avoid)\s+(?:\w+\s+){0,2}$', prefix, re.I):
+            return True
+    return False
+
+
+def spare_change_steps(text):
+    """Detect a substituted wheel-change sequence, not a mention of the option."""
+    pattern = (r'\b(?:loosen\w*|tighten\w*|remov\w*)\b.{0,45}\b(?:lug|wheel) nuts\b|'
+               r'\b(?:jack\w*|lift\w*|rais\w*)\b.{0,35}\b(?:car|vehicle)\b|'
+               r'\b(?:install\w*|mount\w*)\b.{0,25}\bspare\b')
+    for match in re.finditer(pattern, text, re.I):
+        if not re.search(r'\b(?:not|never|avoid)\s+(?:\w+\s+){0,2}$', text[max(0, match.start()-30):match.start()], re.I):
+            return True
+    return False
 
 
 @dataclass
@@ -288,11 +318,16 @@ def generate(question, records, client, *, scope, risk, vehicle_profile=None,
     selected_references = []
     allow_videos = True
     raw = None
+    display_question = question if not latest_message or presentation_followup(latest_message) else latest_message
+
+    def reference_message(message):
+        # Reference-only fallbacks also need an honest coverage statement.
+        return DASHBOARD_COVERAGE + '\n\n' + message if broad_dashboard_request(display_question) else message
 
     def correction(reply, reason):
         """One evidence-preserving correction; validation is never relaxed."""
         recoverable = {'model_wrote_citations', 'invalid_citation', 'invalid_citation_basis',
-                       'unverified_values', 'table_context', 'no_supporting_answer'}
+                       'unverified_values', 'table_context', 'no_supporting_answer', 'operational_overview', 'task_mismatch'}
         if _validation_feedback is not None or raw is None or reason not in recoverable:
             return reply
         repair_diagnostics = {}
@@ -330,7 +365,7 @@ def generate(question, records, client, *, scope, risk, vehicle_profile=None,
         if diagnostics is not None:
             diagnostics["decision_reason"] = reason
         if selected_references:
-            reply = GeneratedReply(REFERENCE_ONLY, "reference_only", reference_labels=selected_references,
+            reply = GeneratedReply(reference_message(REFERENCE_ONLY), "reference_only", reference_labels=selected_references,
                                    allow_videos=allow_videos)
         else:
             reply = GeneratedReply(message, allow_videos=allow_videos)
@@ -349,25 +384,36 @@ def generate(question, records, client, *, scope, risk, vehicle_profile=None,
                            omitted_source_labels=context.omitted_sources,
                            incomplete_section_labels=context.incomplete_section_labels,
                            omitted_reference_labels=context.omitted_references)
-    prompt = (
-        answer_instructions(sources)
-        # The search rewrite can lose uncertainty or turn a fear into an incident.
-        # Give the writer the actual user message and history, not a second,
-        # competing version of what the user supposedly asked.
-        + json.dumps({"activity_context": activity_context, "assistance": assistance,
+    # Only a format follow-up needs the standalone rewrite at the writing
+    # boundary. A self-contained message remains authoritative about incidents
+    # and uncertainty, even if interpretation rewrote it incorrectly.
+    resolved_question = display_question
+    puncture_repair = puncture_repair_request(resolved_question)
+    turn = {"activity_context": activity_context, "assistance": assistance,
                       "latest_message": latest_message or question,
+                      "resolved_question": resolved_question,
                       "knowledge_scope": scope["label"], "risk": risk,
+                      "guidance_mode": 'professional_overview' if professional_overview(question) else 'standard',
+                      "task_focus": 'puncture_repair' if puncture_repair else None,
+                      "coverage_notice": DASHBOARD_COVERAGE if broad_dashboard_request(resolved_question) else None,
                       "selected_vehicle": scope.get("vehicle"),
                       "history": bounded_history(history), "sources": sources, "references": references,
                       "context_incomplete": context.incomplete,
                       "validation_feedback": _validation_feedback,
-                      "supplementary_videos": supplementary_videos or []}, ensure_ascii=False)
-    )
+                      "supplementary_videos": supplementary_videos or []}
+    prompt = answer_instructions(sources) + json.dumps(turn, ensure_ascii=False)
     allowed_guides = {source['label'] for source in sources if source.get('source_type') == 'learning_guide'}
     allowed_videos = {video['id'] for video in supplementary_videos or [] if video.get('id')}
     options = {'schema': answer_schema([s['label'] for s in sources], [r['label'] for r in references],
                                        sorted(allowed_guides), sorted(allowed_videos),
-                                       education=educational_only(question) and action_risk == 'normal')}
+                                       education=(educational_only(question) and action_risk == 'normal')
+                                                 or caution_maintenance(question))}
+    if originals_only(latest_message or question):
+        # An original-only request must select supplied originals or admit a gap.
+        # Constrain delivery before generation so a copied/generated table cannot
+        # consume the answer while leaving the attachment selection empty.
+        options['schema']['properties']['outcome']['enum'] = ['reference_only', 'insufficient_evidence']
+        options['schema']['properties']['blocks']['maxItems'] = 0
     if (_validation_feedback and _validation_feedback.get('reason') in {'unverified_values', 'table_context'}
             and intent and not intent.specification):
         # A general follow-up must remain useful without borrowing an exact
@@ -380,14 +426,22 @@ def generate(question, records, client, *, scope, risk, vehicle_profile=None,
         options['images'] = images
     raw = client.generate(prompt, **options)
     answer = json.loads(raw)
+    # Delivery preferences cannot turn a selected original into generated prose.
+    if (originals_only(latest_message or question) and isinstance(answer, dict)
+            and answer.get('outcome') in {'answer', 'text_answer', 'reference_only'}):
+        answer.update(outcome='reference_only', blocks=[], clarification=None,
+                      recommended_guides=[], recommended_videos=[])
     # Production clients expose this explicit capability; minimal standalone
     # adapters may supply already reviewed answers through generate alone.
     # Both the draft and reviewed output still pass the integrity checks below.
     if (settings.RAG_GROUNDING_REVIEW and sources and isinstance(answer, dict)
-            and answer.get('outcome') in {'answer', 'text_answer'} and answer.get('blocks')
+            and answer.get('outcome') in {'answer', 'text_answer'}
+            and any(isinstance(block, dict) and block.get('basis', 'source') == 'source'
+                    for block in answer.get('blocks', []))
             and getattr(type(client), 'review_grounding', None) is not None):
-        reviewed = client.review_grounding(draft=answer, question=latest_message or question,
-            sources=sources, schema=options['schema'], images=images or None)
+        reviewed = client.review_grounding(draft=answer, question=resolved_question,
+            sources=sources, schema=options['schema'], images=images or None,
+            context={key: value for key, value in turn.items() if key != 'sources'})
         raw = reviewed
         answer = json.loads(reviewed)
         if diagnostics is not None:
@@ -412,9 +466,15 @@ def generate(question, records, client, *, scope, risk, vehicle_profile=None,
         return reject("invalid_outcome")
     if diagnostics is not None:
         diagnostics["generation_outcome"] = outcome
+    if (video_labels and presentation_followup(latest_message or question)
+            and requested_video(latest_message or question)
+            and outcome in {'answer', 'text_answer', 'insufficient_evidence'}):
+        # The requested output is just a format change. Authorised cards carry
+        # their own metadata; stale prose cannot describe a different video.
+        return GeneratedReply('A related external video is included. Its content and vehicle compatibility have not been verified.',
+                              'video_only', video_labels=video_labels)
     if (outcome == 'text_answer' and video_labels
-            and not re.search(r'\b(?:text.only|no videos?|without videos?|original.only|manual.only)\b',
-                              latest_message or question, re.I)):
+            and not videos_excluded(latest_message or question)):
         # Candidates are request-gated by the query route. A mistaken delivery
         # enum must not hide the link that was actually requested and selected.
         outcome = 'answer'
@@ -462,7 +522,7 @@ def generate(question, records, client, *, scope, risk, vehicle_profile=None,
         if diagnostics is not None:
             diagnostics['decision_reason'] = 'requested_references' if selected_references else 'insufficient_evidence'
         if selected_references:
-            return GeneratedReply('The requested original reference material is shown below.',
+            return GeneratedReply(reference_message('The requested original reference material is shown below.'),
                                   'reference_only', reference_labels=selected_references)
         return reject('insufficient_evidence')
     if (outcome in {'answer', 'text_answer'} and not answer["blocks"]) or (
@@ -489,6 +549,9 @@ def generate(question, records, client, *, scope, risk, vehicle_profile=None,
     withheld_values = False
     withheld_direction = False
     withheld_basis = False
+    withheld_overview = False
+    withheld_task = False
+    task_references = set()
     has_general_information = False
     for block in answer["blocks"]:
         # Older saved responses omit basis; they remain source-only blocks.
@@ -504,6 +567,18 @@ def generate(question, records, client, *, scope, risk, vehicle_profile=None,
         basis = block.get('basis', 'source')
         text = block["text"].strip()
         if not text:
+            continue
+        if puncture_repair and spare_change_steps(text):
+            withheld_task = True
+            if isinstance(block.get('references'), list):
+                task_references.update(label for label in block['references'] if isinstance(label, str))
+            if diagnostics is not None:
+                diagnostics.setdefault('discarded_block_reasons', []).append('task_mismatch')
+            continue
+        if professional_overview(question) and operational_overview(text):
+            withheld_overview = True
+            if diagnostics is not None:
+                diagnostics.setdefault('discarded_block_reasons', []).append('operational_overview')
             continue
         if (basis == 'source' and not block['sources']) or (basis == 'limitation' and block['sources']):
             # A malformed block is not evidence for its claims, but cannot
@@ -607,8 +682,11 @@ def generate(question, records, client, *, scope, risk, vehicle_profile=None,
         append_section("I couldn't confirm one or more exact values in this answer, so those claims have been left out.")
     if withheld_direction:
         append_section("I can't confidently describe this part's left/right position. Please check the original illustration rather than relying on a guessed direction.")
+    if task_references:
+        kept = {label for section in sections for label in section['reference_labels']}
+        selected_references = [label for label in selected_references if label not in task_references or label in kept]
     if not paragraphs:
-        return reject("no_supporting_answer")
+        return reject('task_mismatch' if withheld_task else 'operational_overview' if withheld_overview else "no_supporting_answer")
     if clarification and clarification not in '\n\n'.join(paragraphs):
         append_section(clarification)
     if diagnostics is not None:
@@ -619,6 +697,17 @@ def generate(question, records, client, *, scope, risk, vehicle_profile=None,
                            profile_relevant="P1" in citations, maintenance_relevant="P2" in citations,
                            has_general_information=has_general_information)
     supported = bool(citations) or has_general_information
+    if supported and puncture_repair and not re.search(r'\bspare\b', '\n'.join(paragraphs), re.I):
+        # Honest general fallback if source editing removed a mixed block's
+        # unsourced distinction. This adds no procedure, specification or citation.
+        paragraphs.insert(0, PUNCTURE_DISTINCTION)
+        sections.insert(0, {'text': PUNCTURE_DISTINCTION, 'reference_labels': []})
+        has_general_information = True
+        if diagnostics is not None:
+            diagnostics['has_general_information'] = True
+    if supported and broad_dashboard_request(resolved_question):
+        paragraphs.insert(0, DASHBOARD_COVERAGE)
+        sections.insert(0, {'text': DASHBOARD_COVERAGE, 'reference_labels': []})
     if diagnostics is not None and not supported:
         diagnostics['decision_reason'] = 'insufficient_evidence'
     if (not supported and video_labels and allow_videos and not selected_references
@@ -636,7 +725,7 @@ def generate(question, records, client, *, scope, risk, vehicle_profile=None,
                           guide_labels=list(dict.fromkeys(guide_labels)) if supported and outcome != 'text_answer' else [],
                           video_labels=list(dict.fromkeys(video_labels)) if allow_videos else [],
                           answer_sections=sections)
-    reason = ('unverified_values' if withheld_values else 'table_context'
+    reason = ('task_mismatch' if withheld_task else 'operational_overview' if withheld_overview else 'unverified_values' if withheld_values else 'table_context'
               if diagnostics is not None and (diagnostics.get('table_original_withheld') or diagnostics.get('table_context_withheld'))
               else 'invalid_citation_basis' if withheld_basis else None)
     return correction(reply, reason) if reason else reply

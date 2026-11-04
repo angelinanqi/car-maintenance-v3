@@ -35,7 +35,8 @@ def restore_recommendations(videos, scope, channel_ids):
             continue
         seen.add(identity)
         result.append({**video, 'content_verified': False,
-                       'notice': 'External video. Content and vehicle compatibility have not been verified.'})
+                       'notice': ('Generic demonstration. ' if video.get('vehicle_match') == 'generic' else 'External video. ')
+                                 + 'Content and vehicle compatibility have not been verified.'})
         if len(result) == 2:
             break
     return result

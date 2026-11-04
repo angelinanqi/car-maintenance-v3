@@ -168,7 +168,8 @@ export default function ChatMessage({ message, onMaintenance, onEmergency, onGui
                   <Text fontSize="xs" color="gray.600">
                     {video.matched_using === "title_and_description"
                       ? "Matched using its title and description. "
-                      : ""}
+                      : video.matched_using === "title" ? "Matched using its title. " : ""}
+                    {video.vehicle_match === "generic" ? "Generic demonstration. " : ""}
                     Content and vehicle compatibility have not been verified.
                   </Text>
                   {typeof video.timestamp === "number" &&

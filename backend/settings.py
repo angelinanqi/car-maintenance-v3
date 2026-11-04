@@ -33,7 +33,7 @@ IMAGE_MAX_BYTES = int(os.getenv("IMAGE_MAX_BYTES") or "10485760")
 IMAGE_CONTENT_TYPES = [value.strip() for value in (os.getenv("IMAGE_CONTENT_TYPES") or "image/jpeg,image/png,image/webp,image/gif").split(",")]
 API_PAGE_SIZE = int(os.getenv("API_PAGE_SIZE") or "100")
 CHAT_MAX_MESSAGE_LENGTH = int(os.getenv("CHAT_MAX_MESSAGE_LENGTH") or "4000")
-CHAT_HISTORY_LIMIT = int(os.getenv("CHAT_HISTORY_LIMIT") or "6")
+CHAT_HISTORY_LIMIT = int(os.getenv("CHAT_HISTORY_LIMIT") or "12")
 YOUTUBE_SEARCH_ALL_VIDEOS = (os.getenv("YOUTUBE_SEARCH_ALL_VIDEOS") or "true").lower() == "true"
 DUE_SOON_KM = int(os.getenv("DUE_SOON_KM") or "1000")
 DUE_SOON_DAYS = int(os.getenv("DUE_SOON_DAYS") or "30")

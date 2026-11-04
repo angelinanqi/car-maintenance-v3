@@ -134,8 +134,6 @@ confirming again. Database triggers enforce the same rules for direct deletion,
 and scope guards prevent new document tests from referencing a deleted vehicle.
 Existing installations must first apply
 [`20261103_catalogue_deletion.sql`](../supabase/migrations/20261103_catalogue_deletion.sql).
-Database regression checks are preserved with the evaluation archive as `tests/catalogue_deletion.sql`; restore the archived test tree and run these only
-against a disposable test database after the fresh schema or upgrade migration.
 
 ## Upload a document bundle and share its coverage
 

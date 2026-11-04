@@ -206,7 +206,7 @@ Logs are saved in **`output/logs/`**. Documents, search indexes, and recovery fi
 | `backend/` | Main API, built with FastAPI. |
 | `rag/` | AI search, answers, and indexing. |
 | `shared/` | Code shared by the Python services. |
-| `scripts/` | Launchers and maintenance utilities. |
+| `scripts/` | Production launcher, PDF rendering, and essential setup utilities. |
 | `supabase/` | Database setup instructions and SQL. |
 
 See [Detailed operations](docs/operations.md) for setup, Android release builds, account administration, and document recovery.
