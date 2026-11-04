@@ -39,11 +39,14 @@ class AccountRepository {
   final FlutterSecureStorage storage;
   final SupabaseClient? client;
   String? _userId;
+  String? _authUserId;
   String? incidentOwnerId;
   bool get hasSession => client?.auth.currentSession != null;
   String? get token => client?.auth.currentSession?.accessToken;
   String? get userId =>
-      client?.auth.currentSession?.user.id == _userId ? _userId : null;
+      _authUserId != null && client?.auth.currentSession?.user.id == _authUserId
+      ? _userId
+      : null;
   AccountRepository(this.api, {FlutterSecureStorage? storage, this.client})
     : storage = storage ?? const FlutterSecureStorage();
 
@@ -94,30 +97,40 @@ class AccountRepository {
     await storage.delete(key: storageKey);
     if (!hasSession) {
       _userId = null;
+      _authUserId = null;
       return null;
     }
+    // Supabase auth.users.id and the backend app_users.id are distinct IDs.
+    // Bind the verified app profile to the provider identity used for this call.
+    final authUserId = auth.currentSession!.user.id;
     try {
       _checkTransport();
       if (auth.currentSession!.isExpired) await auth.refreshSession();
+      if (auth.currentSession?.user.id != authUserId) {
+        throw const ApiException('Your account changed. Sign in again.');
+      }
       final session = AccountSession.fromJson(
         await api.get('/accounts/me', token: token),
       );
-      if (auth.currentSession?.user.id != session.id) {
+      if (auth.currentSession?.user.id != authUserId) {
         throw const ApiException('Your account changed. Sign in again.');
       }
       if (session.accessAllowed) {
         await storage.write(key: incidentOwnerKey, value: session.id);
-        if (auth.currentSession?.user.id != session.id) {
+        if (auth.currentSession?.user.id != authUserId) {
           throw const ApiException('Your account changed. Sign in again.');
         }
         incidentOwnerId = session.id;
         _userId = session.id;
+        _authUserId = authUserId;
       } else {
         _userId = null;
+        _authUserId = null;
       }
       return session;
     } catch (_) {
       _userId = null;
+      _authUserId = null;
       rethrow;
     }
   }
@@ -141,6 +154,7 @@ class AccountRepository {
   Future<void> logout() async {
     await auth.signOut(scope: SignOutScope.local);
     _userId = null;
+    _authUserId = null;
     await storage.delete(key: incidentOwnerKey);
     incidentOwnerId = null;
   }
