@@ -38,7 +38,7 @@ def refresh_plan(plan_id: UUID, user=Depends(auth.require_user)):
     return current
 
 
-def saved_view(row, user):
+def saved_view(row):
     result = dict(row)
     result['available'] = True
     if row['kind'] == 'guide':
@@ -58,7 +58,7 @@ def saved_view(row, user):
 
 @router.get('/saved-items')
 def saved_items(offset: int = Query(0, ge=0), limit: int = Query(settings.API_PAGE_SIZE, ge=1, le=1000), user=Depends(auth.require_user)):
-    return [saved_view(row, user) for row in db.list_rows('saved_items', user_id=user['id'], offset=offset, limit=limit)]
+    return [saved_view(row) for row in db.list_rows('saved_items', user_id=user['id'], offset=offset, limit=limit)]
 
 
 @router.post('/saved-items')
@@ -84,7 +84,7 @@ def persist_saved_item(request, user):
                     or row.get('plan_id') != (str(request.plan_id) if request.plan_id else None)
                     or row.get('payload', {}).get('text') != request.text):
                 raise HTTPException(409, 'These notes were already saved. Reopen them from Saved to edit the saved copy.')
-            return saved_view(row, user)
+            return saved_view(row)
     else:
         values.pop('id', None)
     if request.vehicle_id:
@@ -108,8 +108,8 @@ def persist_saved_item(request, user):
     if reference_field:
         existing = db.all_rows('saved_items', user_id=user['id'], kind=request.kind, **{reference_field: values[reference_field]})
         if existing:
-            return saved_view(existing[0], user)
-    return saved_view(db.insert('saved_items', {**values, 'user_id': user['id'], 'payload': payload}), user)
+            return saved_view(existing[0])
+    return saved_view(db.insert('saved_items', {**values, 'user_id': user['id'], 'payload': payload}))
 
 
 @router.patch('/saved-items/{item_id}')

@@ -168,11 +168,12 @@ class _AccountSecurityState extends State<AccountSecurity> {
 
   Future<void> _submit(AccountState account) async {
     if (!_form.currentState!.validate()) return;
-    if (account.recoveringPassword) {
+    if (account.recoveringPassword && !account.recoveryNeedsMfa) {
       await account.resetPassword(_password.text);
       return;
     }
     final factors =
+        (account.recoveringPassword ? account.recoveryFactorIds : null) ??
         account.pendingSession?.factorIds ??
         account.user?.factorIds ??
         <String>[];
@@ -247,9 +248,11 @@ class _AccountSecurityState extends State<AccountSecurity> {
   @override
   Widget build(BuildContext context) {
     final account = AccountScope.of(context)!;
-    final recovery = account.recoveringPassword;
+    final recovery = account.recoveringPassword && !account.recoveryNeedsMfa;
     final session = account.pendingSession ?? account.user;
-    final factors = session?.factorIds ?? [];
+    final factors = account.recoveringPassword
+        ? account.recoveryFactorIds
+        : session?.factorIds ?? [];
     final selectedFactor = factors.contains(_selectedFactor)
         ? _selectedFactor
         : factors.firstOrNull;
@@ -295,7 +298,9 @@ class _AccountSecurityState extends State<AccountSecurity> {
                 ),
               ] else ...[
                 Text(
-                  session?.mfaRequired == true
+                  account.recoveryNeedsMfa
+                      ? 'Verify your authenticator before choosing a new password.'
+                      : session?.mfaRequired == true
                       ? 'Authenticator verification is required for this account.'
                       : 'Add an authenticator app for an extra sign-in check.',
                 ),

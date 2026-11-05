@@ -9,6 +9,21 @@ class AccountState extends ChangeNotifier {
   AccountSession? user;
   AccountSession? pendingSession;
   bool recoveringPassword = false;
+  bool get recoveryNeedsMfa =>
+      recoveringPassword &&
+      recoveryFactorIds.isNotEmpty &&
+      repository.auth.mfa.getAuthenticatorAssuranceLevel().currentLevel !=
+          AuthenticatorAssuranceLevels.aal2;
+  List<String> get recoveryFactorIds =>
+      repository.auth.currentUser?.factors
+          ?.where(
+            (f) =>
+                f.factorType == FactorType.totp &&
+                f.status == FactorStatus.verified,
+          )
+          .map((f) => f.id)
+          .toList() ??
+      [];
   String? message;
   StreamSubscription<AuthState>? _authSubscription;
   bool _restorePending = false;
@@ -36,6 +51,7 @@ class AccountState extends ChangeNotifier {
       (event) {
         if (event.event == AuthChangeEvent.passwordRecovery) {
           recoveringPassword = true;
+          pendingSession = null;
           _accept(null);
           _notify();
         } else if (event.event == AuthChangeEvent.signedOut) {
@@ -187,6 +203,11 @@ class AccountState extends ChangeNotifier {
         'Open a valid password recovery email on this device first.',
       );
     }
+    if (recoveryNeedsMfa) {
+      throw const ApiException(
+        'Verify your authenticator before changing your password.',
+      );
+    }
     await repository.resetPassword(password);
     message = 'Password updated. Finishing sign-out on this device.';
     try {
@@ -197,6 +218,7 @@ class AccountState extends ChangeNotifier {
       );
     }
     recoveringPassword = false;
+    pendingSession = null;
     _accept(null);
     message = 'Password updated. Sign in with your new password.';
   });

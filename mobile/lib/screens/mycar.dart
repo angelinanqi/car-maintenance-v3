@@ -43,7 +43,9 @@ class MyCar extends StatefulWidget {
 class _MyCarState extends State<MyCar> {
   bool _schedule = true;
   String _filter = 'All';
-  String _statusFilter = 'Overdue';
+  String _statusFilter = 'All';
+  int _taskPage = 0;
+  String? _pageScope;
   String _query = '';
   String? _selectedTaskId;
   String? _draftOwner;
@@ -333,13 +335,26 @@ class _MyCarState extends State<MyCar> {
                 state.statusFor(t).label == 'Upcoming',
           )
           .toList();
-      final visible = _statusFilter == 'Overdue'
+      final untracked = tasks
+          .where((t) => !records.any((r) => r.taskId == t.id))
+          .toList();
+      final visible = _statusFilter == 'Untracked'
+          ? untracked
+          : _statusFilter == 'Overdue'
           ? overdue
           : _statusFilter == 'Upcoming'
           ? upcoming
           : tasks;
       final selected = tasks.where((t) => t.id == _selectedTaskId).firstOrNull;
-      final shownTasks = selected == null ? visible : [selected];
+      final scope = '${vehicle?.id}:$_statusFilter:$_selectedTaskId';
+      if (_pageScope != scope) {
+        _taskPage = 0;
+        _pageScope = scope;
+      }
+      final matchingTasks = selected == null ? visible : [selected];
+      final pageCount = ((matchingTasks.length + 9) ~/ 10).clamp(1, 1000000);
+      _taskPage = _taskPage.clamp(0, pageCount - 1);
+      final shownTasks = matchingTasks.skip(_taskPage * 10).take(10).toList();
       final busy = state.saving || state.loading;
       return Scaffold(
         appBar: AppBar(
@@ -478,31 +493,33 @@ class _MyCarState extends State<MyCar> {
                       ),
                     if (vehicle != null && _schedule) ...[
                       CarModelView(
-                        pins: [
-                          for (final task in tasks.take(3))
-                            CarPin(
-                              label: task.title,
-                              color:
-                                  state.statusFor(task).label == 'Due / Overdue'
-                                  ? AppColors.danger
-                                  : AppColors.accent,
-                              onTap: () => setState(() {
-                                _selectedTaskId = task.id;
-                                _statusFilter = 'All';
-                              }),
-                            ),
-                        ],
+                        pins: maintenanceCarPins(
+                          context,
+                          state,
+                          vehicle.id,
+                          _detail,
+                        ),
                       ),
                       SingleChildScrollView(
                         scrollDirection: Axis.horizontal,
                         child: Row(
                           children: [
-                            for (final label in ['Overdue', 'Upcoming', 'Done'])
+                            for (final label in [
+                              'All',
+                              'Untracked',
+                              'Overdue',
+                              'Upcoming',
+                              'Done',
+                            ])
                               Padding(
                                 padding: const EdgeInsets.only(right: 8),
                                 child: ChoiceChip(
                                   label: Text(
-                                    '$label ${label == 'Overdue'
+                                    '$label ${label == 'All'
+                                        ? tasks.length
+                                        : label == 'Untracked'
+                                        ? untracked.length
+                                        : label == 'Overdue'
                                         ? overdue.length
                                         : label == 'Upcoming'
                                         ? upcoming.length
@@ -580,11 +597,37 @@ class _MyCarState extends State<MyCar> {
                             ],
                           ),
                         ),
+                      if (pageCount > 1)
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            TextButton(
+                              onPressed: _taskPage == 0
+                                  ? null
+                                  : () => setState(() => _taskPage--),
+                              child: const Text('Previous'),
+                            ),
+                            Text('Page ${_taskPage + 1} of $pageCount'),
+                            TextButton(
+                              onPressed: _taskPage + 1 >= pageCount
+                                  ? null
+                                  : () => setState(() => _taskPage++),
+                              child: const Text('Next'),
+                            ),
+                          ],
+                        ),
                       for (final task in shownTasks)
                         SurfaceCard(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
+                              if (untracked.any((item) => item.id == task.id))
+                                const Padding(
+                                  padding: EdgeInsets.only(bottom: 8),
+                                  child: Text(
+                                    'Untracked — no service recorded',
+                                  ),
+                                ),
                               Row(
                                 children: [
                                   StatusPill(

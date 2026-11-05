@@ -78,7 +78,7 @@ Health checks confirm that services respond, but do not prove Supabase sign-in, 
 
 For a fresh database, follow [Supabase setup](../supabase/README.md) and use [supabase/init.sql](../supabase/init.sql). Do not rerun fresh-install SQL against an existing installation.
 
-Supabase handles user authentication. Keep email confirmation and admin MFA enabled. Configure the mobile redirect `myroadie://auth/callback` and the dashboard redirect `https://anqis-macbook-pro.tailcb3ca9.ts.net:8443/auth/callback` in Supabase, plus local callbacks when used.
+Supabase handles user authentication. Keep email confirmation and TOTP MFA enabled. All accounts now require MFA before accessing protected application data. Configure the mobile redirect `myroadie://auth/callback` and the dashboard redirect `https://anqis-macbook-pro.tailcb3ca9.ts.net:8443/auth/callback` in Supabase, plus local callbacks when used.
 
 To create an administrator:
 

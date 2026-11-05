@@ -134,6 +134,7 @@ class _AppShellState extends State<AppShell> {
       final account = AccountScope.of(context);
       if (account != null &&
           (account.recoveringPassword || account.pendingSession != null)) {
+        if (account.recoveringPassword) _entered = false;
         return AccountSecurity(
           requiredFlow: true,
           onEmergency: () => Navigator.push(

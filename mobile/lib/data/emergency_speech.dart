@@ -18,16 +18,8 @@ class EmergencySpeech extends ChangeNotifier with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
   }
 
-  static String instruction(EmergencyGuide guide, int index) => [
-    '${guide.title}. Step ${index + 1} of ${guide.steps.length}.',
-    if (guide.isAccident)
-      'For injuries, fire or immediate danger, call 999. This guide is for minor property damage with no injuries.',
-    if (guide.safetyWarnings.isNotEmpty)
-      'Safety warnings. ${guide.safetyWarnings}',
-    if (index == 0 && guide.description.isNotEmpty) guide.description,
-    guide.steps[index].title,
-    guide.steps[index].description,
-  ].join('\n\n');
+  static String instruction(EmergencyGuide guide, int index) =>
+      guide.steps[index].description;
 
   Future<FlutterTts> _initialize() async {
     final engine = _tts ??= FlutterTts();

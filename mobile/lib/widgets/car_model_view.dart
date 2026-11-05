@@ -5,12 +5,23 @@ import 'package:flutter/material.dart';
 import 'package:model_viewer_plus/model_viewer_plus.dart';
 import '../app_theme.dart';
 import 'design_widgets.dart';
+import '../app_state.dart';
+import '../models/maintenance.dart';
+import '../models/maintenance_components.dart';
 
 class CarPin {
   final String label;
   final Color color;
+  final int count;
+  final String position;
   final VoidCallback onTap;
-  const CarPin({required this.label, required this.color, required this.onTap});
+  const CarPin({
+    required this.label,
+    required this.color,
+    required this.onTap,
+    required this.count,
+    required this.position,
+  });
 }
 
 /// The supplied Corolla GLB, bundled locally. Hotspots rotate with the model.
@@ -67,11 +78,6 @@ class _CarModelViewState extends State<CarModelView> {
         !kIsWeb &&
         (Theme.of(context).platform == TargetPlatform.android ||
             Theme.of(context).platform == TargetPlatform.iOS);
-    const positions = [
-      '-1.15m 0.95m 1.35m',
-      '-0.85m 1.4m 1.8m',
-      '-1.15m 0.95m -1.35m',
-    ];
     return SurfaceCard(
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
       child: Column(
@@ -99,7 +105,7 @@ class _CarModelViewState extends State<CarModelView> {
                 : supported && !_failed
                 ? ModelViewer(
                     key: ValueKey(
-                      'corolla-$_attempt-${widget.compact}-${widget.pins.map((pin) => '${pin.label}:${pin.color.toARGB32()}').join('|')}',
+                      'corolla-$_attempt-${widget.compact}-${widget.pins.map((pin) => '${pin.label}:${pin.count}:${pin.position}:${pin.color.toARGB32()}').join('|')}',
                     ),
                     src: 'assets/models/corolla.glb',
                     alt: 'Interactive Toyota Corolla with maintenance markers',
@@ -116,12 +122,8 @@ class _CarModelViewState extends State<CarModelView> {
                     shadowIntensity: .5,
                     debugLogging: false,
                     innerModelViewerHtml: [
-                      for (
-                        var i = 0;
-                        i < widget.pins.length && i < positions.length;
-                        i++
-                      )
-                        '<button slot="hotspot-$i" data-position="${positions[i]}" data-normal="-1 0 0" class="pin" style="background:#${widget.pins[i].color.toARGB32().toRadixString(16).substring(2)}" aria-label="${const HtmlEscape().convert(widget.pins[i].label)}" onclick="Maintenance.postMessage(\'$i\')">${i + 1}</button>',
+                      for (var i = 0; i < widget.pins.length; i++)
+                        '<button slot="hotspot-$i" data-position="${widget.pins[i].position}" data-normal="-1 0 0" class="pin" style="background:#${widget.pins[i].color.toARGB32().toRadixString(16).substring(2)}" aria-label="${const HtmlEscape().convert(widget.pins[i].label)}" onclick="Maintenance.postMessage(\'$i\')">${widget.pins[i].count}</button>',
                     ].join(),
                     relatedCss:
                         '.pin{width:30px;height:30px;border-radius:50%;border:2px solid white;color:#2b2100;font:700 15px sans-serif;box-shadow:0 1px 3px #6b5a2e66;cursor:pointer}model-viewer{--progress-bar-color:#ffc21a}',
@@ -178,7 +180,7 @@ class _CarModelViewState extends State<CarModelView> {
                   TextButton(
                     onPressed: widget.pins[i].onTap,
                     child: Text(
-                      '${i + 1} · ${widget.pins[i].label}',
+                      '${widget.pins[i].count} · ${widget.pins[i].label}',
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
@@ -188,4 +190,61 @@ class _CarModelViewState extends State<CarModelView> {
       ),
     );
   }
+}
+
+List<CarPin> maintenanceCarPins(
+  BuildContext context,
+  AppState state,
+  String vehicleId,
+  void Function(MaintenanceTask) onTask,
+) {
+  final groups = maintenanceComponents(
+    state.tasksFor(vehicleId),
+    state.statusFor,
+  );
+  return [
+    for (final entry in groups.entries)
+      CarPin(
+        label: entry.key,
+        count: entry.value.length,
+        position: entry.key == 'Engine compartment'
+            ? '-0.85m 1.4m 1.8m'
+            : '-1.15m 0.95m 1.35m',
+        color:
+            entry.value.any((t) => state.statusFor(t).label == 'Due / Overdue')
+            ? AppColors.danger
+            : AppColors.accent,
+        onTap: () => showModalBottomSheet<void>(
+          context: context,
+          useSafeArea: true,
+          builder: (sheetContext) => ListenableBuilder(
+            listenable: state,
+            builder: (_, __) {
+              final tasks =
+                  maintenanceComponents(
+                    state.tasksFor(vehicleId),
+                    state.statusFor,
+                  )[entry.key] ??
+                  <MaintenanceTask>[];
+              return ListView(
+                shrinkWrap: true,
+                children: [
+                  ListTile(title: Text('${entry.key} · ${tasks.length}')),
+                  for (final task in tasks)
+                    ListTile(
+                      title: Text(task.title),
+                      subtitle: Text(state.statusFor(task).label),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () {
+                        Navigator.pop(sheetContext);
+                        onTask(task);
+                      },
+                    ),
+                ],
+              );
+            },
+          ),
+        ),
+      ),
+  ];
 }

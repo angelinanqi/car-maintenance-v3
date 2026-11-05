@@ -236,20 +236,14 @@ class Home extends StatelessWidget {
                       if (vehicle != null)
                         CarModelView(
                           compact: true,
-                          pins: [
-                            for (final item in tasks.take(3))
-                              CarPin(
-                                label: item.title,
-                                color: priority(item) == 0
-                                    ? AppColors.danger
-                                    : priority(item) == 1
-                                    ? AppColors.accent
-                                    : AppColors.success,
-                                onTap: () => onTask != null
-                                    ? onTask!(item.id)
-                                    : onMaintenance(vehicle, false),
-                              ),
-                          ],
+                          pins: maintenanceCarPins(
+                            context,
+                            state,
+                            vehicle.id,
+                            (item) => onTask != null
+                                ? onTask!(item.id)
+                                : onMaintenance(vehicle, false),
+                          ),
                         ),
                       if (state.cacheError != null)
                         SurfaceCard(child: Text(state.cacheError!)),

@@ -43,15 +43,13 @@ def verified_identity(token):
     user = application_user(provider_user)
     factors = [factor for factor in provider_user.factors or []
                if factor.status == 'verified' and factor.factor_type == 'totp']
-    # Enrollment is durable opt-in. Deleting factors directly at the provider
-    # must not silently disable the application's MFA requirement.
-    if factors and not user['mfa_required']:
-        user = db.update('app_users', user['id'], {'mfa_required': True})
-    required = user['role'] == 'admin' or user['mfa_required']
+    # Every confirmed account must enroll and verify, including existing users.
+    # Do not trust the legacy opt-in flag or a stale aal2 token after removal.
+    required = True
     return {'user': user, 'transport': 'supabase', 'claims': claims,
             'provider_user': provider_user, 'factors': factors,
             'mfa_required': required,
-            'access_allowed': not required or claims.get('aal') == 'aal2',
+            'access_allowed': bool(factors) and claims.get('aal') == 'aal2',
             'session': {'expires_at': claims['exp']}}
 
 

@@ -102,7 +102,7 @@ def table_data(record):
 
 
 @observed('evidence_filtering')
-def applicable(question, records, scope, *, intent=None):
+def applicable(records, scope, *, intent=None):
     """Check source integrity and declared compatibility, never word overlap."""
     eligible, excluded = [], []
     selected = scope.get("vehicle") or {}

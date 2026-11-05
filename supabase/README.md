@@ -146,7 +146,7 @@ trigger promotes administrators or migrates legacy passwords.
 
 Supabase Auth owns credentials and sessions. FastAPI verifies Supabase access
 tokens and loads server-managed roles from `app_users` through `auth_user_id`.
-Email confirmation is required; admins require TOTP verification. Multiple admin
+Email confirmation and TOTP verification are required for every account. Multiple admin
 profiles are supported. Application ownership and attribution continue to reference
 the original `app_users.id`.
 

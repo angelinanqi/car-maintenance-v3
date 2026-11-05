@@ -231,7 +231,7 @@ async def handle_query(query, *, scope, history=None, vehicle_profile=None,
             manual_failed = manual_failed or bool(scope.get('unavailable_documents'))
             published = [] if content_failed else published
             candidates = [] if video_failed else candidates
-            eligible, excluded = applicable(intent.question, records, scope, intent=intent)
+            eligible, excluded = applicable(records, scope, intent=intent)
             # Give text and visual descriptions separate budgets within one ranked search.
             paragraphs = [r for r in eligible if r.metadata.get("content_type") == "paragraph"]
             media_candidates = [r for r in eligible if r.metadata.get("content_type") in {"image", "table"}]
