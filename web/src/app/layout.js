@@ -1,8 +1,8 @@
 import { Provider } from "@/components/ui/provider"
 
 export const metadata = {
-  title: { default: "Roadie Admin", template: "%s | Roadie Admin" },
-  description: "Manage vehicle care, reviewed knowledge and learning content for Roadie.",
+  title: { default: "MyRoadie Admin", template: "%s | MyRoadie Admin" },
+  description: "Manage vehicle care, reviewed knowledge and learning content for MyRoadie.",
 };
 
 export default function RootLayout({ children }) {

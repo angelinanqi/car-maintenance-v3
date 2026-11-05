@@ -1,8 +1,8 @@
-# Roadie
+# MyRoadie
 
 Car maintenance help, service reminders, and answers grounded in your vehicle's manuals.
 
-Roadie has an Android app for drivers and a web dashboard for managing its content.
+MyRoadie has an Android app for drivers and a web dashboard for managing its content.
 
 [Start the app](#start-the-app) · [First-time setup](#first-time-setup) · [Settings](#settings) · [Troubleshooting](#troubleshooting)
 
@@ -12,7 +12,7 @@ Roadie has an Android app for drivers and a web dashboard for managing its conte
 | --- | --- |
 | **MacBook** | Runs the main app, admin dashboard, and AI search. |
 | **Windows PC** | Reads PDFs using MinerU OCR, which turns pages into text and images. |
-| **Android phone** | Runs the Roadie app. |
+| **Android phone** | Runs the MyRoadie app. |
 
 Keep Tailscale connected on all three devices. Supabase stores accounts and shared data; Gemini supplies AI responses.
 
@@ -30,7 +30,7 @@ Double-click **`start-ocr.cmd`**, or run this in PowerShell:
 
 Wait for **“OCR ready.”** The launcher also sets up the Windows Tailscale forwarding automatically.
 
-### 2. Start Roadie on the Mac
+### 2. Start MyRoadie on the Mac
 
 Double-click **`start-app.command`**, or run this in Terminal:
 
@@ -46,7 +46,7 @@ The launcher starts the main services and opens the dashboard. AI search can tak
 | --- | --- |
 | **Admin dashboard through Tailscale** | [Open dashboard](https://anqis-macbook-pro.tailcb3ca9.ts.net:8443/login) |
 | **Dashboard directly on the Mac** | [Open local dashboard](http://127.0.0.1:3000/login) |
-| **Android app** | Open the installed Roadie app with Tailscale connected. |
+| **Android app** | Open the installed MyRoadie app with Tailscale connected. |
 
 The Tailscale dashboard link needs the Mac forwarding configured during first-time setup below.
 
@@ -54,7 +54,7 @@ The Tailscale dashboard link needs the Mac forwarding configured during first-ti
 
 Run only one backend process (no multiple Uvicorn workers or overlapping instances). The document workers resume records with status `processing`, including jobs waiting for OCR or preparation; completed extraction handoffs retry separately. Completed OCR caches and saved illustration descriptions are reused after restart. Backend logs show OCR handoffs, preparation starts, and illustration counts. Documents with actual processing errors remain `failed` for manual retry. If an OCR submission was interrupted before its task ID was acknowledged, inspect OCR tasks/logs before retrying: the app will not blindly submit a duplicate. Stop the Windows OCR terminal separately when you no longer need it.
 
-After a reboot, start the launchers again. Tailscale remembers its forwarding settings; it does not start Roadie or OCR for you.
+After a reboot, start the launchers again. Tailscale remembers its forwarding settings; it does not start MyRoadie or OCR for you.
 
 ## First-time setup
 
@@ -124,7 +124,7 @@ Run `./start-app.command` when ready. Run only one main backend against this Sup
 <details>
 <summary><strong>Android — use or build the phone app</strong></summary>
 
-If Roadie is already installed with the correct backend address, connect Tailscale and open it. You do not need USB or Flutter running for normal use.
+If MyRoadie is already installed with the correct backend address, connect Tailscale and open it. You do not need USB or Flutter running for normal use.
 
 To run a development build from Windows:
 

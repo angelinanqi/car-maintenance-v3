@@ -1,4 +1,4 @@
-# Roadie operations guide
+# MyRoadie operations guide
 
 For everyday use, start with the [README](../README.md). This guide covers setup and maintenance tasks. Run commands from the project root unless a command changes folders explicitly.
 

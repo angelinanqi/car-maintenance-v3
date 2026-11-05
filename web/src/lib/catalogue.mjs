@@ -14,7 +14,7 @@ export function vehicleAvailability(vehicle, models, manufacturers) {
     Number(vehicle.year) > 2100
   )
     return "Set a model year";
-  return "Available in Roadie";
+  return "Available in MyRoadie";
 }
 
 export function suggestVehicleCode(manufacturer, model, year, variant) {

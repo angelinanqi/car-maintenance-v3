@@ -86,7 +86,7 @@ export function ManufacturerEditor({
         Available for new vehicle selections
         <Text color="muted" fontSize="sm" mt={2}>
           Turning this off hides all models and variants under this manufacturer
-          from new selections in Roadie. Existing records are kept.
+          from new selections in MyRoadie. Existing records are kept.
         </Text>
       </Checkbox>
     </RecordDialog>
@@ -186,13 +186,13 @@ export function ModelEditor({
         Available for new vehicle selections
         <Text fontSize="sm" color="muted" mt={2}>
           Turning this off hides the model and its variants from new selections
-          in Roadie. Existing records are kept.
+          in MyRoadie. Existing records are kept.
         </Text>
       </Checkbox>
       {maker && !maker.active && (
         <Text bg="brand.50" p={3}>
           This manufacturer is inactive. Activating the model alone will not
-          make it available in Roadie.
+          make it available in MyRoadie.
         </Text>
       )}
     </RecordDialog>
@@ -442,7 +442,7 @@ export function VehicleEditor({
               setDraft({ ...draft, active: e.checked === true })
             }
           >
-            Available for new selections in Roadie
+            Available for new selections in MyRoadie
           </Checkbox>
           <Text fontSize="sm" color="muted" mt={2}>
             The manufacturer and model must also be active. Turning this off

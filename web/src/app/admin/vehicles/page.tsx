@@ -164,7 +164,7 @@ function VehicleCatalogue() {
       return (
         (!manufacturerId || model?.manufacturer_id === manufacturerId) &&
         (!modelId || row.model_id === modelId) &&
-        matchesStatus(availability === "Available in Roadie") &&
+        matchesStatus(availability === "Available in MyRoadie") &&
         matchesQuery(
           `${row.name} ${manufacturerName(model?.manufacturer_id)} ${model?.name || ""} ${row.year} ${row.engine} ${row.variant} ${row.code}`,
         )
@@ -362,7 +362,7 @@ function VehicleCatalogue() {
                 </FormField>}
                 <FormField
                   label={
-                    section === "vehicles" ? "Roadie selection" : "Entry status"
+                    section === "vehicles" ? "MyRoadie selection" : "Entry status"
                   }
                 >
                   <AdminSelect
@@ -373,12 +373,12 @@ function VehicleCatalogue() {
                     <option value="all">All entries</option>
                     <option value="active">
                       {section === "vehicles"
-                        ? "Available in Roadie"
+                        ? "Available in MyRoadie"
                         : "Active"}
                     </option>
                     <option value="inactive">
                       {section === "vehicles"
-                        ? "Unavailable in Roadie"
+                        ? "Unavailable in MyRoadie"
                         : "Inactive"}
                     </option>
                   </AdminSelect>
@@ -444,7 +444,7 @@ function VehicleCatalogue() {
                         <Stack gap={2} align="start">
                           <Badge
                             colorPalette={
-                              availability === "Available in Roadie"
+                              availability === "Available in MyRoadie"
                                 ? "green"
                                 : "orange"
                             }
@@ -528,7 +528,7 @@ function VehicleCatalogue() {
                         )?.active && (
                           <Text fontSize="sm" color="orange.700" mt={1}>
                             Manufacturer inactive: variants remain unavailable
-                            in Roadie.
+                            in MyRoadie.
                           </Text>
                         )}
                       </Box>

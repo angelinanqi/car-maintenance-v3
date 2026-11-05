@@ -399,7 +399,7 @@ export default function SOPManagerPage() {
                       <Text color="muted">
                         {sops.length
                           ? "No playbooks match your search."
-                          : "No playbooks yet. Create one to add reviewed guidance for Roadie."}
+                          : "No playbooks yet. Create one to add reviewed guidance for MyRoadie."}
                       </Text>
                     )}
                   </Stack>

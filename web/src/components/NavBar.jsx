@@ -69,7 +69,7 @@ export default function NavBar() {
         px={1}
         mb={{ base: 0, lg: 8 }}
       >
-        <NextLink href="/admin/home" aria-label="Roadie Admin overview">
+        <NextLink href="/admin/home" aria-label="MyRoadie Admin overview">
           <Brand inverse />
         </NextLink>
         <Button

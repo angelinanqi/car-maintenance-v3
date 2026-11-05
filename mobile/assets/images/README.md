@@ -1,4 +1,4 @@
-# Roadie mobile artwork
+# MyRoadie mobile artwork
 
 `branding/` contains the app icon source (`roadie_logo.png`) and the full logo
 used on the account screen (`roadie_full_logo.png`).

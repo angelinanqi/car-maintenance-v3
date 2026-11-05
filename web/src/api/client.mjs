@@ -56,7 +56,7 @@ async function performRequest(path, { method, body, signal }) {
     });
   } catch (cause) {
     if (signal?.aborted) throw cause;
-    throw new Error("Could not connect to Roadie. Check your connection and try again. Your changes have not been confirmed.");
+    throw new Error("Could not connect to MyRoadie. Check your connection and try again. Your changes have not been confirmed.");
   }
   if (response.status === 204) return null;
   let result;

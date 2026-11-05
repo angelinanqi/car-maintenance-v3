@@ -126,7 +126,7 @@ class _NoteDialogState extends State<NoteDialog> {
   );
 }
 
-/// Roadie artwork for compact placements, assistant avatars and illustrations.
+/// MyRoadie artwork for compact placements, assistant avatars and illustrations.
 enum MascotArtwork {
   logo('assets/images/branding/roadie_logo.png'),
   chatbot('assets/images/mascots/roadie_chatbot.png'),
@@ -147,7 +147,7 @@ class Mascot extends StatelessWidget {
     width: size,
     height: size,
     fit: BoxFit.contain,
-    semanticLabel: 'Roadie, your car assistant',
+    semanticLabel: 'MyRoadie, your car assistant',
   );
 }
 

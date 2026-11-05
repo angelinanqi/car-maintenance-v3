@@ -61,18 +61,18 @@ export default function AccountForm({ mode }) {
         <Brand inverse />
         <Box display={{ base: "none", lg: "block" }} maxW="450px" py={14}>
           <Heading as="h2" color="white" fontSize={{ lg: "44px", xl: "56px" }} lineHeight="1.08" mb={6}>Better Care Starts Here.</Heading>
-          <Text color="#c5cdd6" fontSize="lg">The workspace behind Roadie. Keep vehicle knowledge accurate, maintenance clear, and guidance ready for the road.</Text>
+          <Text color="#c5cdd6" fontSize="lg">The workspace behind MyRoadie. Keep vehicle knowledge accurate, maintenance clear, and guidance ready for the road.</Text>
           <Stack mt={12} gap={5}>
             {["Maintain the vehicle catalogue", "Publish reviewed guides and manuals", "Check answers before drivers need them"].map((line) => <Flex gap={3} align="center" key={line}><Box w="7px" h="7px" bg="brand.400" borderRadius="full" /><Text>{line}</Text></Flex>)}
           </Stack>
         </Box>
-        <Text color="#abb7c4" fontSize="sm" display={{ base: "none", lg: "block" }}>Built for the people keeping Roadie useful.</Text>
+        <Text color="#abb7c4" fontSize="sm" display={{ base: "none", lg: "block" }}>Built for the people keeping MyRoadie useful.</Text>
       </Flex>
       <Flex as="main" flex={1} px={{ base: 5, md: 10 }} py={10} align="center" justify="center">
         <Stack w="full" maxW="420px" gap={7}>
           <Box>
             <Heading as="h1" fontSize="32px" lineHeight="1.2">{registering ? "Create an Account" : "Welcome Back"}</Heading>
-            <Text color="muted" mt={3}>{registering ? "One account for Roadie and Roadie Admin." : "Sign in to your Roadie Admin workspace."}</Text>
+            <Text color="muted" mt={3}>{registering ? "One account for MyRoadie and MyRoadie Admin." : "Sign in to your MyRoadie Admin workspace."}</Text>
           </Box>
           <Box as="form" onSubmit={submit} noValidate>
             <Stack gap={5}>
@@ -117,7 +117,7 @@ export default function AccountForm({ mode }) {
             </Text>
             <Text fontSize="sm" color="muted">{registering ? "Already registered?" : "Need an account?"}{" "}<Link asChild color="brand.700" fontWeight="600" textDecoration="underline" textUnderlineOffset="3px"><NextLink href={registering ? "/login" : "/register"}>{registering ? "Sign in" : "Create an account"}</NextLink></Link></Text>
           </Stack>
-          <Box borderTopWidth="1px" borderColor="brand.200" pt={5}><Text fontSize="sm" lineHeight="tall" color="muted">{registering ? "Registration creates a standard account. Dashboard access is assigned by your administrator." : "This workspace requires administrator access. Drivers can use the Roadie mobile app with the same account."}</Text></Box>
+          <Box borderTopWidth="1px" borderColor="brand.200" pt={5}><Text fontSize="sm" lineHeight="tall" color="muted">{registering ? "Registration creates a standard account. Dashboard access is assigned by your administrator." : "This workspace requires administrator access. Drivers can use the MyRoadie mobile app with the same account."}</Text></Box>
         </Stack>
       </Flex>
     </Flex>

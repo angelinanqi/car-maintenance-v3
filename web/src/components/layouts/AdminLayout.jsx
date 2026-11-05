@@ -9,7 +9,7 @@ export default function AdminLayout({ title, description, children }) {
   return (
     <Box w="100%" maxW="1440px" mx="auto" px={{ base: 4, md: 7, xl: 10 }} py={{ base: 6, md: 8 }}>
       <Flex align="center" justify="space-between" gap={4} mb={7} color="muted" fontSize="sm">
-        <NextLink href="/admin/home">Roadie workspace</NextLink>
+        <NextLink href="/admin/home">MyRoadie workspace</NextLink>
         <Text>Administration</Text>
       </Flex>
       <Stack align="start" gap={3} mb={8}>
