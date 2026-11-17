@@ -7,7 +7,7 @@
 -- gen_random_uuid() is built into supported PostgreSQL versions (13+);
 -- no additional extensions, custom enums, views or database roles are required.
 -- The retained column-specific ON DELETE SET NULL syntax requires PostgreSQL 15+.
--- Historical sources and upgrade guidance: README.md in this directory.
+-- Setup and upgrade guidance: ../README.md in the project root.
 
 begin;
 

@@ -1,0 +1,21 @@
+{
+  "recipe": "corrective automotive SFT from complete local extraction passages; conservative source quotation and missing-evidence targets",
+  "human_verified_labels": false,
+  "all_positive_and_warning_quotes_verbatim": true,
+  "train_count": 176,
+  "held_count": 16,
+  "train_documents": [
+    "alza-2018-owner-manual-eng.pdf",
+    "axia-2023---current-owner-manual-eng.pdf",
+    "bezza-2016-owner-manual-eng.pdf",
+    "bezza-2020---current-owner-manual-eng.pdf",
+    "myvi-2021---current-owner-manual-eng.pdf"
+  ],
+  "held_documents": [
+    "all-new-saga-owner-manual_compressed.pdf",
+    "myvi-2005-owner-manual-eng.pdf"
+  ],
+  "source_hash_overlap": 0,
+  "reserved_evaluation_dataset_used": false,
+  "caveat": "Automated templates and extraction are not human automotive labels. This addresses observed failures but improvement must be established from actual comparisons. Exposed prior development cases remain regression checks."
+}

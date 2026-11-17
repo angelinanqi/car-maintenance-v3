@@ -19,6 +19,7 @@ from shared.http_errors import http_error, validation_error
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from rag.config import settings
+from rag.app.generation.provider import request_deadline, GenerationError, GenerationClient
 from shared.models import PersonalVehicleProfile, PersonalMaintenanceContext, SourceAttachmentReference, MechanicQuestionDraft
 from shared.schedule_drafting import ScheduleDraftRequest, ScheduleDraftResponse
 from shared.document_testing import DocumentTestRequest, DocumentTestReply
@@ -33,6 +34,9 @@ async def lifespan(app):
     # Model imports and cached weights can take several minutes on a cold start.
     # Report each stage while the launcher waits for application readiness.
     startup_logger = logging.getLogger("uvicorn.error")
+    model_status = await asyncio.to_thread(GenerationClient().verify_model)
+    app.state.model_status = model_status
+    startup_logger.info('RAG startup: required fine-tuned model and adapter verified: %s', model_status['model'])
     # An unavailable encoder leaves the scoped lexical fallback operational.
     if (settings.CHROMA_PATH / "chroma.sqlite3").is_file():
         started = perf_counter()
@@ -74,6 +78,20 @@ app.middleware("http")(request_monitor)
 app.add_exception_handler(RequestValidationError, validation_error)
 app.add_exception_handler(StarletteHTTPException, http_error)
 logger = logging.getLogger(__name__)
+
+
+@app.get('/health')
+async def health():
+    status = getattr(app.state, 'model_status', {'model': settings.OLLAMA_MODEL, 'adapter_verified': False})
+    return {'status': 'ok' if status['adapter_verified'] else 'starting', 'provider': 'ollama', **status}
+
+
+async def pipeline_unavailable(request, error):
+    return await http_error(request, HTTPException(503, 'The AI service is busy or the request timed out. Please retry shortly.'))
+
+
+app.add_exception_handler(TimeoutError, pipeline_unavailable)
+app.add_exception_handler(GenerationError, pipeline_unavailable)
 
 
 class Message(BaseModel):
@@ -216,6 +234,7 @@ def verify_revisions(scope, *, allow_partial=False):
 
 
 @app.post('/v1/chat', response_model=Answer)
+@request_deadline
 async def chat(request: Request, authorization: str = Header(default='')):
     verify_service_credentials(authorization)
     if (request.scope.get('scope_type') not in {'auto', 'vehicle', 'category'}
@@ -232,6 +251,8 @@ async def chat(request: Request, authorization: str = Header(default='')):
             vehicle_profile=request.vehicle_profile.model_dump(mode='json') if request.vehicle_profile else None,
             maintenance_context=request.maintenance_context.model_dump(mode='json') if request.maintenance_context else None,
             activity_context=request.activity_context, assistance=request.assistance))
+    except GenerationError:
+        raise HTTPException(503, 'The chatbot is busy or the request timed out. Please retry shortly.') from None
     except Exception:
         logger.exception('Existing RAG pipeline request failed')
         raise HTTPException(503, 'The AI service is temporarily unavailable.') from None
@@ -251,6 +272,7 @@ async def mechanic_questions(request: MechanicQuestionsRequest, authorization: s
 
 
 @app.post('/v1/document-test', response_model=DocumentTestReply)
+@request_deadline
 async def document_test(request: DocumentTestRequest, authorization: str = Header(default='')):
     verify_service_credentials(authorization)
     scope = request.scope
@@ -291,4 +313,4 @@ if __name__ == '__main__':
     rag_logger.propagate = False
     import uvicorn
     uvicorn.run(app, host=os.getenv('RAG_HTTP_HOST', '127.0.0.1'),
-                port=int(os.getenv('RAG_HTTP_PORT', '8001')))
+                port=int(os.getenv('RAG_HTTP_PORT', '8001')), access_log=False)

@@ -1,5 +1,6 @@
 """Shared settings. Relative data paths are resolved from the repository root."""
 import os
+import math
 from pathlib import Path
 
 from shared.configuration import load_configuration
@@ -12,6 +13,30 @@ def path_setting(name, default):
     path = Path(os.getenv(name) or default).expanduser()
     return path if path.is_absolute() else PROJECT_ROOT / path
 
+
+# All interactive generation is local; ingestion imports GeminiClient directly.
+OLLAMA_MODEL = os.getenv('OLLAMA_MODEL') or 'roadie-gemma3-ft'
+if OLLAMA_MODEL not in {'roadie-gemma3-ft', 'roadie-gemma3-ft:latest'}:
+    raise ValueError('Roadie requires the fine-tuned roadie-gemma3-ft model; remove any base-model environment override')
+OLLAMA_URL = (os.getenv('OLLAMA_URL') or 'http://127.0.0.1:11434').rstrip('/')
+OLLAMA_CONTEXT_LENGTH = int(os.getenv('OLLAMA_CONTEXT_LENGTH') or '8192')
+OLLAMA_MAX_OUTPUT_TOKENS = int(os.getenv('OLLAMA_MAX_OUTPUT_TOKENS') or '1024')
+OLLAMA_TIMEOUT = float(os.getenv('OLLAMA_TIMEOUT') or '90')
+OLLAMA_TEMPERATURE = float(os.getenv('OLLAMA_TEMPERATURE') or '0')
+OLLAMA_REPEAT_PENALTY = float(os.getenv('OLLAMA_REPEAT_PENALTY') or '1.0')
+RAG_REQUEST_TIMEOUT = float(os.getenv('RAG_REQUEST_TIMEOUT') or '120')
+RAG_MEDIA_TIMEOUT = float(os.getenv('RAG_MEDIA_TIMEOUT') or '5')
+RAG_MAX_REQUESTS = int(os.getenv('RAG_MAX_REQUESTS') or '3')
+if (not math.isfinite(RAG_REQUEST_TIMEOUT) or RAG_REQUEST_TIMEOUT <= 0
+        or not math.isfinite(RAG_MEDIA_TIMEOUT) or RAG_MEDIA_TIMEOUT <= 0
+        or not 1 <= RAG_MAX_REQUESTS <= 16):
+    raise ValueError('Invalid RAG request/media timeout or admission limit')
+RAG_HISTORY_CHARS = int(os.getenv('RAG_HISTORY_CHARS') or '1600')
+RAG_MAX_CORRECTIONS = int(os.getenv('RAG_MAX_CORRECTIONS') or '0')
+if (not 0 < OLLAMA_MAX_OUTPUT_TOKENS < OLLAMA_CONTEXT_LENGTH or OLLAMA_TIMEOUT <= 0
+        or not 0 <= OLLAMA_TEMPERATURE <= 2 or RAG_HISTORY_CHARS < 0
+        or RAG_MAX_CORRECTIONS not in {0,1}):
+    raise ValueError('Invalid local generation context, output or timeout budget')
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 GOOGLE_CLOUD_PROJECT = os.getenv("GOOGLE_CLOUD_PROJECT", "").strip()
@@ -51,13 +76,13 @@ RAG_CANDIDATES = int(os.getenv("RAG_CANDIDATES") or "20")
 # text chunks plus separate visual evidence.
 # Increasing the context budget does not increase this prose selection limit.
 RAG_RRF_K = int(os.getenv("RAG_RRF_K") or "60")
-RAG_CONTEXT_CHARS = int(os.getenv("RAG_CONTEXT_CHARS") or "16000")
+RAG_CONTEXT_CHARS = int(os.getenv("RAG_CONTEXT_CHARS") or "10000")
 # In the chat path this reranks retrieved visual candidates before their budgets;
-# paragraph order stays hybrid-ranked. These are the evaluated candidate defaults.
+# Prose has a separate joint reranking and bounded selection step.
 RAG_RERANK = (os.getenv("RAG_RERANK") or "true").lower() == "true"
-RAG_GROUNDING_REVIEW = (os.getenv("RAG_GROUNDING_REVIEW") or "true").lower() == "true"
+RAG_GROUNDING_REVIEW = (os.getenv("RAG_GROUNDING_REVIEW") or "false").lower() == "true"
 # Supply a bounded set of original pages/crops in the existing answer call.
-RAG_VISUAL_INPUTS = (os.getenv('RAG_VISUAL_INPUTS') or 'true').lower() == 'true'
+RAG_VISUAL_INPUTS = (os.getenv('RAG_VISUAL_INPUTS') or 'false').lower() == 'true'
 # Table originals have their own budget, independent of illustration selection.
 RAG_TABLE_PAGE_LIMIT = int(os.getenv('RAG_TABLE_PAGE_LIMIT') or '12')
 if not 1 <= RAG_TABLE_PAGE_LIMIT <= 24:

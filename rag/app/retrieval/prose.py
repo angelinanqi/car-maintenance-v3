@@ -132,51 +132,134 @@ def recover_context(record):
         return record
 
 
+def query_facets(question):
+    """Bounded component queries, never a split on every occurrence of 'and'."""
+    groups = [
+        (r'\bwipers?\b', 'windscreen wiper inspection rubber streaks wet glass'),
+        (r'\b(?:mirrors?|glass|windscreen)\b', 'windscreen glass mirrors visibility cleaning demister'),
+        (r'\b(?:tyre|tire) pressure\b', 'tyre pressure cold manufacturer pressure gauge'),
+        (r'\btread\b', 'tyre tread wear indicators shallow tread aquaplaning'),
+        (r'\bcoolant\b', 'coolant level check cold engine reservoir lower upper markings hot cap'),
+        (r'\b(?:engine oil|oil level|dipstick)\b', 'engine oil level dipstick inspection'),
+        (r'\bbrake fluid\b', 'brake fluid reservoir level inspection'),
+        (r'\b(?:washer fluid|windscreen washer|windshield washer)\b', 'windscreen washer fluid reservoir'),
+        (r'\bbatter(?:y|ies)\b', 'vehicle battery inspection terminals condition'),
+        (r'\b(?:preventive|corrective) maintenance\b', 'preventive corrective maintenance before failure owner checks professional repairs'),
+        (r'\b(?:schedule|interval)\b.*\b(?:records?|mileage|dates?)\b|\b(?:records?|mileage|dates?)\b.*\b(?:schedule|interval)\b',
+         'manufacturer maintenance schedule months kilometres whichever comes first service dates mileage records'),
+        (r'\b(?:long trip|long journey|inter.state journey)\b', 'vehicle preparation long journey driver route weather service tyres'),
+    ]
+    facets = [query for pattern, query in groups if re.search(pattern, question, re.I)]
+    # The glass mentioned in a wiper-only inspection is not a separate visibility task.
+    if len(facets) > 1 and not re.search(r'\b(?:mirrors?|clean|visibility|demist|prepare the glass)\b', question, re.I):
+        facets = [f for f in facets if not f.startswith('windscreen glass')]
+    explicit = [part.strip() for part, ending in re.findall(r'([^?;]+)([?;]|$)', question)
+                if len(part.split()) >= 3
+                and not re.match(r'\s*(?:do not|don\x27t|avoid|no |I (?:do not|don\x27t|am not|don\x27t know))\b', part, re.I)
+                and (ending in {'?', ';'} or re.match(
+                    r'\s*(?:what|why|how|where|when|which|can|could|should|explain|describe|check|inspect)\b', part, re.I))]
+    if len(explicit) > 1:
+        return explicit[:8]
+    coordinated = re.split(r'\band\s+(?=(?:what|how|why|when|where|which)\b)', question, flags=re.I)
+    if len(coordinated) > 1:
+        coordinated[0] = re.split(r'\b(?:explain|describe)\b', coordinated[0], maxsplit=1, flags=re.I)[-1]
+        coordinated = [part.strip() for part in coordinated if len(part.split()) >= 4]
+        if len(coordinated) > 1:
+            return coordinated[:8]
+    return facets if len(facets) > 1 or re.search(r'\bcoolant\b', question, re.I) else []
+
+
 def select_prose(question, records, top_k, *, diagnostics=None):
+    if top_k < 1:
+        raise ValueError('top_k must be greater than 0')
     from rag.app.generation.context import content
     from rag.app.retrieval.hybrid import rerank
     from shared.safety import SOURCE_INJECTION
-
     candidates, seen = [], set()
     for record in sorted(records, key=lambda r: r.rank):
-        key = (record.metadata.get('document_name'), normalized(
-            record.metadata.get('source_content') or record.text))
+        key = (record.metadata.get('document_name'), normalized(record.metadata.get('source_content') or record.text))
         if key in seen:
             continue
         seen.add(key)
-        enriched = recover_context(record)
-        # Apply the same integrity rule to recovered text as original evidence.
-        if SOURCE_INJECTION.search(content(enriched)):
-            continue
-        candidates.append(enriched)
+        section = record.metadata.get('section_path', [])
+        if isinstance(section, str):
+            section = json.loads(section)
+        identity_text = ' '.join(section) + ' ' + content(record)
+        if (re.search(r'\bcoolant\b', question, re.I)
+                and not re.search(r'overheat|steam|temperature warning', question, re.I)
+                and re.search(r'start the engine', content(record), re.I)
+                and re.search(r'steam.{0,80}hood|hood.{0,80}steam', content(record), re.I)):
+            continue  # A routine level check must not become an overheating/restart protocol.
+        transmission = re.search(r'\b(manual|automatic)[- ]transmission\b', question, re.I)
+        if transmission:
+            other = 'automatic' if transmission[1].lower() == 'manual' else 'manual'
+            if re.search(r'\b' + other + r' transmission\b', identity_text, re.I) and not re.search(
+                    r'\b' + transmission[1] + r' transmission\b', identity_text, re.I):
+                continue
+        if not SOURCE_INJECTION.search(content(record)):
+            candidates.append(record)
+    transmission = re.search(r'\b(manual|automatic)[- ]transmission\b', question, re.I)
+    if transmission:
+        specific = [r for r in candidates if re.search(
+            r'\b' + transmission[1] + r' transmission\b', r.text + ' ' + str(r.metadata.get('section_path', '')), re.I)]
+        if specific:
+            candidates = specific
     ranked = candidates
+    facets = query_facets(question)
     state = 'disabled'
+    facet_winners = []
     if settings.RAG_RERANK and len(candidates) > 1:
         try:
             originals = {r.chunk_id: r for r in candidates}
-            search_records = [replace(r, text=r.text.split('Content:\n', 1)[0]
-                                     + '\nContent:\n' + content(r)) for r in candidates]
-            rankings = [rerank(question, search_records)]
-            # Explicit separate questions need evidence for each part. A single
-            # pairwise score can favour one topic and bury the other entirely.
-            # Keep this syntactic and bounded: no extra LLM calls or guessed facts.
-            parts = [part.strip() for part in re.findall(r'[^?]+\?', question)]
-            if len(parts) > 1:
-                rankings.extend(rerank(part, search_records) for part in parts[:3])
-            ranked, selected = [], set()
-            for position in range(len(candidates)):
-                for ranking in rankings:
-                    if position < len(ranking) and ranking[position].chunk_id not in selected:
-                        item = ranking[position]
-                        ranked.append(replace(originals[item.chunk_id], rank=len(ranked) + 1))
-                        selected.add(item.chunk_id)
+            search_records = [replace(r, text=r.text.split('Content:\n', 1)[0] + '\nContent:\n' + content(r)) for r in candidates]
+            rankings = [rerank(question, search_records)] + [rerank(part, search_records) for part in facets]
+            facet_winners = [(facet, ranking[0].chunk_id if ranking
+                              and ranking[0].metadata['relevance_score'] >= -1 else None)
+                             for facet, ranking in zip(facets, rankings[1:])]
+            # Require a competitive match in at least one actual component query.
+            scores = {}
+            for ranking in rankings:
+                best = ranking[0].metadata['relevance_score'] if ranking else -100
+                for r in ranking:
+                    score = r.metadata['relevance_score']
+                    if score >= best - 2.5:
+                        scores[r.chunk_id] = max(scores.get(r.chunk_id, -100), score)
+            order = []
+            for ranking in rankings:
+                if ranking and ranking[0].chunk_id not in order:
+                    order.append(ranking[0].chunk_id)
+            order += [r.chunk_id for r in rankings[0] if r.chunk_id in scores and r.chunk_id not in order]
+            if not facets and re.search(r'\b(?:check|checking|dipstick|procedure|sequence|replace|replacement)\b', question, re.I):
+                procedures = [r for r in rankings[0]
+                    if r.metadata.get('source_type', 'manual') == 'manual'
+                    and r.metadata.get('document_type') in {'owners_manual','service_manual','maintenance_booklet'}
+                    and r.metadata['relevance_score'] >= -1
+                    and re.search(r'(?m)^\s*1[.)]\s', content(r))]
+                if procedures:
+                    first = procedures[0]
+                    scores[first.chunk_id] = first.metadata['relevance_score']
+                    order = [first.chunk_id] + [key for key in order if key != first.chunk_id]
+            ranked = [replace(originals[key], metadata={**originals[key].metadata,
+                       'relevance_score': scores.get(key, -100)}) for key in order]
             state = 'applied'
         except Exception as error:
-            logger.warning('Text reranking unavailable; retaining hybrid order (%s)', type(error).__name__)
+            logger.warning('Text reranking unavailable (%s)', type(error).__name__)
             state = 'unavailable'
+    # A directly relevant manufacturer procedure must not be blended with a
+    # generic version of the same task (different preparation/labels/intervals).
+    manual = [r for r in ranked if r.metadata.get('source_type', 'manual') == 'manual'
+              and r.metadata.get('document_type') in {'owners_manual','service_manual','maintenance_booklet'}
+              and (r.metadata.get('relevance_score', -100) >= -1)
+              and re.search(r'(?m)^\s*1[.)]\s|\bwhichever (?:is |comes )?(?:first|earlier)\b', content(r), re.I)]
+    if manual and not facets and re.search(r'\b(?:check|checking|dipstick|procedure|sequence|replace|replacement|how to)\b', question, re.I):
+        ranked = manual + [r for r in ranked if r.metadata.get('source_type','manual') == 'manual' and r not in manual]
+    selected = ranked[:top_k]
     if diagnostics is not None:
+        selected_ids = {r.chunk_id for r in selected}
         diagnostics.update(text_reranking=state, text_candidate_count=len(candidates),
-            text_rerank_order=[r.chunk_id for r in ranked],
-            text_context_recovered=[r.chunk_id for r in candidates
-                                    if r.metadata.get('preceding_source_context')])
-    return [replace(r, rank=i) for i, r in enumerate(ranked[:top_k], 1)]
+            retrieval_facets=[f'part_{i}' for i in range(1, len(facets) + 1)], manufacturer_priority=bool(manual),
+            text_selection_limit=top_k,
+            uncovered_facets=[f'part_{i}' for i, (_, winner) in enumerate(facet_winners, 1)
+                              if winner not in selected_ids],
+            text_rerank_order=[r.chunk_id for r in selected])
+    return [replace(r, rank=i) for i,r in enumerate(selected,1)]

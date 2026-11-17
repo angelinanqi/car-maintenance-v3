@@ -1,0 +1,50 @@
+{
+  "status": "active_for_user_testing",
+  "deployed_at": "2026-11-06T20:31:45.459673+08:00",
+  "model": "roadie-gemma3-ft",
+  "ollama_url": "http://127.0.0.1:11435",
+  "base_model": "gemma3:4b",
+  "base_quantization": "Q4_K_M",
+  "adapter_kind": "GGUF LoRA loaded at inference; no full base-model merge",
+  "adapter_input": "dumpster/corrective-20261106-111215-UTC/adapter/adapter_model.safetensors",
+  "adapter_input_sha256": "073d8fef012f6f52befeee224b11870b553fd841cd65e0c39908ad32702c139e",
+  "adapter_gguf": "fine-tuning/deployment/roadie-corrective-lora-f32.gguf",
+  "adapter_gguf_sha256": "10755c42454a382181b7b009f0599ae0bab731f61a08b404aeafdea893d66fac",
+  "llama_cpp_commit": "18ab62a8ec5144ae5d2f65e78374ba69652d75dd",
+  "adapter_tensor_count": 476,
+  "ollama_adapter_load_verified": true,
+  "smoke_checks": [
+    {
+      "case": "washer",
+      "seconds": 14.424,
+      "http_status": 200,
+      "targeted_check_passed": true
+    },
+    {
+      "case": "oil-procedure",
+      "seconds": 9.74,
+      "http_status": 200,
+      "targeted_check_passed": true
+    },
+    {
+      "case": "brake-gap",
+      "seconds": 7.908,
+      "http_status": 200,
+      "targeted_check_passed": true
+    }
+  ],
+  "service_health": {
+    "backend": 200,
+    "rag": 200,
+    "web": 200
+  },
+  "regression_tests": {
+    "overhaul": 25,
+    "local_pipeline": 26,
+    "passed": 51
+  },
+  "test_maintenance": "Changed archived provider test expectation from a hard-coded base tag to settings.OLLAMA_MODEL.",
+  "validation_scope": "Local model inference + authenticated private RAG HTTP + service health. Not an authenticated phone end-to-end test or a new full evaluation score.",
+  "limitation": "Existing quantized Ollama Gemma base plus exported learned LoRA; deployment representation differs from Colab NF4. Actual runtime smoke checks passed; full user evaluation remains.",
+  "rollback": "Set OLLAMA_MODEL to gemma3:4b in app.config.json and restart the app launcher."
+}

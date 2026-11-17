@@ -55,6 +55,12 @@ def immediate_emergency(question):
     current_marker = bool(re.search(r"\b(right now|currently|just happened)\b", text))
     hypothetical = bool(re.match(
         r"\s*(what if|(?:what|how) (?:should|would|can|do) .{0,40}\b(?:if|when)|if\b)", text))
+    traffic_exposure = re.search(
+        r"\b(?:i am|i'm|we are|we're|(?:my|our) (?:car|vehicle) is)\s+"
+        r"(?:(?:still|currently|now)\s+)?(?:exposed to|in|stranded in|stuck in|blocking)\s+"
+        r"(?:(?:moving|live|oncoming)\s+)?traffic\b", text)
+    if traffic_exposure and (current_marker or not hypothetical):
+        return True
     personal_incident = bool(re.search(
         r"\b(my|our|this)\s+(car|vehicle|engine|brakes?|brake pedal)\s+"
         r"(is|are|has|have|just|started|went)\b", text))
@@ -73,6 +79,7 @@ def immediate_emergency(question):
 
 def policy_risk(question):
     """Backstop over the resolved request, not excluded actions in raw history."""
+    question = question.replace('-', ' ')
     if immediate_emergency(question):
         return "emergency"
     text = requested_action_text(question)
@@ -99,6 +106,7 @@ def policy_risk(question):
 
 def caution_maintenance(question):
     """Recognised components do not by themselves request a hazardous operation."""
+    question = question.replace('-', ' ')
     return bool(policy_risk(question) == 'caution'
                 and re.search(r'\b(brake pads?|brake discs?|brake rotors?|alternator)\b', question, re.I)
                 and not any(re.search(component, question, re.I) for component in RESTRICTED_COMPONENTS))
@@ -106,6 +114,7 @@ def caution_maintenance(question):
 
 def professional_overview(question):
     """Known maintenance education, never permission for hydraulic/other repairs."""
+    question = question.replace('-', ' ')
     return bool(caution_maintenance(question)
                 and re.search(r'\b(replac\w*|chang\w*|repair\w*|fix\w*|remov\w*|install\w*|servic\w*)\b', question, re.I))
 
@@ -136,6 +145,26 @@ def enforce_policy(intent):
     elif "caution" in risks:
         intent.risk = "caution"
     return intent
+
+
+def conversation_route(latest_message, intent):
+    """Preserve semantic hazards after deterministic educational exceptions."""
+    action_risk = policy_risk(intent.question)
+    if immediate_emergency(latest_message) or action_risk == 'emergency':
+        return 'emergency'
+    educational = (bool(re.match(r"\s*(?:what (?:is|are|does)|how does|why (?:is|are|should))\b",
+                                latest_message, re.I))
+                   and not re.search(REPAIR, requested_action_text(latest_message))
+                   and not re.search(r'\b(?:right now|currently|just happened|sekarang)\b', latest_message, re.I))
+    if educational_only(latest_message):
+        educational = True
+    if intent.route == 'emergency' and not educational:
+        return 'emergency'
+    requested_operation = bool(re.search(REPAIR, requested_action_text(latest_message))
+        or re.search(r'\b(?:test|probe|cut|unplug|take apart|wire up)\b', latest_message, re.I))
+    if action_risk == 'high_risk' or (intent.route == 'restricted' and requested_operation and not educational):
+        return 'restricted'
+    return 'rag_with_external_warning' if intent.route == 'rag_with_external_warning' else 'rag'
 
 
 def videos_allowed(intent):
@@ -174,6 +203,14 @@ def emergency_guidance(question):
             "switch off the engine. Move people away from the vehicle and traffic, avoid "
             "flames or sparks, and contact emergency services if there is fire or immediate "
             "danger. Arrange professional assistance; do not attempt a fuel-system repair."
+        )
+    if re.search(r'\btraffic\b', text):
+        return (
+            "General safety advice: do not attempt repairs while exposed to moving traffic. "
+            "Use hazard lights if safe. Move to a protected place only if you can do so "
+            "without entering or crossing live traffic; do not stand in the roadway. "
+            "Contact roadside recovery, or local emergency services if anyone is in immediate danger. "
+            "The vehicle fault can wait until you are safe."
         )
     return (
         "General safety advice: this may be an immediate emergency. Focus on controlling "

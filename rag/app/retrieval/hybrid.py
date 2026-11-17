@@ -8,6 +8,7 @@ import re
 
 from rag.app.retrieval.search import RetrievalResult, build_results
 from rag.config import settings
+from rag.app.generation.provider import inference_guard, check_budget
 
 # Keep technical identifiers such as O/D, K3-VE, P0300, 1.3 and units intact.
 TOKEN_PATTERN = r"(?u)\b[\w]+(?:[./-][\w]+)*\b"
@@ -114,10 +115,47 @@ def reranker():
 def rerank(query, records):
     if not records:
         return []
-    with _rerank_lock:
-        scores = reranker().predict([(query, r.text) for r in records])
+    with inference_guard(_rerank_lock):
+        model = reranker()
+        tokenizer = model.tokenizer
+        query_ids = tokenizer.encode(query, add_special_tokens=False, truncation=False, verbose=False)
+        max_length = getattr(model, 'max_seq_length', None)
+        if max_length is None:
+            max_length = model.max_length
+        budget = max_length - len(query_ids) - tokenizer.num_special_tokens_to_add(pair=True) - 8
+        if budget < 64:
+            raise ValueError('Reranking query leaves insufficient passage space')
+        pairs, owners, counts, sampled = [], [], [], []
+        query_tokens = set(query_ids)
+        for index, record in enumerate(records):
+            tokens = tokenizer.encode(record.text, add_special_tokens=False, truncation=False, verbose=False)
+            stride = max(1, budget - min(48, budget // 4))
+            starts = list(range(0, max(1, len(tokens) - budget + 1), stride))
+            starts.append(max(0, len(tokens) - budget))
+            starts = sorted(set(starts))
+            # Bound CPU work, keeping both ends and the strongest literal matches.
+            selected = {starts[0], starts[-1]}
+            for start in sorted(starts, key=lambda s: (-len(query_tokens.intersection(tokens[s:s + budget])), s)):
+                if len(selected) >= 8:
+                    break
+                selected.add(start)
+            counts.append(len(selected))
+            sampled.append(len(selected) < len(starts))
+            for start in sorted(selected):
+                pairs.append((query, tokenizer.decode(tokens[start:start + budget], skip_special_tokens=True)))
+                owners.append(index)
+        predictions = []
+        for start in range(0, len(pairs), 16):
+            check_budget()
+            predictions.extend(model.predict(pairs[start:start + 16], batch_size=16))
+        scores = [float('-inf')] * len(records)
+        for owner, score in zip(owners, predictions, strict=True):
+            scores[owner] = max(scores[owner], float(score))
     ordered = sorted(zip(scores, records), key=lambda pair: -float(pair[0]))
-    return [replace(record, rank=i) for i, (_, record) in enumerate(ordered, 1)]
+    details = {record.chunk_id: (count, partial) for record, count, partial in zip(records, counts, sampled)}
+    return [replace(record, rank=i, metadata={**record.metadata, 'relevance_score':float(score),
+                    'rerank_windows': details[record.chunk_id][0], 'rerank_sampled': details[record.chunk_id][1]})
+            for i, (score, record) in enumerate(ordered, 1)]
 
 
 @observed('hybrid_retrieval')

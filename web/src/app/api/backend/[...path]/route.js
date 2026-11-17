@@ -2,11 +2,28 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { checkProxyOrigin, proxyPath, forwardBackend } from "@/lib/backendProxy.mjs";
+import { requestId } from "@/lib/liveLogging.mjs";
+import { logProxyRequest } from "@/lib/serverLogging.mjs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 async function proxy(request, context) {
+  const started = performance.now();
+  const id = requestId(request.headers.get("X-Request-ID")) || crypto.randomUUID();
+  let failure;
+  let upstreamStatus;
+  let response;
+  try {
+    response = await proxyRequest(request, context, id, error => { failure = error; }, status => { upstreamStatus = status; });
+    response.headers.set("X-Request-ID", requestId(response.headers.get("X-Request-ID")) || id);
+    return response;
+  } finally {
+    logProxyRequest(request, { status: response?.status ?? 503, started, id, error: failure, upstreamStatus });
+  }
+}
+
+async function proxyRequest(request, context, id, failed, received) {
   if (!checkProxyOrigin(request)) return NextResponse.json({ detail: "Request origin is not allowed." }, { status: 403 });
   const pendingCookies = [];
   try {
@@ -32,7 +49,8 @@ async function proxy(request, context) {
       token = data.session?.access_token;
     }
     const backendURL = (process.env.BACKEND_API_URL || "http://127.0.0.1:8000").replace(/\/+$/, "");
-    const upstream = await forwardBackend(request, { path, backendURL, accessToken: token });
+    const upstream = await forwardBackend(request, { path, backendURL, accessToken: token, requestId: id });
+    received(upstream.status);
     const headers = new Headers({ "Cache-Control": "no-store" });
     for (const name of ["content-type", "content-disposition", "content-range", "accept-ranges", "location", "x-request-id", "retry-after"]) {
       const value = upstream.headers.get(name);
@@ -41,7 +59,8 @@ async function proxy(request, context) {
     const response = new NextResponse(upstream.body, { status: upstream.status, headers });
     for (const value of pendingCookies) response.cookies.set(value.name, value.value, value.options);
     return response;
-  } catch (_) {
+  } catch (error) {
+    failed(error);
     const response = NextResponse.json({ detail: "The account or backend service is temporarily unavailable. Retry shortly." }, { status: 503 });
     for (const value of pendingCookies) response.cookies.set(value.name, value.value, value.options);
     return response;

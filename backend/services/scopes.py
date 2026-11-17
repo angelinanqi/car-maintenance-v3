@@ -43,9 +43,16 @@ def resolve(scope_type, scope_id, *, require_available=True):
     links = db.all_rows("document_vehicles" if scope_type == "vehicle" else "document_categories",
                         **{field: str(scope_id)})
     ids = [link["document_id"] for link in links]
+    vehicle_ids = set(ids)
+    if scope_type == 'vehicle':
+        categories = [row['id'] for row in db.all_rows('guide_categories')
+                      if row.get('published') and row.get('knowledge_published')]
+        general_links = db.all_rows('document_categories', category_id=categories) if categories else []
+        ids = sorted(set(ids) | {link['document_id'] for link in general_links})
     documents = db.all_rows("documents", id=ids, status="processed") if ids else []
     documents = [d for d in documents if d.get("published", False) and d.get("chunk_count", 0) > 0 and d.get("indexed_revision")
-                 and d["indexed_revision"] == d.get("source_revision")]
+                 and d["indexed_revision"] == d.get("source_revision")
+                 and (scope_type != 'vehicle' or d['id'] in vehicle_ids or d.get('vehicle_independent'))]
     content = content_sources.load(scope_type, scope_id)
     if require_available and not documents and not content:
         raise HTTPException(409, "This scope has no published reference content. Select another scope.")

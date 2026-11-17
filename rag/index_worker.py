@@ -181,7 +181,10 @@ def run_once(client, work_dir, *, restore_processed=False):
                             'source_revision': document['source_revision'], 'status': 'indexed', 'chunk_count': count,
                             **({'warnings': warnings} if warnings else {})})
                         response.raise_for_status()
-                    logger.info('Indexed %s: %d chunks', name, count)
+                    if not ready or document['status'] == 'awaiting_index':
+                        logger.info('Indexed %s: %d chunks', name, count)
+                    else:
+                        logger.debug('Index already current: %s (%d chunks)', name, count)
             except Exception as error:
                 failures.append(name)
                 logger.exception('Index handoff failed for %s', name)
@@ -265,7 +268,7 @@ def worker_loop(stop, *, once=False, restore_processed=False, ready=None):
     work_dir = settings.path_setting('RAG_INDEX_WORK_DIR', str(settings.OUTPUT_DIR / 'index-worker'))
     work_dir.mkdir(parents=True, exist_ok=True)
     with FileLock(str(work_dir / '.worker.lock'), timeout=0), httpx.Client(
-            base_url=url, headers={'Authorization': 'Bearer ' + token},
+            base_url=url, headers={'Authorization': 'Bearer ' + token, 'X-Client-Source': 'INTERNAL'},
             timeout=settings.SUPABASE_TIMEOUT, follow_redirects=False) as client:
         from shared.observability import ready as monitor_ready
         monitor_ready()

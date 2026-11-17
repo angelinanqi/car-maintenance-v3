@@ -11,6 +11,7 @@ const nextConfig = {
   },
   // Explicitly expose only these non-secret shared limits to the browser.
   env: {
+    NEXT_PUBLIC_DEV_LOGGING: process.env.DEV_LOGGING || "false",
     NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "",
     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_PUBLISHABLE_KEY || "",
     NEXT_PUBLIC_API_PAGE_SIZE: process.env.API_PAGE_SIZE || "",

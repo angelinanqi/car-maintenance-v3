@@ -68,7 +68,7 @@ Desktop.ini
 *.orig
 *.rej
 
-# Test-run output (tests are kept in the local archive)
+# Generated test-run output
 test-results/
 playwright-report/
 blob-report/

@@ -19,7 +19,7 @@ def sync_channel(channel_id, sync_id):
     with sync_lock:
         url = os.getenv('RAG_BACKEND_URL', 'http://127.0.0.1:8000').rstrip('/')
         token = os.getenv('RAG_SERVICE_TOKEN', '')
-        with httpx.Client(base_url=url, headers={'Authorization': 'Bearer ' + token},
+        with httpx.Client(base_url=url, headers={'Authorization': 'Bearer ' + token, 'X-Client-Source': 'INTERNAL'},
                           timeout=settings.SUPABASE_TIMEOUT, follow_redirects=False) as client:
             path = f"/internal/youtube-channels/{channel_id}"
             try:

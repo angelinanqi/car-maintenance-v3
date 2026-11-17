@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'live_logging.dart';
 
 const authRedirectUrl = 'myroadie://auth/callback';
 
@@ -40,6 +41,10 @@ class SecurePkceStorage extends GotrueAsyncStorage {
 }
 
 Future<SupabaseClient?> initializeMobileAuth() async {
+  LiveLogging.enabled =
+      kDebugMode &&
+      const bool.fromEnvironment('DEV_LOGGING', defaultValue: true);
+  LiveLogging.output = (line) => debugPrint(line);
   const url = String.fromEnvironment('SUPABASE_URL');
   const key = String.fromEnvironment('SUPABASE_PUBLISHABLE_KEY');
   if (url.isEmpty || key.isEmpty) return null;
@@ -49,13 +54,35 @@ Future<SupabaseClient?> initializeMobileAuth() async {
       url: url,
       publishableKey: key,
       debug: false,
+      httpClient: kDebugMode ? LoggedHttpClient() : null,
       authOptions: FlutterAuthClientOptions(
         authFlowType: AuthFlowType.pkce,
         localStorage: SecureAuthStorage(),
         pkceAsyncStorage: SecurePkceStorage(),
       ),
     );
-    return Supabase.instance.client;
+    final client = Supabase.instance.client;
+    try {
+      LiveLogging.sessionChanged(client.auth.currentSession != null);
+      client.auth.onAuthStateChange.listen(
+        (event) {
+          if (event.event == AuthChangeEvent.signedIn ||
+              event.event == AuthChangeEvent.passwordRecovery) {
+            LiveLogging.sessionChanged(true, newLogin: true);
+          } else if (event.event == AuthChangeEvent.signedOut) {
+            LiveLogging.sessionChanged(false, newLogin: true);
+          } else if (event.event == AuthChangeEvent.initialSession) {
+            LiveLogging.sessionChanged(event.session != null);
+          }
+        },
+        onError: (Object _) {
+          /* AccountState handles provider errors. */
+        },
+      );
+    } catch (_) {
+      /* Debug session labels never affect authentication. */
+    }
+    return client;
   } catch (_) {
     // Public emergency access remains available if account startup fails.
     return null;

@@ -1,0 +1,9 @@
+# Run ONLY after the corrective adapter and results have been downloaded.
+from pathlib import Path
+import shutil
+assert (RUN2 / 'adapter' / 'adapter_model.safetensors').exists()
+assert shutil.disk_usage('/content').free > 25 * 1024**3
+_corrective_export = Path('/content/roadie-corrective-export')
+model.save_pretrained_gguf(str(_corrective_export), tokenizer, quantization_method='Q8_0')
+shutil.copytree(_corrective_export, RUN2 / 'gguf-export', dirs_exist_ok=True)
+print('Corrective export saved:', RUN2 / 'gguf-export')

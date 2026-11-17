@@ -3,11 +3,13 @@ import json
 from shared.table_evidence import table_literal_text
 
 
-def collect_trace(records, eligible, excluded, sources, diagnostics, client, elapsed_ms):
+def collect_trace(records, eligible, excluded, sources, diagnostics, client, elapsed_ms, timings=None):
     labels = {record.chunk_id: f"S{index}" for index, record in enumerate(eligible, 1)}
     cited = {source.get("chunk_id") for source in sources if source.get("chunk_id")}
     cited_elements = {source.get("element_id") for source in sources if source.get("element_id")}
-    reasons = {item.get("chunk_id"): item["reason"] for item in excluded if item.get("chunk_id")}
+    reasons = {item.get('chunk_id') or item.get('id'): item['reason'] for item in excluded
+               if item.get('chunk_id') or item.get('id')}
+    supplied = set(diagnostics.get('supplied_source_labels', []))
     unique = {record.chunk_id: record for record in records}
     ordered = sorted(unique.values(), key=lambda record: (record.chunk_id not in cited, record.chunk_id not in labels, record.rank))
     evidence = []
@@ -29,9 +31,17 @@ def collect_trace(records, eligible, excluded, sources, diagnostics, client, ela
             "label": labels.get(record.chunk_id), "section_path": section_path,
             "excerpt": text[:4000], "eligible": record.chunk_id in labels,
             "cited": record.chunk_id in cited or metadata.get("element_id") in cited_elements,
+            "supplied": labels.get(record.chunk_id) in supplied,
             "exclusion": reasons.get(record.chunk_id, "")[:300]})
+    degraded = bool(diagnostics.get('manual_retrieval_failed') or diagnostics.get('content_retrieval_failed')
+                    or diagnostics.get('embedding_fallback') or diagnostics.get('text_reranking') == 'unavailable')
     return {"evidence": evidence, "diagnostics": {
         "provider": client.provider, "model": client.model, "elapsed_ms": elapsed_ms,
-        "reason": diagnostics.get("decision_reason", ""), "retrieved_count": len(records),
-        "eligible_count": len(eligible), "evidence_truncated": len(ordered) > 20,
-        "fallback_used": False}}
+        "reason": diagnostics.get('fallback_reason') or diagnostics.get('decision_reason', ''), "retrieved_count": len(records),
+        "eligible_count": len(eligible), "evidence_truncated": len(ordered) > 20 or bool(diagnostics.get('evidence_truncated')),
+        "fallback_used": bool(diagnostics.get('interpretation_fallback') or diagnostics.get('fallback_reason') or degraded),
+        "answer_mode": diagnostics.get('answer_mode', ''), "fallback_reason": diagnostics.get('fallback_reason', ''),
+        "failure_kind": diagnostics.get('failure_kind', ''), "retrieval_degraded": degraded,
+        "embedding_fallback": bool(diagnostics.get('embedding_fallback')),
+        "omitted_source_labels": diagnostics.get('omitted_source_labels', [])[:100],
+        "timings": timings or {}, "inference_calls": list(getattr(client, 'usage_history', []))[:10]}}

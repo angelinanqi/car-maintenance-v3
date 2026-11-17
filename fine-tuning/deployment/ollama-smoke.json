@@ -1,0 +1,16 @@
+{
+  "model": "roadie-gemma3-ft",
+  "created_at": "2026-11-06T12:26:59.17306Z",
+  "message": {
+    "role": "assistant",
+    "content": "No. Please contact an authorised Perodua Service Centre if the nozzle is blocked. Do not try to unblock it using sharp objects, such as a pin. [S1]"
+  },
+  "done": true,
+  "done_reason": "stop",
+  "total_duration": 11699420333,
+  "load_duration": 8935754250,
+  "prompt_eval_count": 294,
+  "prompt_eval_duration": 1242944000,
+  "eval_count": 38,
+  "eval_duration": 1430623000
+}

@@ -1,0 +1,10 @@
+{
+  "scope": "Authenticated backend/API integration; no phone/emulator UI control available",
+  "model": "roadie-gemma3-ft",
+  "passed": 18,
+  "failed": 1,
+  "cleanup": [
+    "Disposable app profile/data and Auth user deleted."
+  ],
+  "phone_ui_tests": "Blocked: no controllable connected phone/emulator; no UI, permission, offline, photos or external-app handoff pass claimed."
+}

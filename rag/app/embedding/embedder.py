@@ -1,6 +1,7 @@
 from shared.observability import observed
 from rag.config.settings import EMBEDDING_BATCH_SIZE
 from threading import Lock
+from rag.app.generation.provider import inference_guard
 
 from rag.config.settings import EMBEDDING_MODEL as MODEL_NAME
 from rag.config.settings import EMBEDDING_DIMENSION, EMBEDDING_MAX_TOKENS, EMBEDDING_CPU_THREADS, MODEL_DEVICE
@@ -34,7 +35,7 @@ def embed_query(query: str) -> list[float]:
     are never cached. Restart the process after changing embedding settings.
     """
     global _query_embedder
-    with _query_lock:
+    with inference_guard(_query_lock):
         if _query_embedder is None:
             _query_embedder = Embedder()
         return _query_embedder.embed_query(query)

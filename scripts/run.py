@@ -256,6 +256,14 @@ def run_app(services, without_rag, no_browser):
         os.environ.setdefault('RAG_INDEX_WORKER_MODE', 'embedded')
         if os.environ['RAG_INDEX_WORKER_MODE'] not in {'embedded', 'external'}:
             raise ValueError('RAG_INDEX_WORKER_MODE must be embedded or external')
+    if not without_rag and os.getenv('OLLAMA_MANAGED', 'false').lower() == 'true':
+        ollama = shutil.which('ollama')
+        if not ollama:
+            raise RuntimeError('Install Ollama to run the configured local model.')
+        # A dedicated loopback server uses explicit, reproducible memory settings
+        # without changing the user's separately installed Ollama desktop app.
+        services.start('ollama', [ollama, 'serve'])
+        services.wait_http('Local model server', os.environ['OLLAMA_URL'] + '/api/version')
     services.start("backend", [sys.executable, "-m", "backend"])
     services.wait_http("Backend", backend_url + "/health")
     if not without_rag:
@@ -355,7 +363,7 @@ def main():
                         raise RuntimeError("Install Flutter and add its bin directory to PATH before starting mobile.")
                     # Only public client settings can enter the mobile build.
                     defines = []
-                    for name in ('API_BASE_URL', 'SUPABASE_URL', 'SUPABASE_PUBLISHABLE_KEY'):
+                    for name in ('API_BASE_URL', 'SUPABASE_URL', 'SUPABASE_PUBLISHABLE_KEY', 'DEV_LOGGING'):
                         if os.getenv(name) and not any(arg.startswith(f'--dart-define={name}=') for arg in extra):
                             defines.append(f'--dart-define={name}={os.environ[name]}')
                     process = services.start("mobile", [flutter, "run", *defines, *extra], cwd=ROOT / "mobile")

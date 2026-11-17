@@ -118,7 +118,7 @@ def shutdown():
 
 def correlation_headers():
     value = _context.get().get('request_id')
-    return {'X-Request-ID': value} if value else {}
+    return {'X-Client-Source': 'INTERNAL', **({'X-Request-ID': value} if value else {})}
 
 
 @contextmanager
@@ -199,20 +199,59 @@ def observed(stage, *, job_arg=None, job_key=None, failure_field=None, failure_v
     return decorate
 
 
+def safe_path(path):
+    """Keep fixed endpoint names, never arbitrary IDs, filenames or query values."""
+    static = set(('api backend v1 auth token logout signup recover verify user health docs config '
+        'accounts me admin documents guides categories emergency playbooks contacts dashboard '
+        'knowledge vehicles manufacturers models catalogue maintenance-items maintenance-intervals '
+        'schedules schedule-drafts maintenance-assistance mobile tasks records incidents plans '
+        'service-plans preview bookmarks notes saved-items chat sessions resume activity sources '
+        'image original pages media upload process extraction review publish unpublish coverage '
+        'tags removal-impact archive restore delete-impact deactivate index indexing youtube '
+        'channels videos sync status questions runs tests document-test-summaries chat-starters '
+        'companion-settings companion progress recap recaps nearby workshops mechanic-questions '
+        'configuration scopes categories profiles schedule-draft assets internal handoffs pending '
+        'index-ready index-failed confirm-corrections corrections content').split())
+    parts = str(path).split('?', 1)[0].split('#', 1)[0].split('/')
+    return '/'.join(part if part in static or not part else ':id' for part in parts)[:240] or '/'
+
+
+def record_http_response(request, status, *, error_type=None):
+    """One completed HTTP event; diagnostics must never change the response."""
+    try:
+        if getattr(request.state, 'http_logged', False):
+            return
+        request.state.http_logged = True
+        source = request.headers.get('X-Client-Source', '').upper()
+        source = source if source in {'WEB', 'MOBILE', 'INTERNAL'} else 'UNKNOWN'
+        session = request.headers.get('X-Client-Session', '')
+        session = session if re.fullmatch(r'(?:guest|auth)-[a-f0-9]{16}', session) else None
+        route = request.scope.get('route')
+        fields = dict(request_id=request.state.request_id, client_source=source,
+                      method=request.method, route=safe_path(getattr(route, 'path', request.url.path)),
+                      status_code=status, outcome='ERROR' if status >= 400 else 'SUCCESS',
+                      duration_ms=round((time.monotonic() - request.state.http_started) * 1000, 1))
+        if session:
+            fields['client_session'] = session
+        if error_type:
+            fields['error_type'] = error_type
+        emit('http_response', 'failed' if status >= 400 else 'returned',
+             level='ERROR' if status >= 500 else 'WARNING' if status >= 400 else 'INFO', **fields)
+    except Exception:
+        pass
+
+
 async def request_monitor(request, call_next):
     # Trust only an opaque bounded correlation ID, never a header containing data.
     incoming = request.headers.get('X-Request-ID', '')
     identity = incoming if re.fullmatch(r'[a-fA-F0-9-]{32,36}', incoming) else str(uuid4())
     request.state.request_id = identity
+    request.state.http_started = time.monotonic()
     with context(request_id=identity):
         with span('http_request') as outcome:
             response = await call_next(request)
             if response.status_code >= 500:
                 outcome['state'] = 'failed'
-            route = request.scope.get('route')
-            emit('http_response', 'failed' if response.status_code >= 500 else 'returned',
-                 level='ERROR' if response.status_code >= 500 else 'INFO',
-                 status_code=response.status_code, method=request.method,
-                 route=getattr(route, 'path', 'unmatched'))
+            record_http_response(request, response.status_code)
             response.headers['X-Request-ID'] = identity
             return response

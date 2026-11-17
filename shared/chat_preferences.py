@@ -24,6 +24,33 @@ def requested_video(question):
         r'\bshow\s+me\s+doing\b|\btengok\s+orang\s+buat\b', question, re.I))
 
 
+def video_only_request(question):
+    """A catalogue request must not be replaced by an unsolicited procedure."""
+    if not requested_video(question):
+        return False
+    if re.search(r'\b(?:and|also)\s+(?:please\s+)?(?:explain|describe|tell|list|give.*steps)\b', question, re.I):
+        return False
+    return presentation_followup(question) or bool(re.match(
+        r'\s*(?:(?:please|can you|could you)\s+)?'
+        r'(?:(?:show|find|give|send|recommend)\s+(?:me\s+)?(?:a\s+|the\s+|some\s+)?videos?\b|'
+        r'(?:do you have|is there)\s+(?:a\s+|any\s+)?videos?\b|'
+        r'tunjuk(?:kan)?\s+(?:saya\s+)?video\b)', question, re.I))
+
+
+def spending_total_request(question):
+    """Only unfiltered historical totals, never estimates or date/item totals."""
+    if re.search(r'\b(?:this|last|past|next)\s+(?:week|month|year|service)\b|'
+                 r'\b(?:since|between|during|before|after|today|yesterday|'
+                 r'january|february|march|april|june|july|august|september|october|november|december|'
+                 r'week|month|year|tyres?|tires?|battery|brakes?|oil|coolant|repair)\b|'
+                 r'\b(?:in|for)\s+may\b|\b20\d{2}\b', question, re.I):
+        return False
+    return bool(re.search(r'\b(?:how much|total|overall)\b', question, re.I)
+                and re.search(r'\b(?:spent|spending|paid|costs?|expenses?)\b', question, re.I)
+                and re.search(r'\b(?:maintenance|servic(?:e|es|ing)|records?)\b', question, re.I)
+                and not re.search(r'\b(?:will|would|estimate|budget|should.*cost)\b', question, re.I))
+
+
 def presentation_followup(question):
     """Only recognise short format changes, never self-contained new topics."""
     text = question.strip(' \t\n.!?').lower()
@@ -48,7 +75,8 @@ def puncture_repair_request(question):
     """Keep a requested puncture repair separate from an explicit wheel change."""
     return bool(re.search(r'\b(?:punctur\w*|flat (?:tyre|tire)|(?:tyre|tire)\b.{0,25}\bnail|nail\b.{0,25}\b(?:tyre|tire))\b', question, re.I)
                 and re.search(r'\b(?:fix\w*|repair\w*|plug\w*|patch\w*)\b', question, re.I)
-                and not re.search(r'\bspare\b|\bchang\w*\b.{0,20}\b(?:wheel|tyre|tire)\b', question, re.I))
+                and (not re.search(r'\bspare\b|\bchang\w*\b.{0,20}\b(?:wheel|tyre|tire)\b', question, re.I)
+                     or re.search(r'\b(?:difference|compare|versus|vs)\b', question, re.I)))
 
 
 def broad_dashboard_request(question):

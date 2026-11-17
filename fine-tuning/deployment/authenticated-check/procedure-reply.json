@@ -1,0 +1,33 @@
+{
+  "answer": "From the applicable manufacturer's manual:\n\n1. Park the vehicle on a level surface.\n2. Warm up the engine to operating temperature and stop it.\n3. After a few minutes, slowly pull the dipstick out and wipe the oil clean.\n4. Reinsert the dipstick as far as it will go.\n5. Pull out the dipstick again and check the oil level if it is between \"F\" and \"L\" marks.\n6. If the engine oil level is too low, add the engine oil. For recommended engine oil, see Section 17. [S1]",
+  "answer_sections": [],
+  "route": "rag",
+  "videos": [],
+  "sources": [
+    {
+      "label": "S1",
+      "source_type": "manual",
+      "chunk_id": "75da8572-040f-4a48-8af8-cd848916e445_f628104b-af4a-4241-b0e2-517804c16b2b_chunk_000487_cef493bfa338a9c539e32f3a1e33123005fe555f8454b156b91978fec0032cc3",
+      "section_path": [
+        "Engine oil level check"
+      ],
+      "document_id": "75da8572-040f-4a48-8af8-cd848916e445",
+      "source_revision": "f628104b-af4a-4241-b0e2-517804c16b2b",
+      "document_title": "alza-2018-owner-manual-eng.pdf",
+      "source_endpoint": "/chat/sessions/25b2d767-082e-40e0-8113-f88ee2fbc645/sources/75da8572-040f-4a48-8af8-cd848916e445/f628104b-af4a-4241-b0e2-517804c16b2b/original"
+    }
+  ],
+  "attachments": [],
+  "external_warning": false,
+  "manual_relevant": true,
+  "response_type": "manual_only",
+  "suggested_activity": null,
+  "recommended_guides": [],
+  "manual_links": [],
+  "content_media": [],
+  "message_id": "41069554-d836-4878-83eb-57761b21ecda",
+  "session_id": "25b2d767-082e-40e0-8113-f88ee2fbc645",
+  "session_token": "[redacted]",
+  "scope_type": "auto",
+  "scope_id": "b6adab48-b2fe-4eab-a160-e0a7bbf11c37"
+}

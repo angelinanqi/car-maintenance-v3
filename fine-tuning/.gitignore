@@ -1,0 +1,9 @@
+# Local trained weights and export intermediates; keep reports/configuration versionable.
+*.gguf
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.zip
+checkpoints/
+gguf-export/

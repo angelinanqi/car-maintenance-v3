@@ -1,0 +1,26 @@
+{
+  "data": {
+    "train": {
+      "count": 176,
+      "max_tokens": 618,
+      "categories": {
+        "source": 112,
+        "specification-gap": 32,
+        "procedure-gap": 32
+      }
+    },
+    "held": {
+      "count": 16,
+      "max_tokens": 524,
+      "categories": {
+        "source": 8,
+        "specification-gap": 4,
+        "procedure-gap": 4
+      }
+    }
+  },
+  "mask_delimiters_verified": true,
+  "source_overlap": false,
+  "all_code_parses": true,
+  "cuda_run_executed": false
+}

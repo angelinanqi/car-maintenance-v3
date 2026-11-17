@@ -4,10 +4,12 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import { currentAccount } from "@/api/accounts.mjs";
 import { setRequestIdentity } from "@/api/client.mjs";
 import { browserAuth, authResult, authError } from "@/lib/supabase.mjs";
+import { installWebLogging } from "@/lib/liveLogging.mjs";
 
 const SessionContext = createContext(null);
 
 export function SessionProvider({ children }) {
+  useEffect(installWebLogging, []);
   const [identity, setIdentity] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");

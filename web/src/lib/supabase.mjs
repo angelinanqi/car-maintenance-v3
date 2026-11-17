@@ -1,4 +1,5 @@
 import { createBrowserClient } from "@supabase/ssr";
+import { logAccountFailure } from "./liveLogging.mjs";
 
 let client;
 export function browserAuth() {
@@ -34,7 +35,9 @@ export function authError(error) {
 }
 
 export async function authResult(operation) {
-  const result = await operation;
-  if (result.error) throw result.error;
-  return result.data;
+  try {
+    const result = await operation;
+    if (result.error) throw result.error;
+    return result.data;
+  } catch (error) { logAccountFailure(error); throw error; }
 }

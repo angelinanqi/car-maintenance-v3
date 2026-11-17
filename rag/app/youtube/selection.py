@@ -33,13 +33,23 @@ def vehicle_match(question, title, vehicle, known_vehicle_codes=(), *, intent=No
     models = {re.sub(r'\s+\d{4}$', '', normalise(code)).split(' ', 1)[-1]
               for code in (*known_vehicle_codes, selected.get('code', '')) if code}
     title_models = {model for model in models if contains(declared, model)}
-    title_makes = {make for make in MAKES if contains(declared, make)}
+    # SEAT and Mini are also ordinary English component/size words. A seat
+    # back or a mini spare is not a declaration of another vehicle brand.
+    ambiguous = {'seat','mini'}
+    component_words = {'back','backs','belt','belts','base','bases','cushion','cover','covers',
+        'height','position','positions','latch','latches','headrest','restraint','adjustment',
+        'folding','row','frame','lever','recline','spare','tyre','tire','jack','tool','guide',
+        'the','a','to','in','is','are','can','and','or'}
+    title_makes = {make for make in MAKES if make not in ambiguous and contains(declared, make)}
     # Titles outside the manual catalogue may still name a make and model.
     for make in MAKES:
         for match in re.finditer(r'\b' + re.escape(make) + r'\s+([a-z0-9]+)\b', declared):
             model = match.group(1)
+            if make in ambiguous and model in component_words:
+                continue
             if model not in {'how', 'car', 'cars', 'auto', 'engine', 'brake', 'brakes'}:
                 title_models.add(model)
+                title_makes.add(make)
     if title_models and any(not contains(target, model) for model in title_models):
         return None
     if title_makes and not title_models and not any(contains(target, make) for make in title_makes):
@@ -67,6 +77,23 @@ def operation_conflict(question, title):
                 and re.search(r'\bbleed\w*\b|\bbrake fluid\b.{0,15}\b(?:flush|chang\w*)\b', title, re.I))
 
 
+def explicit_video_matches(question, candidates):
+    """Recognise explicit operation/title matches after catalogue and vehicle checks."""
+    text = question.lower().replace('-', ' ')
+    selected = []
+    for candidate in candidates:
+        title = candidate['metadata'].get('video_title','').lower().replace('-', ' ')
+        brake = ('brake pad' in text and re.search(r'replac|chang', text)
+                 and 'brake pad' in title and re.search(r'replac|chang',title))
+        puncture = (re.search(r'punctur|flat (?:tyre|tire)',text)
+                    and re.search(r'fix|repair|plug|patch',text)
+                    and re.search(r'flat (?:tyre|tire)|punctur',title)
+                    and re.search(r'fix|repair|plug|patch',title))
+        if brake or puncture:
+            selected.append(candidate)
+    return selected[:2]
+
+
 def confident_proactive(question, candidates):
     """Optional unsolicited links need stronger evidence of task relevance.
 
@@ -81,7 +108,8 @@ def confident_proactive(question, candidates):
         from rag.app.retrieval.hybrid import reranker, _rerank_lock
         descriptions = recommendation_candidates(candidates)
         pairs = [(question, item['title'] + '\n' + item.get('description', '')[:600]) for item in descriptions]
-        with _rerank_lock:
+        from rag.app.generation.provider import inference_guard
+        with inference_guard(_rerank_lock):
             scores = reranker().predict(pairs)
         return [candidate for score, candidate in sorted(zip(scores, candidates), key=lambda pair: -float(pair[0]))
                 if float(score) > 0]
@@ -116,6 +144,22 @@ async def select_videos(question, candidates, vehicle, metric, *, intent=None, p
     return await asyncio.to_thread(confident_proactive, question, selected) if proactive else selected
 
 
+def rank_video_candidates(question, candidates):
+    """Rank the eligible catalogue before applying the writer's small budget."""
+    if not candidates:
+        return []
+    try:
+        from rag.app.retrieval.hybrid import reranker, _rerank_lock
+        metadata = recommendation_candidates(candidates)
+        from rag.app.generation.provider import inference_guard
+        with inference_guard(_rerank_lock):
+            scores = reranker().predict([(question, item['title'] + '\n' + item['description'])
+                                         for item in metadata])
+        return [item for score, item in sorted(zip(scores, candidates), key=lambda pair:-float(pair[0]))]
+    except Exception:
+        return candidates
+
+
 def recommendation_candidates(videos):
     """Metadata supports discovery only; never send a transcript as answer evidence."""
     channels = {}
@@ -136,7 +180,7 @@ def recommendation_candidates(videos):
                 break
     return [{"id": f"Y{index}", "title": video["metadata"]["video_title"],
              "channel_title": video['metadata'].get('channel_title') or channels.get(video['metadata'].get('channel_id'), ''),
-             "description": (video["text"].split("Description:", 1)[1][:1200]
+             "description": (video["text"].split("Description:", 1)[1][:350]
                              if video["metadata"].get("retrieval_content") == "metadata_only"
                              and "Description:" in video["text"] else ""),
              "matched_using": ('title' if video.get('retrieval_method') == 'title_keywords'

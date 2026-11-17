@@ -1,4 +1,5 @@
 import { API_URL, API_PAGE_SIZE } from "../lib/config.mjs";
+import { beginWebRequest } from "../lib/liveLogging.mjs";
 
 let requestIdentity = "";
 export function setRequestIdentity(value) { requestIdentity = value || ""; }
@@ -17,30 +18,40 @@ function defaultTimeout(path) {
   return undefined;
 }
 
-export async function request(path, { method = "GET", body, signal, timeoutMs = defaultTimeout(path) } = {}) {
-  if (timeoutMs === undefined) return performRequest(path, { method, body, signal });
+export async function request(path, options = {}) {
+  const trace = beginWebRequest(path, options.method || "GET");
+  try {
+    const result = await executeRequest(path, options, trace);
+    trace.finish();
+    return result;
+  } catch (error) { trace.finish(error); throw error; }
+}
+
+async function executeRequest(path, { method = "GET", body, signal, timeoutMs = defaultTimeout(path) }, trace) {
+  if (timeoutMs === undefined) return performRequest(path, { method, body, signal, trace });
   const controller = new AbortController();
-  const abort = () => controller.abort();
+  const abort = () => { trace.failure = "CANCELLED"; controller.abort(); };
   if (signal?.aborted) abort();
   else signal?.addEventListener("abort", abort, { once: true });
   let timer;
   try {
     const deadline = new Promise((_, reject) => {
       timer = setTimeout(() => {
+        trace.failure = "TIMEOUT";
         controller.abort();
         const error = new Error("The request timed out. Your changes have not been confirmed. Retry using the same saved form.");
         error.code = "TIMEOUT";
         reject(error);
       }, timeoutMs);
     });
-    return await Promise.race([performRequest(path, { method, body, signal: controller.signal }), deadline]);
+    return await Promise.race([performRequest(path, { method, body, signal: controller.signal, trace }), deadline]);
   } finally {
     clearTimeout(timer);
     signal?.removeEventListener("abort", abort);
   }
 }
 
-async function performRequest(path, { method, body, signal }) {
+async function performRequest(path, { method, body, signal, trace }) {
   method = method.toUpperCase();
   const hasBody = body !== undefined;
   const multipart = body instanceof FormData;
@@ -50,20 +61,25 @@ async function performRequest(path, { method, body, signal }) {
     response = await fetch(`${API_URL}${path}`, {
       method, signal, credentials: "include", cache: "no-store",
       headers: {
+        ...(trace.id ? { "X-Request-ID": trace.id } : {}),
         ...(hasBody && !multipart ? { "Content-Type": "application/json" } : {}),
       },
       body: hasBody ? (multipart ? body : JSON.stringify(body)) : undefined,
     });
   } catch (cause) {
     if (signal?.aborted) throw cause;
-    throw new Error("Could not connect to MyRoadie. Check your connection and try again. Your changes have not been confirmed.");
+    const error = new Error("Could not connect to MyRoadie. Check your connection and try again. Your changes have not been confirmed.");
+    error.code = "NETWORK";
+    throw error;
   }
+  trace.status_code = response.status;
+  trace.request_id = response.headers.get("X-Request-ID");
   if (response.status === 204) return null;
   let result;
   try {
     result = await response.json();
   } catch {
-    if (response.ok) throw new Error("The backend returned an unexpected response. Your changes have not been confirmed.");
+    if (response.ok) { const error = new Error("The backend returned an unexpected response. Your changes have not been confirmed."); error.code = "INVALID_RESPONSE"; throw error; }
   }
   if (!response.ok) {
     const detail = result?.detail;
@@ -82,7 +98,7 @@ async function performRequest(path, { method, body, signal }) {
     throw error;
   }
   if (result === null || typeof result !== "object") {
-    throw new Error("The backend returned an unexpected response. Your changes have not been confirmed.");
+    const error = new Error("The backend returned an unexpected response. Your changes have not been confirmed."); error.code = "INVALID_RESPONSE"; throw error;
   }
   return result;
 }

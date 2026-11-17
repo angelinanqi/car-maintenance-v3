@@ -1,0 +1,23 @@
+{
+  "models": [
+    {
+      "name": "roadie-gemma3-ft:latest",
+      "model": "roadie-gemma3-ft:latest",
+      "size": 2821623642,
+      "digest": "818a4093910f869f61be68a12cc6cfd2241b37d9881cfbe7858fcdbb6e398eb8",
+      "details": {
+        "parent_model": "",
+        "format": "gguf",
+        "family": "gemma3",
+        "families": [
+          "gemma3"
+        ],
+        "parameter_size": "4.3B",
+        "quantization_level": "Q4_K_M"
+      },
+      "expires_at": "2026-11-06T20:34:08.527188+08:00",
+      "size_vram": 2821623642,
+      "context_length": 8192
+    }
+  ]
+}

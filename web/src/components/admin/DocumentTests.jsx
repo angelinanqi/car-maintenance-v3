@@ -14,7 +14,7 @@ import useUnsavedChanges from "./useUnsavedChanges";
 import { useContent } from "@/components/ContentProvider";
 
 const decisions = { not_reviewed: "Not reviewed", passed: "Passed", needs_fixing: "Needs fixing" };
-const outcomes = { manual_only: "Answer from the document", insufficient_information: "Insufficient evidence or clarification needed",
+const outcomes = { manual_only: "Answer from the document", source_excerpt: "Matching excerpts; complete answer unavailable", insufficient_information: "Insufficient evidence or clarification needed",
   reference_only: "Original reference provided", general_information: "General explanation", mixed_sources: "Document and general explanation",
   restricted: "Restricted request", emergency: "Emergency guidance", out_of_scope: "Outside this context", chat: "Conversation response",
   generation_error: "Answer generation failed", retrieval_error: "Document retrieval failed" };
@@ -286,7 +286,7 @@ function TestResult({ run, document, stale, disabled, onDirty, onSave }) {
       <Heading size="sm">Retrieved Evidence</Heading>
       <Text fontSize="sm" color="muted">Retrieved content may be unused or excluded. Citation labels identify evidence cited by the answer. Page links appear only where source mapping is available.</Text>
       {result.evidence.map((evidence, index) => <Box as="details" key={`${evidence.chunk_id}:${evidence.element_id}:${index}`} open={index === 0} borderWidth="1px" borderRadius="8px" p={3}>
-        <Box as="summary" cursor="pointer">{evidence.label ? `${evidence.label} · ` : ""}{evidence.kind} · {evidence.cited ? "Cited" : evidence.selected_reference ? "Selected Reference" : evidence.eligible ? "Available, Not Cited" : "Not Supplied as Answer Evidence"}</Box>
+        <Box as="summary" cursor="pointer">{evidence.label ? `${evidence.label} · ` : ""}{evidence.kind} · {evidence.cited ? "Cited" : evidence.supplied ? "Supplied, Not Cited" : evidence.eligible ? "Selected, Not Supplied" : "Not Supplied as Answer Evidence"}</Box>
         <Stack gap={3} mt={3}>
           {evidence.section_path.length > 0 && <Text fontSize="sm">{evidence.section_path.join(" → ")}</Text>}
           {evidence.exclusion && <Text fontSize="sm" color="orange.800">Excluded: {evidence.exclusion}</Text>}
@@ -299,7 +299,11 @@ function TestResult({ run, document, stale, disabled, onDirty, onSave }) {
       </Box>)}
       {!result.evidence.length && <Text>No document passages were retrieved for this response.</Text>}
       <Box as="details"><Box as="summary" cursor="pointer">Test Details</Box><Text fontSize="sm" mt={2}>Provider: {result.diagnostics.provider || "Not used"} · Model: {result.diagnostics.model || "Not used"} · {(result.diagnostics.elapsed_ms / 1000).toFixed(1)} seconds</Text>
-        <Text fontSize="sm">{result.diagnostics.retrieved_count} retrieved; {result.diagnostics.eligible_count} eligible.{result.diagnostics.evidence_truncated ? " Evidence preview limited to 20 records." : ""}{result.diagnostics.fallback_used ? " A fallback provider was used." : ""}</Text>
+        <Text fontSize="sm">{result.diagnostics.retrieved_count} retrieved; {result.diagnostics.eligible_count} eligible.{result.diagnostics.evidence_truncated ? " Some evidence was omitted from the answer context or preview." : ""}{result.diagnostics.fallback_used ? " A fallback or degraded retrieval path was used." : ""}</Text>
+        {result.diagnostics.answer_mode && <Text fontSize="sm">Answer mode: {result.diagnostics.answer_mode}</Text>}
+        {result.diagnostics.fallback_reason && <Text fontSize="sm">Fallback reason: {result.diagnostics.fallback_reason}</Text>}
+        {result.diagnostics.omitted_source_labels?.length > 0 && <Text fontSize="sm">Omitted sources: {result.diagnostics.omitted_source_labels.join(", ")}</Text>}
+        {result.diagnostics.inference_calls?.map((call, index) => <Text fontSize="sm" key={index}>Model call {index + 1}: {call.status} · queue {(call.queue_ms / 1000).toFixed(2)}s · inference {(call.inference_ms / 1000).toFixed(2)}s{call.prompt_eval_count != null ? ` · ${call.prompt_eval_count} input tokens` : ""}{call.eval_count != null ? ` · ${call.eval_count} output tokens` : ""}</Text>)}
         {result.diagnostics.reason && <Text fontSize="sm">Decision detail: {result.diagnostics.reason}</Text>}</Box>
     </>}
     {run.status === "completed" ? <Stack gap={3} bg="canvas" p={4} borderRadius="8px">

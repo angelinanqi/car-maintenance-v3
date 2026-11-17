@@ -1,43 +1,63 @@
-"""Scoped evidence, grounded generation and small deterministic integrity checks."""
-from shared.observability import observed
+"""One natural-language generation pass over scoped, labelled evidence."""
 import json
+import logging
 import re
 import unicodedata
 from dataclasses import dataclass, field
 from decimal import Decimal
-from shared.table_evidence import table_literal_text
-
-from rag.app.generation.context import bounded_history, content, prepare_context
+from shared.observability import observed
+from shared.table_evidence import table_literal_text, table_claim_error, MEASUREMENT, canonical_unit
+from shared.safety import SOURCE_INJECTION, policy_risk, immediate_emergency, emergency_guidance, RESTRICTED_ANSWER, professional_overview
+from shared.chat_preferences import videos_excluded, puncture_repair_request
+from rag.app.generation.context import content, prepare_context, bounded_history
+from rag.app.generation.answer_prompt import ANSWER_PROMPT
+from rag.app.generation.provider import GenerationError
 from rag.config import settings
-from rag.app.generation.answer_prompt import answer_instructions
-from shared.safety import RESTRICTED_ANSWER, emergency_guidance, policy_risk, immediate_emergency
-from shared.safety import SOURCE_INJECTION, educational_only, professional_overview, caution_maintenance
-from shared.chat_preferences import videos_excluded, presentation_followup, originals_only, requested_video
-from shared.chat_preferences import puncture_repair_request, broad_dashboard_request
 
-INSUFFICIENT = "I couldn't establish an answer from the supplied source material."
-REFERENCE_ONLY = ("I couldn't establish a textual answer from the supplied source material. "
-                  "The selected original reference material is shown below. Please read its details and notes directly.")
-CLARIFY = "Please confirm the vehicle model, year, engine and variant for this question."
-DASHBOARD_COVERAGE = ('The lights and diagrams covered here are a selection from the available references, '
-                      'not a complete list of every dashboard indicator.')
-PUNCTURE_DISTINCTION = ('In general, repairing a puncture treats damage to the tyre; fitting a spare wheel '
-                        'is a separate, temporary measure. A tyre specialist needs to assess whether '
-                        'the damaged tyre can be repaired.')
+logger = logging.getLogger(__name__)
 INJECTION = SOURCE_INJECTION
-INLINE_CITATIONS = re.compile(r'\[([SPVI]\d+(?:\s*,\s*[SPVI]\d+)*)\]')
-MODEL_CITATIONS = re.compile(INLINE_CITATIONS.pattern + r'|(?im:^sources:)')
+INSUFFICIENT = "I don't have enough relevant evidence to answer that reliably."
+CLARIFY = "Please confirm the vehicle model, year, engine and variant."
+CITATIONS = re.compile(r'\[([SP]\d+(?:\s*,\s*[SP]\d+)*)\]')
 
 
-def unrequested_battery_procedure(text, intent):
+def unrequested_battery_procedure(text, intent, question=''):
     """Do not turn a starting-symptom explanation into cable-handling steps."""
-    if not intent or intent.instructional:
+    excluded = re.search(r'\b(?:avoid|without|no|do not|don\x27t)\b.{0,40}\b(?:jump[- ]?start|battery|cables?|terminals?)', question, re.I)
+    if not excluded and (not intent or intent.instructional):
         return False
     for match in re.finditer(r'\b(disconnect(?:ed|ing)?|connect(?:ed|ing)?|remov(?:e|ed|ing))\b.{0,100}'
                              r'\b(battery|terminal|jumper|negative lead|negative cable)\b', text, re.I):
         prefix = text[max(0, match.start() - 20):match.start()]
         if not re.search(r'\b(?:not|never|avoid)\s+(?:ever\s+)?$', prefix, re.I):
             return True
+    return False
+
+
+def unrequested_fluid_procedure(text, question):
+    requested = re.search(r'\b(?:want to|how (?:do|can|should|to)|steps to|help me)\b.{0,40}'
+                          r'\b(?:refill|top[ -]?up|add|change|drain|open|pour)\b|'
+                          r'^\s*(?:refill|top[ -]?up|add|change|drain|open|pour)\b', question, re.I)
+    if requested:
+        return False
+    if not re.search(r'\b(?:fluid|coolant|oil|washer|reservoir|antifreeze)\b', question, re.I):
+        return False
+    pattern = (r'\b(?:unscrew|open|remove|unclip)\w*\s+'
+               r'(?:(?:the|a|an|its|pressuri[sz]ed|coolant|radiator|brake|fluid|washer|reservoir|tank|filler|plastic|metal|oil|reserve)\s+){0,5}'
+               r'(?:cap|cover|reservoir|tank|bail)\b|'
+               r'\b(?:cap|cover|reservoir)\b.{0,60}\b(?:removed|opened|unscrewed|unclipped)\b|'
+               r'\b(?:add|pour|fill|mix)\w*\b.{0,50}\b(?:oil|fluid|coolant|antifreeze)\b')
+    for match in re.finditer(pattern, text, re.I):
+        prefix = text[max(0, match.start() - 40):match.start()]
+        if re.search(r'\b(?:not|never|avoid|without)\s+(?:\w+\s+){0,3}$', prefix, re.I):
+            continue
+        if re.search(r'\b(?:must|should|can)\s+not\b', match[0], re.I):
+            continue
+        if (re.search(r'\bwasher\s+fluid\b', match[0], re.I)
+                and re.search(r'\bwasher\b', question, re.I)
+                and re.search(r'\b(?:identify|bottle|reservoir|cap)\b', question, re.I)):
+            continue
+        return True
     return False
 
 
@@ -53,7 +73,8 @@ def engine_bay_direction(text):
 
 def operational_overview(text):
     """Keep professional education at stage/purpose level, not dismantling steps."""
-    pattern = (r'\bunbolt\w*\b|\bremov\w*\b.{0,40}\b(?:wheels?|calipers?)\b|'
+    pattern = (r'\b(?:bleed\w*|brake lines|torque all|braking distance)\b|'
+               r'\bunbolt\w*\b|\bremov\w*\b.{0,60}\b(?:wheels?|calipers?|rotors?)\b|'
                r'\b(?:compress\w*|retract\w*|push\w*|press\w*)\b.{0,40}\bpistons?\b|'
                r'\bdisconnect\w*\b.{0,40}\b(?:batter(?:y|ies)|cables?|terminals?)\b')
     for match in re.finditer(pattern, text, re.I):
@@ -145,7 +166,8 @@ def applicable(records, scope, *, intent=None):
                 reason = "Requested model year is incompatible or unverified"
             if intent:
                 for requested, declared in ((intent.requested_engine, engine), (intent.requested_variant, variant)):
-                    if requested and requested.casefold() not in declared.casefold():
+                    if requested and not re.search(r'(?<!\w)' + re.escape(requested)
+                                                   + r'(?!\w|\.\d)', declared, re.I):
                         reason = "Requested configuration is unverified"
         if reason:
             excluded.append({"id": record.chunk_id, "reason": reason})
@@ -158,39 +180,9 @@ def applicable(records, scope, *, intent=None):
     return eligible, excluded
 
 
-def answer_schema(labels, reference_labels=(), guide_labels=(), video_labels=(), *, education=False):
-    return {"type": "object", "properties": {
-        "outcome": {"type": "string", "enum": ["answer", "text_answer", "reference_only", "clarification", "insufficient_evidence",
-                                                *([] if education else ["restricted"]), "emergency", "chat", "out_of_scope"]},
-        "blocks": {"type": "array", "maxItems": 8,
-        "description": "Ordered readable sections. Separate identification and its picture from the procedure. Separate general guidance from exact source-specific values so independent claims survive validation.",
-        "items": {"type": "object", "properties": {
-            "text": {"type": "string", "description": "One coherent section in natural English. Use a brief Markdown heading for a substantial section, bullets for comparisons or numbered procedure steps."},
-            "references": {"type": "array", "maxItems": min(5, len(reference_labels)),
-                           "description": "Display these selected V references immediately after this block. Also select them in top-level references.",
-                           "items": {"type": "string", **({"enum": list(reference_labels)} if reference_labels else {})}},
-            "basis": {"type": "string", "enum": ["source", "general", "limitation"]},
-            "table_context_sufficient": {"type": "boolean", "description":
-                "True only if any table-based claims have all required visible rows, headers, conditions and notes. "
-                "False when necessary context is missing or unresolved; use a limitation instead."},
-            "sources": {"type": "array", "minItems": 0, "maxItems": len(labels),
-                        "items": {"type": "string", **({"enum": labels} if labels else {})}}},
-            "required": ["text", "sources", "basis", "table_context_sufficient", "references"], "additionalProperties": False}},
-        "references": {"type": "array", "maxItems": 5 if reference_labels else 0,
-                       "items": {"type": "string", **({"enum": list(reference_labels)} if reference_labels else {})}},
-        "recommended_guides": {"type": "array", "maxItems": min(2, len(guide_labels)),
-                               "items": {"type": "string", **({"enum": list(guide_labels)} if guide_labels else {})}},
-        "recommended_videos": {"type": "array", "maxItems": min(2, len(video_labels)),
-                               "items": {"type": "string", **({"enum": list(video_labels)} if video_labels else {})}},
-        "clarification": {"description": "A focused follow-up question, required for outcome clarification; "
-                          "also allowed after an answer. Otherwise null. Do not put the answer here.",
-                          "anyOf": [{"type": "string", "minLength": 1, "maxLength": 300}, {"type": "null"}]}},
-        "required": ["outcome", "blocks", "references", "clarification", "recommended_guides", "recommended_videos"], "additionalProperties": False}
-
-
 def normalize_number_formatting(text):
     """Comparison text only; do not infer decimal formats or convert units."""
-    text = unicodedata.normalize("NFKC", text)
+    text = unicodedata.normalize("NFKC", text).replace('−', '-')
 
     def normalize(match):
         value = match.group()
@@ -224,7 +216,7 @@ def factual_numbers(text, *, personal=False):
     return normalized
 
 
-def numeric_error(text, source, *, specification=False):
+def numeric_error(text, source, *, specification=False, question=''):
     """Check exact values, not the wording of ordinary explanations.
 
     These checks establish numeric/provenance integrity only. They do not prove
@@ -234,7 +226,7 @@ def numeric_error(text, source, *, specification=False):
     text = normalize_number_formatting(text)
     personal = source["label"].startswith("P")
     numbers = factual_numbers(text, personal=personal)
-    measurements = re.findall(r"(?<![\w.,])(\d+(?:[.,]\d+)*)(?![\d.,])\s*(kpa|psi|nm|litres?|liters?)\b", text, re.I)
+    measurements = [(m[1], m[2]) for m in MEASUREMENT.finditer(text)]
     exact_value = bool(measurements) or (specification and bool(numbers))
     if source.get('source_type') == 'general':
         # Ordinary explanations must not quietly invent a service interval or
@@ -255,9 +247,18 @@ def numeric_error(text, source, *, specification=False):
     source_text = source['content']
     structured_table = source.get('evidence_type') in {'table_cells_v1', 'table_cells_v2'}
     if structured_table:
-        table = json.loads(source_text)
+        try:
+            table = json.loads(source_text)
+            relationship_error = table_claim_error(text, table, question)
+        except (ValueError, KeyError, TypeError):
+            return 'malformed_table'
+        if relationship_error:
+            return relationship_error
         # Coordinates/spans are generated metadata, never manufacturer values.
         source_text = table_literal_text(table)
+    if (structured_table and numbers and re.search(r'air pressure|torque|capacity|temperature', source_text, re.I)
+            and not re.search(r'\b(?:kpa|psi|bar|n[.·]?m|litres?|liters?|ml|kgf)\b|°\s*[cf]', source_text, re.I)):
+        return 'missing_table_units'
     source_text = normalize_number_formatting(source_text)
     supported = factual_numbers(source_text + " " + source.get("title", ""), personal=personal)
     if any(number not in supported for number in numbers):
@@ -267,8 +268,12 @@ def numeric_error(text, source, *, specification=False):
                 {"owners_manual", "maintenance_booklet", "service_manual"} or not source["source_fidelity_verified"]):
             return "unverified_measurement"
     for value, unit in measurements:
-        if unit.lower().startswith(('litre', 'liter')):
+        if canonical_unit(unit) == 'l':
             unit_pattern = r"(?:l|litres?|liters?)"
+        elif canonical_unit(unit) == 'nm':
+            unit_pattern = r'n[.·]?m'
+        elif canonical_unit(unit) == 'kgf/cm2':
+            unit_pattern = r'kgf\s*/\s*cm[²2]'
         else:
             unit_pattern = re.escape(unit)
         if structured_table:
@@ -282,27 +287,245 @@ def numeric_error(text, source, *, specification=False):
     return None
 
 
-def original_page_cited(source, block_labels, sources, references):
-    """A crop or OCR citation needs a corresponding supplied full-page citation."""
-    for label in block_labels:
-        page = sources[label]
-        if not page.get('pixels_supplied') or page.get('source_extent') != 'page':
-            continue
-        if source['label'] == label:
-            return True
-        for reference in references:
-            evidence = reference.get('evidence_labels', [])
-            if source['label'] not in evidence or label not in evidence:
+def clean_prose_artifact(text, sources=()):
+    # Small local models can put a closing JSON fragment inside the text string.
+    # Remove only an unmistakable trailing delimiter after a complete sentence;
+    # do not repair factual claims or relax citation/value validation.
+    text = re.sub(r'(?s)(?<=[.!?])[”"]\s*[}\]]\s*,.*$', '', text).strip()
+    headings = {f"[{s['label']}] {s.get('title', 'Saved records')} — {source_authority(s)}": f"[{s['label']}]"
+                for s in sources}
+    lines, intro_seen = [], False
+    for line in text.splitlines():
+        if line.strip().lower() == 'from the supplied evidence:':
+            if intro_seen:
                 continue
-            if source.get('pixels_supplied'):
-                # Detail crops may belong to a related section page rather than
-                # the initially retrieved table. Require that crop's own page.
-                if source.get('physical_page') is not None and source['physical_page'] == page.get('physical_page'):
-                    return True
-            elif any(item.get('source_label') == label and item.get('role', 'table') == 'table'
-                     for item in reference.get('visual_coverage', {}).get('page_inputs', [])):
+            intro_seen = True
+        lines.append(headings.get(line.strip(), line))
+    return '\n'.join(lines).strip()
+
+
+def source_text(source):
+    """Readable evidence without JSON coordinates or application identifiers."""
+    if source.get('evidence_type') in {'table_cells_v1', 'table_cells_v2'}:
+        table = json.loads(source['content'])
+        cells = table['cells']
+        if 'cell_fields' in table:
+            cells = [dict(zip(table['cell_fields'], cell)) for cell in cells]
+        rows = {}
+        for cell in sorted(cells, key=lambda c: (c['row'], c['column'])):
+            rows.setdefault(cell['row'], []).append(cell['text'])
+        text = '\n'.join(' | '.join(values) for values in rows.values())
+        notes = '\n'.join(table.get('notes', []))
+        if re.search(r'Associated source unit heading:\s*kPa\s*\(kgf/cm2,\s*psi\)', notes, re.I):
+            # Spell out the printed column-unit order; do not ask a small model
+            # to infer which of three parenthesised values has which unit.
+            text = re.sub(r'(?<![\w.])(\d+(?:\.\d+)?)\s*\(\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*\)',
+                lambda m: f'{m[1]} kPa ({m[2]} kgf/cm², {m[3]} psi)', text)
+        return ('Extracted table (do not infer missing units or header relationships):\n'
+                + text + '\n' + notes)
+    return source['content']
+
+
+def source_authority(source):
+    """An uploaded PDF is not necessarily a manufacturer instruction."""
+    if source.get('source_type') == 'manual':
+        if source.get('document_type') in {'owners_manual', 'service_manual', 'maintenance_booklet'}:
+            return ('Applicable manufacturer source' if source.get('source_fidelity_verified')
+                    else 'Manufacturer document; extraction unverified for exact values')
+        return 'General reference; not manufacturer instructions'
+    return source.get('source_type') or source.get('document_type', 'Reference')
+
+
+def excerpt_matches(question, source):
+    """Require substantive task overlap before displaying a fallback passage."""
+    stop = set(('a an the is are was were be been being i we you my your our it its this that those '
+                'how what when where why which can could do does should would will to for of in on '
+                'at by with from and or but if then about please check checking inspect inspection '
+                'explain tell show give use using steps procedure instructions level recommended '
+                'follow up car vehicle manual source help exact really together').split())
+    def words(text):
+        # Match technical compounds just as the lexical retriever does. A query
+        # about engine-oil must match literal manufacturer wording "engine oil".
+        text = re.sub(r'(?<=[A-Za-z])[-/](?=[A-Za-z])', ' ', text)
+        return {word.lower().rstrip('s') for word in re.findall(r'[A-Za-z][A-Za-z0-9/-]*', text)
+                if word.lower() not in stop and len(word) > 2}
+    requested = words(question)
+    found = words(source['content'] + ' ' + source.get('title', ''))
+    return bool(requested and len(requested & found) >= min(2, len(requested)))
+
+
+def extracted_reply(sources, reason, diagnostics=None, *, prefix=None, question='', intent=None):
+    """A factual fallback, never a second model rewrite or a guessed citation."""
+    if diagnostics is not None:
+        diagnostics.update(answer_mode='source_excerpt', fallback_reason=reason,
+                           decision_reason='source_excerpt')
+    prose = [s for s in sources if s.get('content_type', 'paragraph') == 'paragraph'
+             and s.get('evidence_type') != 'ingestion_image_description' and not s['label'].startswith('P')]
+    if not prose:
+        return GeneratedReply(prefix or INSUFFICIENT)
+    chosen = [s for s in prose if excerpt_matches(question, s)
+              and not unrequested_battery_procedure(s['content'], intent, question)
+              and not unrequested_fluid_procedure(s['content'], question)
+              and not (puncture_repair_request(question) and spare_change_steps(s['content']))
+              and numeric_error(s['content'], {'document_type': 'other_reference',
+                  'source_fidelity_verified': False, **s},
+                  specification=bool(intent and intent.specification)) is None]
+    if professional_overview(question):
+        chosen = [s for s in chosen if not operational_overview(s['content'])]
+    preferred = [s for s in chosen if s.get('source_type') == 'learning_guide'
+                 or (s.get('source_type') == 'manual' and s.get('source_fidelity_verified')
+                     and s.get('document_type') in {'owners_manual', 'service_manual', 'maintenance_booklet'})]
+    if preferred:
+        chosen = preferred
+    # Keep a complete short procedure, rather than cutting its last precautions.
+    sections = []
+    selected = []
+    size = 0
+    for source in chosen:
+        text = source['content']
+        if len(text) > 2400 or size + len(text) > 4000:
+            continue
+        sections.append(text + ' [' + source['label'] + ']')
+        selected.append(source)
+        size += len(text)
+        if len(selected) == 2:
+            break
+    if not sections:
+        return GeneratedReply(prefix or INSUFFICIENT)
+    labels = [s['label'] for s in selected]
+    intro = prefix or "I couldn't verify a complete answer. These matching source passages may help:"
+    if diagnostics is not None:
+        diagnostics['excerpt_source_labels'] = labels
+    return GeneratedReply(intro + '\n\n' + '\n\n'.join(sections), 'source_excerpt', cited_labels=labels,
+        guide_labels=[s['label'] for s in selected if s.get('source_type') == 'learning_guide'])
+
+
+def validate_prose(text, sources, *, question='', specification=False):
+    """Check ID integrity and literal values. This is not an entailment judge."""
+    labels = {s['label']: s for s in sources}
+    if text.lstrip().startswith('{') or re.search(r'"(?:blocks|sources|text)"\s*:', text):
+        return 'generation_format', []
+    cited = list(dict.fromkeys(label.strip() for group in CITATIONS.findall(text) for label in group.split(',')))
+    if any(label not in labels for label in cited):
+        return 'unknown_citation', cited
+    if re.search(r'https?://|www\.', text):
+        return 'unverified_link', cited
+    if not cited:
+        return 'missing_citations', cited
+    # Each paragraph/list uses its own citations where supplied. A final citation
+    # can cover a contiguous list; source IDs are excluded from number checking.
+    for paragraph in re.split(r'\n\s*\n', text):
+        local = [label.strip() for group in CITATIONS.findall(paragraph) for label in group.split(',')]
+        supporting = [labels[label] for label in (local or cited)]
+        literal = CITATIONS.sub('', paragraph)
+        if re.search(r'\b(?:manufacturer|owner[\x27’]?s manual|service manual)\s+'
+                     r'(?:recommends?|requires?|specifies?|instructs?|states?|says?)\b|'
+                     r'\baccording to (?:the |your |this )?(?:manufacturer|owner[\x27’]?s manual|service manual)\b', literal, re.I):
+            if not any(s.get('source_type') == 'manual' and s.get('source_fidelity_verified')
+                       and s.get('document_type') in {'owners_manual', 'service_manual', 'maintenance_booklet'}
+                       for s in supporting):
+                return 'unsupported_manufacturer_attribution', cited
+        for condition in re.finditer(r'\b(?:below|above|under|over)\s+(?:the\s+)?[“"\x27‘]?([FL])[”"\x27’]?(?=\W|$)', literal):
+            if not any(re.search(re.escape(condition[0]), s['content'], re.I) for s in supporting):
+                return 'unsupported_marker_condition', cited
+        literal = re.sub(r'(?m)^\s*(?:\d+[.)]|[-*])\s+', '', literal)
+        for sentence in re.split(r'(?<=[.!?])\s+|\n', literal):
+            if not sentence.strip():
+                continue
+            # Counts, step numbers and the application's selected model year
+            # are not safety-critical measurements. Check actual measured values
+            # and personal figures, rather than deleting prose for any digit.
+            money = bool(re.search(r'\b(?:RM|MYR)\s*\d|\d(?:[\d.,]*\d)?\s*(?:RM|MYR)\b', sentence, re.I))
+            ratio = bool(re.search(r'\b\d+(?:\.\d+)?\s*[:/]\s*\d+(?:\.\d+)?\b', sentence))
+            personal_money = money and (any(s['label'] == 'P2' for s in sources)
+                or re.search(r'\b(?:you|your|my|spent|paid|recorded|total)\b', sentence, re.I))
+            if personal_money:
+                personal_support = [source for source in supporting if source['label'] == 'P2']
+                if not personal_support:
+                    return 'missing_personal_citation', cited
+                if all(numeric_error(sentence, source) for source in personal_support):
+                    return 'unsupported_value', cited
+            measured = money or re.search(r'\d\s*(?:kpa|psi|bar|n[.·]?m|kgf|mm|cm|km|litres?|liters?|ml|'
+                r'seconds?|minutes?|hours?|days?|weeks?|months?|years?|%|°\s*[cf])\b|'
+                r'\b\d+\s*[wW][-/]?\s*\d+\b|\b\d{3}/\d{2}[rR]\d+\b|\bRM\s*\d', sentence, re.I)
+            personal = any(s['label'].startswith('P') for s in supporting)
+            if (measured or ratio or MEASUREMENT.search(sentence) or personal or specification) and all(numeric_error(
+                    sentence, source, specification=specification or ratio, question=question) for source in supporting):
+                return 'unsupported_value', cited
+    return None, cited
+
+
+def unsupported_vehicle_configuration(text, question, scope):
+    """Do not turn an optional transmission into a confirmed saved-car feature."""
+    selected = scope.get('vehicle') or {}
+    declared = ' '.join(str(selected.get(key) or '') for key in ('transmission', 'variant'))
+    for kind in ('automatic', 'manual'):
+        if (re.search(r'\b' + kind + r'\b', declared, re.I)
+                or re.search(r'\b(?:my|our|this)\s+' + kind + r'\s+(?:transmission|gearbox|car|vehicle)\b|'
+                    r'\b(?:my|our|this)\s+(?:car|vehicle)\s+(?:is|uses|has)\s+(?:an?\s+)?' + kind + r'\b', question, re.I)):
+            continue
+        for sentence in re.split(r'(?<=[.!?])\s+|\n', text):
+            if re.search(r'\b(?:if|whether|may|might|depending)\b', sentence, re.I):
+                continue
+            if re.search(r'\b(?:your|this|selected)\s+(?:(?:car|vehicle)(?:[’\x27]s)?\s+)?'
+                         + kind + r'\s+transmission\b', sentence, re.I):
                 return True
     return False
+
+
+def repair_table_citations(text, sources):
+    """Repair only uniquely supported literal rows, not merely related documents."""
+    labels = {s['label']: s for s in sources}
+    sentences = re.split(r'((?<=[.!?])\s+)', text)
+    for index in range(0, len(sentences), 2):
+        sentence = sentences[index]
+        size = re.search(r'\b\d{3}/\d{2}R\d+\b', sentence, re.I)
+        if not size:
+            continue
+        cited = [label.strip() for group in CITATIONS.findall(sentence) for label in group.split(',')]
+        literal = CITATIONS.sub('', sentence)
+        if not cited or any(label not in labels for label in cited):
+            continue
+        if any(numeric_error(literal, labels[label]) is None for label in cited):
+            continue
+        candidates = [s for s in sources if s.get('evidence_type') in {'table_cells_v1','table_cells_v2'}
+            and s.get('source_fidelity_verified') and size[0] in s['content']
+            and numeric_error(literal, s) is None]
+        if len(candidates) == 1:
+            sentences[index] = literal.strip() + ' [' + candidates[0]['label'] + ']'
+    return ''.join(sentences)
+
+
+def manufacturer_procedure(question, sources, records):
+    """Preserve a whole verified, relevant passage with a complete numbered list.
+
+    Never join fragments by similarity or promote a generated image description
+    to a manufacturer procedure. Applicability was checked before generation.
+    """
+    from rag.app.retrieval.prose import query_facets
+    if len(query_facets(question)) > 1 or question.count('?') > 1:
+        return None
+    if professional_overview(question) or not re.search(
+            r'\b(?:how (?:do|can|should|to)|explain how|steps?|procedure|sequence|instructions?|check|checking|prepare)\b', question, re.I):
+        return None
+    for source in sources:
+        if (source.get('source_type') != 'manual'
+                or source.get('document_type') not in {'owners_manual','service_manual','maintenance_booklet'}
+                or not source.get('source_fidelity_verified')
+                or source.get('content_type') != 'paragraph'
+                or source.get('evidence_type') == 'ingestion_image_description'
+                or not excerpt_matches(question, source)):
+            continue
+        index = int(source['label'][1:]) - 1
+        metadata = records[index].metadata
+        if (metadata.get('section_chunk_count', 1) != 1
+                or metadata.get('source_quality') in {'incomplete','corrupt','unreliable'}
+                or metadata.get('relevance_score', 0) < -1):
+            continue
+        numbers = [int(n) for n in re.findall(r'(?m)^\s*(\d+)[.)]\s+', source['content'])]
+        if len(numbers) >= 2 and numbers == list(range(1, len(numbers) + 1)):
+            return source
+    return None
 
 
 @observed('answer_generation')
@@ -311,421 +534,129 @@ def generate(question, records, client, *, scope, risk, vehicle_profile=None,
              references=None, latest_message=None, images=None, image_sources=None,
              activity_context=None, assistance=None, supplementary_videos=None,
              _validation_feedback=None):
-    references = references or []
-    # Context packing removes internal join keys and bounds the image shortlist.
-    # A correction must start from the caller's evidence, not that packed output.
-    original_references, original_images, original_image_sources = references, images, image_sources
-    selected_references = []
-    allow_videos = True
-    raw = None
-    display_question = question if not latest_message or presentation_followup(latest_message) else latest_message
-
-    def reference_message(message):
-        # Reference-only fallbacks also need an honest coverage statement.
-        return DASHBOARD_COVERAGE + '\n\n' + message if broad_dashboard_request(display_question) else message
-
-    def correction(reply, reason):
-        """One evidence-preserving correction; validation is never relaxed."""
-        recoverable = {'model_wrote_citations', 'invalid_citation', 'invalid_citation_basis',
-                       'unverified_values', 'table_context', 'no_supporting_answer', 'operational_overview', 'task_mismatch'}
-        if _validation_feedback is not None or raw is None or reason not in recoverable:
-            return reply
-        repair_diagnostics = {}
-        try:
-            repaired = generate(question, records, client, scope=scope, risk=risk,
-                vehicle_profile=vehicle_profile, maintenance_context=maintenance_context,
-                diagnostics=repair_diagnostics, intent=intent, history=history,
-                references=original_references, latest_message=latest_message, images=original_images,
-                image_sources=original_image_sources, activity_context=activity_context, assistance=assistance,
-                supplementary_videos=supplementary_videos,
-                _validation_feedback={'reason': reason})
-        except Exception:
-            if diagnostics is not None:
-                diagnostics['correction_result'] = 'unavailable'
-            return reply
-        residual = any(repair_diagnostics.get(key) for key in
-                       ('withheld_value_reasons', 'table_original_withheld', 'table_context_withheld', 'discarded_block_reasons'))
-        accepted = repaired.status == 'answered' and not residual
+    """One prose call; application policy and independent media do the rest."""
+    actual = latest_message or question
+    action_risk = policy_risk(actual)
+    if immediate_emergency(actual) or action_risk == 'emergency':
+        return GeneratedReply(emergency_guidance(actual), 'emergency')
+    if action_risk == 'high_risk':
+        return GeneratedReply(RESTRICTED_ANSWER, 'restricted')
+    explain_media = bool(re.search(r'\b(?:diagram|image|picture|illustration|table|figure)\b', actual, re.I))
+    # Preserve labels against the caller's records, including omitted media slots.
+    context = prepare_context(records, references or [], vehicle_profile, maintenance_context)
+    if not explain_media:
+        context.sources = [s for s in context.sources if s.get('evidence_type') != 'ingestion_image_description']
+    context.sources = [s for s in context.sources
+                       if not unrequested_battery_procedure(s['content'], intent, actual)
+                       and not (s.get('source_type') == 'manual'
+                                and s.get('document_type') == 'other_reference'
+                                and unrequested_fluid_procedure(s['content'], actual))]
+    if intent and intent.specification:
+        verified = [s for s in context.sources if s['label'].startswith('P')
+                    or s.get('source_type') == 'learning_guide'
+                    or (s.get('source_type') == 'manual' and s.get('source_fidelity_verified')
+                        and s.get('document_type') in {'owners_manual', 'maintenance_booklet', 'service_manual'})]
         if diagnostics is not None:
-            diagnostics['correction_attempted'] = reason
-            diagnostics['correction_result'] = 'accepted' if accepted else 'original_retained'
-            if accepted:
-                diagnostics.update(repair_diagnostics)
-        return repaired if accepted else reply
-
-    # Defence at the generation boundary as well as the public query route.
-    # Never let supplied manual text authorize a prohibited repair request.
-    action_risk = policy_risk(question)
-    if immediate_emergency(latest_message or question) or action_risk == "emergency":
-        return GeneratedReply(emergency_guidance(latest_message or question), "emergency")
-    if action_risk == "high_risk":
-        return GeneratedReply(RESTRICTED_ANSWER, "restricted")
-
-    def reject(reason, message=INSUFFICIENT):
-        if diagnostics is not None:
-            diagnostics["decision_reason"] = reason
-        if selected_references:
-            reply = GeneratedReply(reference_message(REFERENCE_ONLY), "reference_only", reference_labels=selected_references,
-                                   allow_videos=allow_videos)
-        else:
-            reply = GeneratedReply(message, allow_videos=allow_videos)
-        return correction(reply, reason)
-
-    available_image_labels = {image.label for image in images or []}
-    image_sources = [source for source in image_sources or [] if source['label'] in available_image_labels]
-    context = prepare_context(records, references, vehicle_profile, maintenance_context,
-                              image_sources=image_sources)
-    sources, references = context.sources, context.references
-    supplied_image_labels = {source['label'] for source in sources if source.get('pixels_supplied')}
-    images = [image for image in images or [] if image.label in supplied_image_labels]
+            diagnostics['unverified_reference_exclusions'] = [s['label'] for s in context.sources if s not in verified]
+        context.sources = verified
+    sources = context.sources
     if diagnostics is not None:
-        diagnostics.update(supplied_sources=len(sources),
-                           evidence_chars=sum(len(s["content"]) for s in sources),
-                           omitted_source_labels=context.omitted_sources,
-                           incomplete_section_labels=context.incomplete_section_labels,
-                           omitted_reference_labels=context.omitted_references)
-    # Only a format follow-up needs the standalone rewrite at the writing
-    # boundary. A self-contained message remains authoritative about incidents
-    # and uncertainty, even if interpretation rewrote it incorrectly.
-    resolved_question = display_question
-    puncture_repair = puncture_repair_request(resolved_question)
-    turn = {"activity_context": activity_context, "assistance": assistance,
-                      "latest_message": latest_message or question,
-                      "resolved_question": resolved_question,
-                      "knowledge_scope": scope["label"], "risk": risk,
-                      "guidance_mode": 'professional_overview' if professional_overview(question) else 'standard',
-                      "task_focus": 'puncture_repair' if puncture_repair else None,
-                      "coverage_notice": DASHBOARD_COVERAGE if broad_dashboard_request(resolved_question) else None,
-                      "selected_vehicle": scope.get("vehicle"),
-                      "history": bounded_history(history), "sources": sources, "references": references,
-                      "context_incomplete": context.incomplete,
-                      "validation_feedback": _validation_feedback,
-                      "supplementary_videos": supplementary_videos or []}
-    prompt = answer_instructions(sources) + json.dumps(turn, ensure_ascii=False)
-    allowed_guides = {source['label'] for source in sources if source.get('source_type') == 'learning_guide'}
-    allowed_videos = {video['id'] for video in supplementary_videos or [] if video.get('id')}
-    options = {'schema': answer_schema([s['label'] for s in sources], [r['label'] for r in references],
-                                       sorted(allowed_guides), sorted(allowed_videos),
-                                       education=(educational_only(question) and action_risk == 'normal')
-                                                 or caution_maintenance(question))}
-    if originals_only(latest_message or question):
-        # An original-only request must select supplied originals or admit a gap.
-        # Constrain delivery before generation so a copied/generated table cannot
-        # consume the answer while leaving the attachment selection empty.
-        options['schema']['properties']['outcome']['enum'] = ['reference_only', 'insufficient_evidence']
-        options['schema']['properties']['blocks']['maxItems'] = 0
-    if (_validation_feedback and _validation_feedback.get('reason') in {'unverified_values', 'table_context'}
-            and intent and not intent.specification):
-        # A general follow-up must remain useful without borrowing an exact
-        # target from history. Regenerate whole prose; never strip a number
-        # out of the rejected sentence and assume the remainder is valid.
-        text_schema = options['schema']['properties']['blocks']['items']['properties']['text']
-        text_schema['pattern'] = r'^[^0-9]*$'
-        text_schema['description'] += ' Correction of general guidance: no digits, quantities or spelled-out measurements. Use bullets rather than numbered steps; refer to the manufacturer label for any target.'
-    if images:
-        options['images'] = images
-    raw = client.generate(prompt, **options)
-    answer = json.loads(raw)
-    # Delivery preferences cannot turn a selected original into generated prose.
-    if (originals_only(latest_message or question) and isinstance(answer, dict)
-            and answer.get('outcome') in {'answer', 'text_answer', 'reference_only'}):
-        answer.update(outcome='reference_only', blocks=[], clarification=None,
-                      recommended_guides=[], recommended_videos=[])
-    # Production clients expose this explicit capability; minimal standalone
-    # adapters may supply already reviewed answers through generate alone.
-    # Both the draft and reviewed output still pass the integrity checks below.
-    if (settings.RAG_GROUNDING_REVIEW and sources and isinstance(answer, dict)
-            and answer.get('outcome') in {'answer', 'text_answer'}
-            and any(isinstance(block, dict) and block.get('basis', 'source') == 'source'
-                    for block in answer.get('blocks', []))
-            and getattr(type(client), 'review_grounding', None) is not None):
-        reviewed = client.review_grounding(draft=answer, question=resolved_question,
-            sources=sources, schema=options['schema'], images=images or None,
-            context={key: value for key, value in turn.items() if key != 'sources'})
-        raw = reviewed
-        answer = json.loads(reviewed)
+        diagnostics.update(answer_mode='natural_prose', supplied_sources=len(sources),
+            supplied_source_labels=[s['label'] for s in sources],
+            evidence_chars=sum(len(s['content']) for s in sources),
+            evidence_truncated=context.incomplete, omitted_source_labels=context.omitted_sources)
+    if not sources:
         if diagnostics is not None:
-            diagnostics['grounding_review'] = 'completed'
-    if (not isinstance(answer, dict)
-            or not {"outcome", "blocks", "clarification", "references"}.issubset(answer)
-            or not set(answer).issubset({"outcome", "blocks", "clarification", "references",
-                                       "recommended_guides", "recommended_videos"})
-            or not isinstance(answer["blocks"], list)):
-        return reject("invalid_answer_schema")
-    video_labels = answer.get('recommended_videos', [])
-    if (not isinstance(video_labels, list) or len(video_labels) > 2
-            or any(not isinstance(label, str) or label not in allowed_videos for label in video_labels)):
-        return reject('invalid_video_recommendation')
-    guide_labels = answer.get('recommended_guides', [])
-    if (not isinstance(guide_labels, list) or len(guide_labels) > 2
-            or any(not isinstance(label, str) or label not in allowed_guides for label in guide_labels)):
-        return reject('invalid_guide_recommendation')
-    outcome = answer["outcome"]
-    if outcome not in ("answer", "text_answer", "reference_only", "clarification", "insufficient_evidence",
-                       "restricted", "emergency", "chat", "out_of_scope"):
-        return reject("invalid_outcome")
+            diagnostics['failure_kind'] = 'missing_knowledge'
+        return GeneratedReply(INSUFFICIENT)
+    if re.search(r'\baftermarket\b', question, re.I) and re.search(r'\b(?:torque|pressure|capacity|specification)\b', question, re.I):
+        if not any(re.search(r'\baftermarket\b', s['content'], re.I) for s in sources):
+            return GeneratedReply("I don't have a specification for that aftermarket component in the available references. "
+                "Use the kit manufacturer's instructions or ask a qualified installer; factory values for other components do not establish it.")
+    overview = professional_overview(actual)
+    if overview:
+        component = r'brake|pads?|rotors?' if re.search(r'\bbrake', question, re.I) else r'alternator'
+        procedural = any(re.search(component, s['content'] + ' ' + s.get('title', ''), re.I)
+            and re.search(r'\b(?:remov\w*|install\w*|refit\w*|reassembl\w*)\b', s['content'], re.I)
+            for s in sources if not s['label'].startswith('P')
+            and s.get('evidence_type') != 'ingestion_image_description')
+        if not procedural:
+            focused = []
+            for source in sources:
+                paragraphs = [part for part in re.split(r'\n\s*\n', source['content'])
+                              if re.search(r'\b(?:pads?|rotors?)\b' if 'brake' in component else component, part, re.I)]
+                if paragraphs:
+                    focused.append({**source, 'content': '\n\n'.join(paragraphs)})
+            return extracted_reply(focused, 'missing_procedure', diagnostics,
+                question=question, intent=intent,
+                prefix="I found warnings and inspection advice, but not evidence describing the replacement stages or why each stage matters.")
+    procedure = manufacturer_procedure(question, sources, records)
+    if procedure:
+        # Render the complete retrieved passage, including its preparation and
+        # warnings, before any optional explanatory prose. Never ask Gemma to
+        # rewrite the steps. Media attachment remains independent in query.py.
+        answer = "From the applicable manufacturer's manual:\n\n" + procedure['content'] + ' [' + procedure['label'] + ']'
+        if diagnostics is not None:
+            diagnostics.update(answer_mode='manufacturer_procedure',
+                decision_reason='complete_numbered_passage_preserved', procedure_label=procedure['label'])
+        if re.search(r'\b(?:what (?:does|do).{0,60}mean|meaning|unfamiliar|technical terms?|explain.{0,25}(?:term|word))\b', question, re.I):
+            explanation_prompt = (ANSWER_PROMPT + '\nThe application already displays this manufacturer procedure verbatim. '
+                'Explain only the unfamiliar terms asked about, briefly. Do not give, repeat, add or change procedural steps. '
+                'Use only the supplied evidence and cite it.\nEVIDENCE:\n[' + procedure['label'] + '] '
+                + procedure['content'] + '\nQUESTION: ' + question)
+            try:
+                explanation = client.generate(explanation_prompt).strip()
+                reason, _ = validate_prose(explanation, [procedure])
+                if not reason and not re.search(r'(?m)^\s*(?:\d+[.)]|[-*])\s+', explanation):
+                    answer += '\n\n' + explanation
+            except (GenerationError, TimeoutError, ValueError):
+                pass  # Explanatory failure cannot erase the preserved procedure.
+        return GeneratedReply(answer, 'answered', cited_labels=[procedure['label']])
+    evidence = '\n\n'.join(f"[{s['label']}] {s.get('title', 'Saved records')} — "
+        + source_authority(s)
+        + ('; ingestion image description, not verified specifications' if s.get('evidence_type') == 'ingestion_image_description' else '')
+        + '\n' + source_text(s) for s in sources)
+    vehicle = scope.get('vehicle') or {}
+    identity = ' '.join(str(vehicle.get(k) or '') for k in ('name', 'year', 'engine', 'variant')).strip()
+    conversation = '\n'.join(m['role'] + ': ' + m['content'] for m in bounded_history(history))
+    prompt = ANSWER_PROMPT + ('\nSelected vehicle: ' + identity if identity else '')
+    if context.incomplete:
+        prompt += '\nSome retrieved passages were omitted for size. Assess the supplied evidence for each requested part and identify any unsupported part.\n'
+    if overview:
+        prompt += '\nExplain professional stages and purpose only, without dismantling or operational repair instructions.\n'
+    prompt += '\nEVIDENCE:\n' + evidence
+    if conversation:
+        prompt += '\n\nCONVERSATION (not evidence):\n' + conversation
+    prompt += '\n\nQUESTION: ' + question
+    try:
+        text = client.generate(prompt).strip()
+    except (GenerationError, TimeoutError, ValueError):
+        if diagnostics is not None:
+            diagnostics['failure_kind'] = 'generation_failure'
+        return extracted_reply(sources, 'generation_unavailable', diagnostics, question=question, intent=intent)
+    text = re.sub(r'^```(?:markdown|text)?\s*|\s*```$', '', text).strip()
+    text = clean_prose_artifact(text, sources)
+    # Accept standard grouped citations; keep their positions and readable prose.
+    text = re.sub(r'\[(S\d+(?:\s*,\s*S\d+)*)\]',
+        lambda m: ' '.join('[' + label.strip() + ']' for label in m[1].split(',')), text)
+    text = repair_table_citations(text, sources)
+    reason, cited = validate_prose(text, sources, question=question,
+                                 specification=bool(intent and intent.specification))
+    if unsupported_vehicle_configuration(text, question, scope):
+        reason = 'unverified_vehicle_configuration'
+    if overview and operational_overview(text):
+        reason = 'unsafe_overview'
+    if unrequested_battery_procedure(text, intent, actual):
+        reason = 'unrequested_battery_procedure'
+    if unrequested_fluid_procedure(text, actual):
+        reason = 'unrequested_fluid_procedure'
+    if puncture_repair_request(question) and spare_change_steps(text):
+        reason = 'task_substitution'
+    if reason:
+        if diagnostics is not None:
+            diagnostics['failure_kind'] = 'validation_failure'
+        return extracted_reply(sources, reason, diagnostics, question=question, intent=intent)
     if diagnostics is not None:
-        diagnostics["generation_outcome"] = outcome
-    if (video_labels and presentation_followup(latest_message or question)
-            and requested_video(latest_message or question)
-            and outcome in {'answer', 'text_answer', 'insufficient_evidence'}):
-        # The requested output is just a format change. Authorised cards carry
-        # their own metadata; stale prose cannot describe a different video.
-        return GeneratedReply('A related external video is included. Its content and vehicle compatibility have not been verified.',
-                              'video_only', video_labels=video_labels)
-    if (outcome == 'text_answer' and video_labels
-            and not videos_excluded(latest_message or question)):
-        # Candidates are request-gated by the query route. A mistaken delivery
-        # enum must not hide the link that was actually requested and selected.
-        outcome = 'answer'
-    allow_videos = outcome != 'text_answer'
-    chosen = answer["references"]
-    allowed_references = {r["label"] for r in references}
-    if (not isinstance(chosen, list) or len(chosen) > 5
-            or any(not isinstance(label, str) or label not in allowed_references for label in chosen)):
-        return reject("invalid_reference")
-    if len(answer["blocks"]) > 8:
-        return reject("invalid_answer_length")
-    clarification = answer["clarification"]
-    if clarification is not None:
-        if not isinstance(clarification, str) or not 0 < len(clarification.strip()) <= 300:
-            return reject('invalid_outcome_fields')
-        clarification = clarification.strip()
-        if MODEL_CITATIONS.search(clarification):
-            return reject('model_wrote_citations')
-    if outcome == "clarification":
-        if answer["blocks"] or chosen or clarification is None:
-            return reject("invalid_outcome_fields")
-        if diagnostics is not None:
-            diagnostics["decision_reason"] = "clarification_required"
-        return GeneratedReply(clarification.strip(), "clarification")
-    if clarification is not None and outcome not in {'answer', 'text_answer'}:
-        return reject("invalid_outcome_fields")
-    if outcome in {'restricted', 'emergency', 'chat', 'out_of_scope'}:
-        if answer['blocks'] or chosen:
-            return reject('invalid_outcome_fields')
-        messages = {
-            'restricted': RESTRICTED_ANSWER,
-            'emergency': emergency_guidance(latest_message or question),
-            'chat': "I'm here to help with your vehicle. What would you like to know?",
-            'out_of_scope': 'I can help with car questions, maintenance and roadside guidance.',
-        }
-        if diagnostics is not None:
-            diagnostics['decision_reason'] = outcome
-        return GeneratedReply(messages[outcome], outcome)
-    if outcome == 'reference_only' or (outcome == 'answer' and not answer['blocks'] and chosen):
-        if answer['blocks']:
-            return reject('invalid_outcome_fields')
-        # A display request has no factual-answer requirement. A valid source
-        # selection survives either known non-clarification outcome label.
-        selected_references = list(dict.fromkeys(chosen))
-        if diagnostics is not None:
-            diagnostics['decision_reason'] = 'requested_references' if selected_references else 'insufficient_evidence'
-        if selected_references:
-            return GeneratedReply(reference_message('The requested original reference material is shown below.'),
-                                  'reference_only', reference_labels=selected_references)
-        return reject('insufficient_evidence')
-    if (outcome in {'answer', 'text_answer'} and not answer["blocks"]) or (
-            outcome == "insufficient_evidence" and any(
-                not isinstance(block, dict) or block.get('basis') != 'limitation' for block in answer['blocks'])):
-        return reject("invalid_outcome_fields")
-    selected_references = [] if outcome == 'text_answer' else list(dict.fromkeys(chosen))
-    if outcome == "insufficient_evidence" and not answer['blocks']:
-        return reject("insufficient_evidence")
-    labels = {s["label"]: s for s in sources}
-    paragraphs, citations, sections = [], [], []
-
-    def append_section(text, block=None):
-        if text in paragraphs:
-            return
-        placements = (block or {}).get('references', [])
-        if not isinstance(placements, list):
-            placements = []
-        placed = {label for section in sections for label in section['reference_labels']}
-        placements = [label for label in placements[:5]
-                      if isinstance(label, str) and label in selected_references and label not in placed]
-        paragraphs.append(text)
-        sections.append({'text': text, 'reference_labels': list(dict.fromkeys(placements))})
-    withheld_values = False
-    withheld_direction = False
-    withheld_basis = False
-    withheld_overview = False
-    withheld_task = False
-    task_references = set()
-    has_general_information = False
-    for block in answer["blocks"]:
-        # Older saved responses omit basis; they remain source-only blocks.
-        if (not isinstance(block, dict) or not {'text', 'sources'}.issubset(block)
-                or not set(block).issubset({'text', 'sources', 'basis', 'table_context_sufficient', 'references'})
-                or not isinstance(block["text"], str)
-                or ('table_context_sufficient' in block and not isinstance(block['table_context_sufficient'], bool))
-                or block.get('basis', 'source') not in {'source', 'general', 'limitation'}
-                or not isinstance(block["sources"], list)
-                or len(block["sources"]) > len(labels)
-                or any(not isinstance(label, str) or label not in labels for label in block["sources"])):
-            return reject("invalid_citation")
-        basis = block.get('basis', 'source')
-        text = block["text"].strip()
-        if not text:
-            continue
-        if puncture_repair and spare_change_steps(text):
-            withheld_task = True
-            if isinstance(block.get('references'), list):
-                task_references.update(label for label in block['references'] if isinstance(label, str))
-            if diagnostics is not None:
-                diagnostics.setdefault('discarded_block_reasons', []).append('task_mismatch')
-            continue
-        if professional_overview(question) and operational_overview(text):
-            withheld_overview = True
-            if diagnostics is not None:
-                diagnostics.setdefault('discarded_block_reasons', []).append('operational_overview')
-            continue
-        if (basis == 'source' and not block['sources']) or (basis == 'limitation' and block['sources']):
-            # A malformed block is not evidence for its claims, but cannot
-            # invalidate independent correctly cited instructions. Never promote
-            # an uncited source block into general knowledge automatically.
-            if diagnostics is not None:
-                diagnostics.setdefault('discarded_block_reasons', []).append('invalid_citation_basis')
-            withheld_basis = True
-            continue
-        declared_labels = list(dict.fromkeys(block['sources']))
-        # A general block cannot acquire source authority through an accidental
-        # citation array. Keep it general and apply the same numeric restrictions.
-        block_labels = [] if basis == 'general' else declared_labels
-        if MODEL_CITATIONS.search(text):
-            inline = [label.strip() for group in INLINE_CITATIONS.findall(text) for label in group.split(',')]
-            if (inline and set(inline).issubset(declared_labels)
-                    and not re.search(r'(?im)^sources:', text)):
-                # The structured IDs remain authoritative. Duplicate inline
-                # markers are presentation noise, not a reason to erase a
-                # correctly grounded answer. Unknown/mismatched IDs still fail.
-                text = INLINE_CITATIONS.sub('', text).strip()
-            else:
-                return reject("model_wrote_citations")
-        if unrequested_battery_procedure(text, intent):
-            if diagnostics is not None:
-                diagnostics.setdefault('discarded_block_reasons', []).append('unrequested_battery_procedure')
-            continue
-        if engine_bay_direction(text):
-            withheld_direction = True
-            if diagnostics is not None:
-                diagnostics.setdefault('discarded_block_reasons', []).append('engine_bay_direction')
-            continue
-        uses_table = any(labels[label].get('content_type') == 'table' or labels[label].get('contains_table')
-                         for label in block_labels)
-        table_refs = [reference for reference in references if reference.get('kind') == 'table'
-                      and set(block_labels).intersection(reference.get('evidence_labels', []))]
-        if basis == 'source' and uses_table:
-            # Page citations validate evidence; Gemini chooses which individual
-            # originals help the user. Do not attach every table sharing a page.
-            required = [labels[label] for label in block_labels if labels[label].get('requires_page_images')]
-            if block.get('table_context_sufficient') is True:
-                # Complete provenance from exact source-element/page joins. The
-                # model already receives these originals and attests that the
-                # relevant table context is visible. Omitting a duplicate page
-                # ID must not erase a valid answer. Never add an unavailable or
-                # merely adjacent page, or infer inspection when the flag is false.
-                for source in required:
-                    if original_page_cited(source, block_labels, labels, table_refs):
-                        continue
-                    for label, page in labels.items():
-                        if (page.get('pixels_supplied') and page.get('source_extent') == 'page'
-                                and original_page_cited(source, [source['label'], label], labels, table_refs)):
-                            if label not in block_labels:
-                                block_labels.append(label)
-            missing_pages = any(not original_page_cited(source, block_labels, labels, table_refs)
-                                for source in required)
-            if missing_pages:
-                limitation = ("I couldn't confirm the table details needed for this part. "
-                              "Please check the original table and its notes before using those values.")
-                append_section(limitation)
-                if diagnostics is not None:
-                    diagnostics['table_original_withheld'] = True
-                continue
-        if basis == 'source' and uses_table and block.get('table_context_sufficient') is not True:
-            limitation = ("I couldn't confirm which table conditions apply to this part. "
-                          "Please check its headings and notes before using those values.")
-            append_section(limitation)
-            if diagnostics is not None:
-                diagnostics['table_context_withheld'] = True
-            continue
-        if basis in {'general', 'limitation'}:
-            if basis == 'general':
-                error = numeric_error(text, {'label': 'G', 'source_type': 'general'},
-                                      specification=bool(intent and intent.specification))
-                if error:
-                    withheld_values = True
-                    if diagnostics is not None:
-                        diagnostics.setdefault('withheld_value_reasons', []).append(error)
-                    continue
-                # The answer explains general guidance naturally; keep provenance
-                # in metadata instead of prepending a disclaimer to every block.
-                has_general_information = True
-            append_section(text, block)
-            continue
-        # One cited passage must independently support all values and their
-        # provenance. Combining citations must not pool unrelated numbers or
-        # borrow verification from a source that does not contain the values.
-        errors = [numeric_error(text, labels[label], specification=bool(intent and intent.specification))
-                  for label in block_labels]
-        if all(errors):
-            reason = "unverified_measurement" if "unverified_measurement" in errors else errors[0]
-            withheld_values = True
-            if diagnostics is not None:
-                diagnostics.setdefault('withheld_value_reasons', []).append(reason)
-            continue
-        paragraph = text + " " + " ".join(f"[{label}]" for label in block_labels)
-        if paragraph not in paragraphs:
-            append_section(paragraph, block)
-            citations.extend(block_labels)
-    if withheld_values:
-        append_section("I couldn't confirm one or more exact values in this answer, so those claims have been left out.")
-    if withheld_direction:
-        append_section("I can't confidently describe this part's left/right position. Please check the original illustration rather than relying on a guessed direction.")
-    if task_references:
-        kept = {label for section in sections for label in section['reference_labels']}
-        selected_references = [label for label in selected_references if label not in task_references or label in kept]
-    if not paragraphs:
-        return reject('task_mismatch' if withheld_task else 'operational_overview' if withheld_overview else "no_supporting_answer")
-    if clarification and clarification not in '\n\n'.join(paragraphs):
-        append_section(clarification)
-    if diagnostics is not None:
-        cited = [records[int(label[1:]) - 1] for label in citations if label.startswith("S")]
-        diagnostics.update(decision_reason="answered", cited_labels=list(dict.fromkeys(citations)),
-                           manual_relevant=any(r.metadata.get("source_type", "manual") == "manual" for r in cited),
-                           content_relevant=any(r.metadata.get("source_type", "manual") != "manual" for r in cited),
-                           profile_relevant="P1" in citations, maintenance_relevant="P2" in citations,
-                           has_general_information=has_general_information)
-    supported = bool(citations) or has_general_information
-    if supported and puncture_repair and not re.search(r'\bspare\b', '\n'.join(paragraphs), re.I):
-        # Honest general fallback if source editing removed a mixed block's
-        # unsourced distinction. This adds no procedure, specification or citation.
-        paragraphs.insert(0, PUNCTURE_DISTINCTION)
-        sections.insert(0, {'text': PUNCTURE_DISTINCTION, 'reference_labels': []})
-        has_general_information = True
-        if diagnostics is not None:
-            diagnostics['has_general_information'] = True
-    if supported and broad_dashboard_request(resolved_question):
-        paragraphs.insert(0, DASHBOARD_COVERAGE)
-        sections.insert(0, {'text': DASHBOARD_COVERAGE, 'reference_labels': []})
-    if diagnostics is not None and not supported:
-        diagnostics['decision_reason'] = 'insufficient_evidence'
-    if (not supported and video_labels and allow_videos and not selected_references
-            and not withheld_values and not withheld_basis and not withheld_direction
-            and all(block.get('basis') == 'limitation' for block in answer['blocks'])):
-        # Link availability is application state, not a model-generated factual
-        # claim. Use one consistent notice for a validated link-only delivery.
-        text = 'A related external video is included. Its content and vehicle compatibility have not been verified.'
-        return GeneratedReply(text, 'video_only', video_labels=list(dict.fromkeys(video_labels)),
-                              answer_sections=[{'text': text, 'reference_labels': []}])
-    reply = GeneratedReply("\n\n".join(paragraphs), "answered" if supported else "insufficient_information",
-                          list(dict.fromkeys(citations)), selected_references,
-                          allow_videos=allow_videos and (supported or bool(video_labels)),
-                          has_general_information=has_general_information,
-                          guide_labels=list(dict.fromkeys(guide_labels)) if supported and outcome != 'text_answer' else [],
-                          video_labels=list(dict.fromkeys(video_labels)) if allow_videos else [],
-                          answer_sections=sections)
-    reason = ('task_mismatch' if withheld_task else 'operational_overview' if withheld_overview else 'unverified_values' if withheld_values else 'table_context'
-              if diagnostics is not None and (diagnostics.get('table_original_withheld') or diagnostics.get('table_context_withheld'))
-              else 'invalid_citation_basis' if withheld_basis else None)
-    return correction(reply, reason) if reason else reply
+        diagnostics['decision_reason'] = 'answered'
+    return GeneratedReply(text, 'answered', cited_labels=cited,
+        guide_labels=[s['label'] for s in sources if s['label'] in cited and s.get('source_type') == 'learning_guide'])

@@ -40,7 +40,7 @@ from backend.settings import CORS_ORIGINS
 from shared.http_errors import http_error, validation_error
 
 
-from shared.observability import configure, ready, shutdown, request_monitor
+from shared.observability import configure, ready, shutdown, request_monitor, record_http_response, context
 
 configure("backend")
 
@@ -89,6 +89,14 @@ async def resume_extractions(stop):
 
 
 app = FastAPI(lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CORS_ORIGINS,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+    allow_headers=["Content-Type", "Authorization", "X-Client-Source", "X-Client-Session", "X-Request-ID"],
+    allow_credentials=True,
+    expose_headers=["X-Request-ID", "Retry-After"],
+)
 app.add_exception_handler(RequestValidationError, validation_error)
 app.add_exception_handler(StarletteHTTPException, http_error)
 app.include_router(chat_sources.router)
@@ -144,7 +152,9 @@ async def database_error(request, error):
 
 @app.exception_handler(Exception)
 async def integration_error(request, error):
-    logging.getLogger(__name__).exception("Application operation failed request_id=%s", request.state.request_id, exc_info=error)
+    record_http_response(request, 500, error_type=type(error).__name__)
+    with context(request_id=request.state.request_id):
+        logging.getLogger(__name__).exception("Application operation failed request_id=%s", request.state.request_id, exc_info=error)
     return JSONResponse(status_code=500, content={"detail": "The operation could not be completed. Please retry."}, headers={"Cache-Control": "no-store", "X-Request-ID": request.state.request_id})
 
 
@@ -152,16 +162,6 @@ async def integration_error(request, error):
 async def network_error(request, error):
     logging.getLogger(__name__).warning("Dependency connection failed (%s) request_id=%s", type(error).__name__, request.state.request_id)
     return JSONResponse(status_code=503, content={"detail": "A required service is temporarily unavailable. Please retry."}, headers={"Cache-Control": "no-store"})
-
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=CORS_ORIGINS,
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
-    allow_headers=["Content-Type", "Authorization"],
-    allow_credentials=True,
-    expose_headers=["X-Request-ID", "Retry-After"],
-)
 
 
 @app.get("/")

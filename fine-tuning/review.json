@@ -1,0 +1,194 @@
+{
+  "review_type": "AI-assisted technical review against supplied evidence; not human researcher labels",
+  "training_steps_reported": 50,
+  "source_files": [
+    "status.json",
+    "comparison.md"
+  ],
+  "original_status_sha256": "addd1710db80d4916596045b0158614aafccefb3b76f9ca79d7e5f3657045d95",
+  "original_comparison_sha256": "2895e98bf849f29849be0a999afa231c849102be96f94ee728a350acf576768b",
+  "adapter_weights_available_locally": false,
+  "export_available_locally": false,
+  "aggregate_metrics": {
+    "base_validation": {
+      "base_loss": 1.43622887134552,
+      "base_model_preparation_time": 0.0157,
+      "base_runtime": 79.9793,
+      "base_samples_per_second": 0.3,
+      "base_steps_per_second": 0.3
+    },
+    "tuned_validation": {
+      "tuned_loss": 0.7550292611122131,
+      "tuned_model_preparation_time": 0.0157,
+      "tuned_runtime": 50.3719,
+      "tuned_samples_per_second": 0.476,
+      "tuned_steps_per_second": 0.476,
+      "epoch": 0.625
+    },
+    "warning": "Word overlap and citation presence are diagnostics, not correctness. Human review remains blank.",
+    "base": {
+      "public_word_f1": 0.4932965621498735,
+      "citation_presence_fraction": 0.75,
+      "public_token_cap_hits": 6
+    },
+    "tuned": {
+      "public_word_f1": 0.5678719311116197,
+      "citation_presence_fraction": 0.5,
+      "public_token_cap_hits": 7
+    }
+  },
+  "case_reviews": [
+    {
+      "id": "c1db098fde8653792149",
+      "split": "public-held-out",
+      "assessment": "Concern",
+      "note": "Both outputs hit the cap. Tuned repeats the approximately 70 billion yen investment claim, while the supplied English cash-flow table states approximately 7 billion yen. Human-resource coverage improves but financial section remains unfinished.",
+      "base_citation_S1": false,
+      "tuned_citation_S1": false,
+      "base_token_cap": true,
+      "tuned_token_cap": true
+    },
+    {
+      "id": "64c7aab779f2acab1232",
+      "split": "public-held-out",
+      "assessment": "Incomplete",
+      "note": "Both outputs hit the cap. Tuned details license/distribution formats but is cut off before completing the requested terms and lacks a source citation in the captured output.",
+      "base_citation_S1": true,
+      "tuned_citation_S1": false,
+      "base_token_cap": true,
+      "tuned_token_cap": true
+    },
+    {
+      "id": "43cbd6dec9fba60e6f1f",
+      "split": "public-held-out",
+      "assessment": "Regression",
+      "note": "Tuned repeats multiple paragraphs and hits the cap where base finishes. Chart headings such as Good to have, Most critical and Future of retail are incorrectly presented as individual capabilities.",
+      "base_citation_S1": true,
+      "tuned_citation_S1": true,
+      "base_token_cap": false,
+      "tuned_token_cap": true
+    },
+    {
+      "id": "469eb1a7198d090dc76a",
+      "split": "public-held-out",
+      "assessment": "Mixed",
+      "note": "Tuned completes with a citation and explains expandable segments. Its final paragraph presents the old fragmented-allocation problem after describing the mitigation without clearly distinguishing the two. Base is truncated.",
+      "base_citation_S1": false,
+      "tuned_citation_S1": true,
+      "base_token_cap": true,
+      "tuned_token_cap": false
+    },
+    {
+      "id": "d738cec89f8c63c4cca1",
+      "split": "public-held-out",
+      "assessment": "Useful",
+      "note": "Tuned gives a coherent cited account broadly following the supplied historical passage; neither output hits the cap. This review checks against supplied text, not external historical verification.",
+      "base_citation_S1": true,
+      "tuned_citation_S1": true,
+      "base_token_cap": false,
+      "tuned_token_cap": false
+    },
+    {
+      "id": "5ad07976d2ae69477774",
+      "split": "public-held-out",
+      "assessment": "Improved focus, incomplete",
+      "note": "Tuned concentrates on employee duties and preserves equipment-use and task-authorization conditions. Both outputs hit the cap; tuned ends at Risk and has no captured citation.",
+      "base_citation_S1": false,
+      "tuned_citation_S1": false,
+      "base_token_cap": true,
+      "tuned_token_cap": true
+    },
+    {
+      "id": "315747141def87274037",
+      "split": "public-held-out",
+      "assessment": "Improvement",
+      "note": "Tuned preserves the requested 15% and 38% return-to-compliance figures with citation and avoids base misreading over 74% as over 7.4%. Subjective significant/considerable characterizations should be avoided.",
+      "base_citation_S1": true,
+      "tuned_citation_S1": true,
+      "base_token_cap": false,
+      "tuned_token_cap": false
+    },
+    {
+      "id": "1d993cd330d0ef0a68a3",
+      "split": "public-held-out",
+      "assessment": "Useful",
+      "note": "Both correctly explain the supplied origin/meaning; tuned also preserves the badge detail and cites S1.",
+      "base_citation_S1": true,
+      "tuned_citation_S1": true,
+      "base_token_cap": false,
+      "tuned_token_cap": false
+    },
+    {
+      "id": "9be3a483aba86401c28d",
+      "split": "public-held-out",
+      "assessment": "Incomplete",
+      "note": "Tuned closely follows supplied agreement wording but both outputs hit the cap. Tuned ends mid-condition and omits its trailing citation; no legal conclusion about the actual agreement is made here.",
+      "base_citation_S1": true,
+      "tuned_citation_S1": false,
+      "base_token_cap": true,
+      "tuned_token_cap": true
+    },
+    {
+      "id": "7c6bf7aa70b9c09910f1",
+      "split": "public-held-out",
+      "assessment": "Regression",
+      "note": "Base completes a compact cited tools/practices list. Tuned adds circular Tools/Value/Usage/Frequency exposition, covers fewer items before hitting the cap, and omits its captured citation.",
+      "base_citation_S1": true,
+      "tuned_citation_S1": false,
+      "base_token_cap": false,
+      "tuned_token_cap": true
+    },
+    {
+      "id": "3a622c0377a917a52fcc",
+      "split": "public-held-out",
+      "assessment": "Incorrect",
+      "note": "Tuned assigns pooled equity to Level 2 and fixed income/government securities to Level 3, contradicting the supplied Level 1 and Level 2 classifications. It also places money market investments under Level 1 despite source Level 2. Base also has a money-market classification error; neither is fully reliable.",
+      "base_citation_S1": true,
+      "tuned_citation_S1": true,
+      "base_token_cap": false,
+      "tuned_token_cap": false
+    },
+    {
+      "id": "a1cf40c2015a2de2c15a",
+      "split": "public-held-out",
+      "assessment": "Incomplete",
+      "note": "Tuned covers supplied security partnerships, procurement and research guidance, but both outputs hit the cap. Tuned has no captured citation. No external policy verification is claimed.",
+      "base_citation_S1": true,
+      "tuned_citation_S1": false,
+      "base_token_cap": true,
+      "tuned_token_cap": true
+    },
+    {
+      "id": "dev-oil",
+      "split": "roadie-development",
+      "assessment": "Complete but repetitive",
+      "note": "Both retain warm-up, stop, wait a few minutes, wipe, full reinsertion and F/L. Tuned reproduces the procedure twice; no demonstrated completeness improvement over this base answer.",
+      "base_citation_S1": true,
+      "tuned_citation_S1": true,
+      "base_token_cap": false,
+      "tuned_token_cap": false
+    },
+    {
+      "id": "dev-no-pin",
+      "split": "roadie-development",
+      "assessment": "Useful",
+      "note": "Both say no pin and contact the service centre; tuned explicitly adds the supplied nozzle-damage precaution.",
+      "base_citation_S1": true,
+      "tuned_citation_S1": true,
+      "base_token_cap": false,
+      "tuned_token_cap": false
+    },
+    {
+      "id": "dev-evidence-gap",
+      "split": "roadie-development",
+      "assessment": "Regression",
+      "note": "Tuned invents caliper removal/installation, rotor resurfacing and testing stages from a warning-only excerpt. Base is also imperfect: it frames checking/replacement as stages and adds a mechanic recommendation not stated in the excerpt. Tuned demonstrates a clear evidence-boundary failure.",
+      "base_citation_S1": true,
+      "tuned_citation_S1": true,
+      "base_token_cap": false,
+      "tuned_token_cap": false
+    }
+  ],
+  "conclusion": "Training reported complete; mixed generation results with evidence-boundary and classification failures. Improvement in loss/overlap does not establish improved safety or factual accuracy.",
+  "deployment": "Keep current model until separate export/import and actual Roadie-path validation. Preserve manufacturer procedure and missing-procedure guards."
+}

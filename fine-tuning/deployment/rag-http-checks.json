@@ -1,0 +1,119 @@
+[
+  {
+    "case": "washer",
+    "question": "My washer nozzle is blocked. Does the manual recommend using a pin to clear it?",
+    "scope_label": "Perodua Myvi",
+    "http_status": 200,
+    "seconds": 14.424,
+    "reply": {
+      "answer": "From the supplied manual [S1]:\n\n\u201cDo not try to unblock it using sharp objects, such as a pin. The nozzle may be damaged.\u201d",
+      "answer_sections": [],
+      "route": "rag",
+      "videos": [],
+      "sources": [
+        {
+          "label": "S1",
+          "source_type": "manual",
+          "chunk_id": "906df65b-16ad-4ffa-af28-38d6118c7de7_30a3875c-ff32-4ee4-a94a-5f86b6e198f3_chunk_000416_1f9e5356e141feb9b703b3f942b3a1204996fbbf2f849624f7f9653bd3801a83",
+          "document_id": "906df65b-16ad-4ffa-af28-38d6118c7de7",
+          "source_revision": "30a3875c-ff32-4ee4-a94a-5f86b6e198f3",
+          "section_path": [
+            "Driving",
+            "Rear wiper and washer",
+            "\u00c4 If the nozzle is blocked"
+          ]
+        }
+      ],
+      "attachments": [],
+      "external_warning": false,
+      "manual_relevant": true,
+      "response_type": "manual_only",
+      "suggested_activity": null,
+      "recommended_guides": []
+    },
+    "targeted_check_passed": true
+  },
+  {
+    "case": "oil-procedure",
+    "question": "How do I check the engine oil level? Give the manufacturer preparation and reading sequence.",
+    "scope_label": "Perodua Alza",
+    "http_status": 200,
+    "seconds": 9.74,
+    "reply": {
+      "answer": "From the applicable manufacturer's manual:\n\n1. Park the vehicle on a level surface.\n2. Warm up the engine to operating temperature and stop it.\n3. After a few minutes, slowly pull the dipstick out and wipe the oil clean.\n4. Reinsert the dipstick as far as it will go.\n5. Pull out the dipstick again and check the oil level if it is between \"F\" and \"L\" marks.\n6. If the engine oil level is too low, add the engine oil. For recommended engine oil, see Section 17. [S1]",
+      "answer_sections": [],
+      "route": "rag",
+      "videos": [],
+      "sources": [
+        {
+          "label": "S1",
+          "source_type": "manual",
+          "chunk_id": "75da8572-040f-4a48-8af8-cd848916e445_f628104b-af4a-4241-b0e2-517804c16b2b_chunk_000487_cef493bfa338a9c539e32f3a1e33123005fe555f8454b156b91978fec0032cc3",
+          "document_id": "75da8572-040f-4a48-8af8-cd848916e445",
+          "source_revision": "f628104b-af4a-4241-b0e2-517804c16b2b",
+          "section_path": [
+            "Engine oil level check"
+          ]
+        }
+      ],
+      "attachments": [
+        {
+          "kind": "image",
+          "element_id": "image-00284",
+          "document_id": "75da8572-040f-4a48-8af8-cd848916e445",
+          "source_revision": "f628104b-af4a-4241-b0e2-517804c16b2b",
+          "source_fidelity_verified": true,
+          "reference_label": "V1"
+        }
+      ],
+      "external_warning": false,
+      "manual_relevant": true,
+      "response_type": "manual_only",
+      "suggested_activity": null,
+      "recommended_guides": []
+    },
+    "targeted_check_passed": true
+  },
+  {
+    "case": "brake-gap",
+    "question": "Explain how a mechanic approaches brake-pad replacement and why all replacement stages matter.",
+    "scope_label": "Perodua Alza",
+    "http_status": 200,
+    "seconds": 7.908,
+    "reply": {
+      "answer": "I found warnings and inspection advice, but not evidence describing the replacement stages or why each stage matters.\n\nDo not continue using the worn brake pads. This could reduce braking effectiveness and cause an accident. Have the brake pads and rotor checked or replaced immediately. [S1]\n\nThe brake pad wear limit indicators on the front disc brakes give a warning noise when the brake pads are worn. [S2]",
+      "answer_sections": [],
+      "route": "rag",
+      "videos": [],
+      "sources": [
+        {
+          "label": "S1",
+          "source_type": "manual",
+          "chunk_id": "75da8572-040f-4a48-8af8-cd848916e445_f628104b-af4a-4241-b0e2-517804c16b2b_chunk_000388_606cde5b9582d37651fc241101cbef397995848d54cabe2e50be23f6176ac949",
+          "document_id": "75da8572-040f-4a48-8af8-cd848916e445",
+          "source_revision": "f628104b-af4a-4241-b0e2-517804c16b2b",
+          "section_path": [
+            "w \u2002WARNING"
+          ]
+        },
+        {
+          "label": "S2",
+          "source_type": "manual",
+          "chunk_id": "75da8572-040f-4a48-8af8-cd848916e445_f628104b-af4a-4241-b0e2-517804c16b2b_chunk_000387_9d69239f7b83ed8f64366360107f253714704f040fc7aa654b57c04b12fcc4f0",
+          "document_id": "75da8572-040f-4a48-8af8-cd848916e445",
+          "source_revision": "f628104b-af4a-4241-b0e2-517804c16b2b",
+          "section_path": [
+            "NOTE"
+          ]
+        }
+      ],
+      "attachments": [],
+      "external_warning": false,
+      "manual_relevant": true,
+      "response_type": "manual_only",
+      "suggested_activity": null,
+      "recommended_guides": []
+    },
+    "targeted_check_passed": true
+  }
+]

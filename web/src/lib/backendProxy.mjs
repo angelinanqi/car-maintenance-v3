@@ -19,7 +19,7 @@ export function proxyPath(segments, search) {
   return "/" + segments.map(encodeURIComponent).join("/") + search;
 }
 
-export async function forwardBackend(request, { path, backendURL, accessToken, fetcher = fetch }) {
+export async function forwardBackend(request, { path, backendURL, accessToken, requestId, fetcher = fetch }) {
   const headers = new Headers();
   for (const name of ["content-type", "accept", "range", "if-range"]) {
     const value = request.headers.get(name);
@@ -27,6 +27,8 @@ export async function forwardBackend(request, { path, backendURL, accessToken, f
   }
   const origin = new URL(request.url).origin;
   headers.set("origin", origin);
+  headers.set("X-Client-Source", "WEB");
+  if (requestId) headers.set("X-Request-ID", requestId);
   if (accessToken) {
     headers.set("authorization", `Bearer ${accessToken}`);
   }

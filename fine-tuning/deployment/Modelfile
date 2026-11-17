@@ -1,0 +1,5 @@
+FROM gemma3:4b
+ADAPTER ./roadie-corrective-lora-f32.gguf
+PARAMETER temperature 0
+PARAMETER num_ctx 8192
+PARAMETER num_predict 1024

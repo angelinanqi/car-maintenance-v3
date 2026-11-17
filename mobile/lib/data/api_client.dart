@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
-import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'live_logging.dart';
 
 class ApiException implements Exception {
   final String message;
@@ -59,7 +59,11 @@ class ApiClient {
     Uri? remote,
     Duration? requestTimeout,
   }) async {
-    final logPath = remote == null ? path.split('?').first : 'external image';
+    final trace = HttpTrace(
+      remote?.toString() ?? path,
+      method,
+      destination: remote == null ? 'API' : 'EXTERNAL',
+    );
     final abort = Completer<void>();
     try {
       final request = http.AbortableRequest(
@@ -67,6 +71,13 @@ class ApiClient {
         remote ?? endpoint(path, query: query),
         abortTrigger: abort.future,
       );
+      if (remote == null) {
+        request.headers['X-Client-Source'] = 'MOBILE';
+        if (trace.id != null) request.headers['X-Request-ID'] = trace.id!;
+        if (LiveLogging.enabled && trace.session != null) {
+          request.headers['X-Client-Session'] = trace.session!;
+        }
+      }
       if (body != null) {
         request.headers['Content-Type'] = 'application/json';
         request.body = jsonEncode(body);
@@ -74,6 +85,8 @@ class ApiClient {
       if (token != null) request.headers['Authorization'] = 'Bearer $token';
       final response = await (() async {
         final streamed = await client.send(request);
+        trace.status = streamed.statusCode;
+        trace.responseId = streamed.headers['x-request-id'];
         final bytes = BytesBuilder(copy: false);
         await for (final chunk in streamed.stream) {
           if (bytes.length + chunk.length > maxBytes) {
@@ -114,25 +127,24 @@ class ApiClient {
       }
       return response;
     } on ApiException catch (error) {
-      debugPrint(
-        'ERROR [mobile-api] $method $logPath failed'
-        '${error.statusCode == null ? '' : ' (HTTP ${error.statusCode})'}.',
-      );
+      trace.error = error.statusCode == null ? 'APPLICATION' : 'HTTP';
       rethrow;
     } on TimeoutException {
-      debugPrint('ERROR [mobile-api] $method $logPath timed out.');
+      trace.error = 'TIMEOUT';
       throw const ApiException('The request timed out. Please retry.');
     } on http.ClientException {
-      debugPrint('ERROR [mobile-api] $method $logPath could not connect.');
+      trace.error = 'NETWORK';
       throw const ApiException(
         'Could not reach the backend. Check your connection.',
       );
     } on FormatException {
-      debugPrint(
-        'ERROR [mobile-api] $method $logPath returned an invalid response.',
-      );
+      trace.error = 'INVALID_RESPONSE';
       throw const ApiException('The backend returned an unexpected response.');
+    } catch (_) {
+      trace.error = 'UNEXPECTED';
+      rethrow;
     } finally {
+      trace.finish();
       // Future.timeout alone leaves the socket/download running in the background.
       if (!abort.isCompleted) abort.complete();
     }
