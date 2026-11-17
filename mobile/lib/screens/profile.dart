@@ -6,6 +6,7 @@ import '../app_theme.dart';
 import '../widgets/design_widgets.dart';
 import 'account_form.dart';
 import 'account_security.dart';
+import 'account_settings.dart';
 
 class Profile extends StatefulWidget {
   final AppState state;
@@ -83,6 +84,17 @@ class _ProfileState extends State<Profile> {
     );
   }
 
+  Future<void> _openSetting(AccountSetting setting) async {
+    final message = await Navigator.push<String>(
+      context,
+      MaterialPageRoute(builder: (_) => AccountSettingForm(setting)),
+    );
+    if (!mounted || message == null) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
   @override
   Widget build(BuildContext context) {
     final account = AccountScope.of(context);
@@ -124,7 +136,22 @@ class _ProfileState extends State<Profile> {
               child: const Text('Verify session'),
             ),
           const SizedBox(height: 24),
-          if (user != null)
+          if (user != null) ...[
+            ActionRow(
+              icon: Icons.edit_outlined,
+              title: 'Edit display name',
+              onTap: () => _openSetting(AccountSetting.name),
+            ),
+            ActionRow(
+              icon: Icons.email_outlined,
+              title: 'Change email',
+              onTap: () => _openSetting(AccountSetting.email),
+            ),
+            ActionRow(
+              icon: Icons.lock_outline,
+              title: 'Change password',
+              onTap: () => _openSetting(AccountSetting.password),
+            ),
             ActionRow(
               icon: Icons.security,
               title: 'Account security',
@@ -134,6 +161,16 @@ class _ProfileState extends State<Profile> {
                 MaterialPageRoute(builder: (_) => const AccountSecurity()),
               ),
             ),
+            ActionRow(
+              icon: Icons.devices_outlined,
+              title: 'Signed-in sessions',
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const SignedInSessions()),
+              ),
+            ),
+            const SizedBox(height: AppSpacing.large),
+          ],
           Text(
             'Emergency contacts',
             style: Theme.of(context).textTheme.titleMedium,
@@ -195,6 +232,16 @@ class _ProfileState extends State<Profile> {
               onPressed: account!.busy ? null : account.logout,
               child: const Text(
                 'Log out',
+                style: TextStyle(color: AppColors.danger),
+              ),
+            ),
+          if (user != null)
+            TextButton(
+              onPressed: account!.busy
+                  ? null
+                  : () => _openSetting(AccountSetting.delete),
+              child: const Text(
+                'Delete account',
                 style: TextStyle(color: AppColors.danger),
               ),
             ),

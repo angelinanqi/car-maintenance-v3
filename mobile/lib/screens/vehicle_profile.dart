@@ -28,7 +28,7 @@ class _VehicleProfilePageState extends State<VehicleProfilePage> {
       _plate = TextEditingController(),
       _mileage = TextEditingController();
   List<CatalogueVehicle> _catalogue = [];
-  CatalogueVehicle? _selected;
+  CatalogueVehicle? _selectedVersion;
   String _search = '';
   String? _manufacturer, _model, _year;
   bool _busy = false, _loading = true;
@@ -93,7 +93,7 @@ class _VehicleProfilePageState extends State<VehicleProfilePage> {
     super.dispose();
   }
 
-  Future<void> _save() async {
+  Future<void> _save(CatalogueVehicle? selected) async {
     if (_busy) return;
     if (!_form.currentState!.validate()) return;
     if (!widget.state.signedIn || widget.state.accountId != _owner) {
@@ -103,8 +103,12 @@ class _VehicleProfilePageState extends State<VehicleProfilePage> {
       );
       return;
     }
-    if (widget.vehicle == null && _selected == null) {
-      setState(() => _error = 'Select a vehicle from the catalogue.');
+    if (widget.vehicle == null && selected == null) {
+      setState(() {
+        _error = _year == null
+            ? 'Select make, model and year.'
+            : 'Choose your car version.';
+      });
       return;
     }
     setState(() {
@@ -116,13 +120,13 @@ class _VehicleProfilePageState extends State<VehicleProfilePage> {
       await widget.state.saveVehicle(
         Vehicle(
           id: _vehicleId,
-          catalogueId: old?.catalogueId ?? _selected!.id,
+          catalogueId: old?.catalogueId ?? selected!.id,
           name: _name.text.trim().isEmpty
-              ? old?.model ?? _selected!.label
+              ? old?.model ?? selected!.label
               : _name.text.trim(),
-          model: old?.model ?? '${_selected!.manufacturer} ${_selected!.model}',
-          year: old?.year ?? _selected!.year,
-          engineSize: old?.engineSize ?? _selected!.engine,
+          model: old?.model ?? '${selected!.manufacturer} ${selected.model}',
+          year: old?.year ?? selected!.year,
+          engineSize: old?.engineSize ?? selected!.engine,
           plateNumber: _plate.text.trim().toUpperCase(),
           mileage: int.parse(_mileage.text.trim()),
           knowledgeScopeId: old?.knowledgeScopeId,
@@ -242,6 +246,13 @@ class _VehicleProfilePageState extends State<VehicleProfilePage> {
     );
   }
 
+  String _versionLabel(CatalogueVehicle vehicle) => [
+    vehicle.variant,
+    vehicle.engine,
+    if (vehicle.powertrain == 'petrol') 'Petrol',
+    if (vehicle.powertrain == 'diesel') 'Diesel',
+  ].where((value) => value.trim().isNotEmpty).join(' · ');
+
   Widget _choice(String label, String value, VoidCallback? tap) => Padding(
     padding: const EdgeInsets.only(bottom: AppSpacing.standard),
     child: InkWell(
@@ -322,7 +333,7 @@ class _VehicleProfilePageState extends State<VehicleProfilePage> {
             .toSet()
             .toList()
           ..sort();
-    final variants = _catalogue
+    final matchingVersions = _catalogue
         .where(
           (v) =>
               v.manufacturer == _manufacturer &&
@@ -330,6 +341,9 @@ class _VehicleProfilePageState extends State<VehicleProfilePage> {
               '${v.year}' == _year,
         )
         .toList();
+    final selected = matchingVersions.length == 1
+        ? matchingVersions.single
+        : _selectedVersion;
     return Scaffold(
       appBar: onboarding
           ? null
@@ -429,7 +443,7 @@ class _VehicleProfilePageState extends State<VehicleProfilePage> {
                                     _manufacturer = value;
                                     _model = null;
                                     _year = null;
-                                    _selected = null;
+                                    _selectedVersion = null;
                                   });
                               },
                       ),
@@ -450,7 +464,7 @@ class _VehicleProfilePageState extends State<VehicleProfilePage> {
                                     setState(() {
                                       _model = value;
                                       _year = null;
-                                      _selected = null;
+                                      _selectedVersion = null;
                                     });
                                 },
                         ),
@@ -469,7 +483,7 @@ class _VehicleProfilePageState extends State<VehicleProfilePage> {
                                   if (value != null && mounted)
                                     setState(() {
                                       _year = value;
-                                      _selected = null;
+                                      _selectedVersion = null;
                                     });
                                 },
                         ),
@@ -477,22 +491,23 @@ class _VehicleProfilePageState extends State<VehicleProfilePage> {
                         _choice('Year', '${old.year}', null),
                     ],
                     if (!onboarding || _step == 1) ...[
-                      _choice(
-                        'Variant',
-                        old?.engineSize ?? _selected?.variant ?? '',
-                        old != null || _year == null
-                            ? null
-                            : () async {
-                                _search = '';
-                                final value = await _pick(
-                                  'variant',
-                                  variants,
-                                  (v) => '${v.variant} · ${v.engine}',
-                                );
-                                if (value != null && mounted)
-                                  setState(() => _selected = value);
-                              },
-                      ),
+                      if (old != null && old.engineSize.isNotEmpty)
+                        _choice('Engine', old.engineSize, null),
+                      if (old == null && matchingVersions.length > 1)
+                        _choice(
+                          'Car version',
+                          selected == null ? '' : _versionLabel(selected),
+                          () async {
+                            final value = await _pick(
+                              'car version',
+                              matchingVersions,
+                              _versionLabel,
+                            );
+                            if (value != null && mounted) {
+                              setState(() => _selectedVersion = value);
+                            }
+                          },
+                        ),
                       ReferenceTextField(
                         controller: _mileage,
                         label: 'Odometer (km)',
@@ -573,7 +588,7 @@ class _VehicleProfilePageState extends State<VehicleProfilePage> {
                                   ',',
                                   '',
                                 );
-                                _save();
+                                _save(selected);
                               }
                             },
                       child: Text(

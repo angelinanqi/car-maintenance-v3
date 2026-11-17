@@ -127,7 +127,11 @@ class _SavedItemsPageState extends State<SavedItemsPage> {
                     },
               trailing: IconButton(
                 tooltip: 'Remove saved item',
-                icon: const Icon(Icons.bookmark_remove_outlined),
+                icon: Icon(
+                  item['kind'] == 'notes'
+                      ? Icons.delete_outline
+                      : Icons.bookmark_remove_outlined,
+                ),
                 onPressed: () async {
                   try {
                     await widget.repository.remove(item['id'] as String);

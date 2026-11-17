@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 import 'data/account_repository.dart';
 import 'data/api_client.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -29,6 +29,7 @@ class AccountState extends ChangeNotifier {
   bool _restorePending = false;
   bool busy = false;
   bool rateLimited = false;
+  String? authErrorCode;
   DateTime? emailRetryAt;
   int get emailRetrySeconds {
     final remaining = emailRetryAt?.difference(DateTime.now()).inSeconds ?? -1;
@@ -96,6 +97,7 @@ class AccountState extends ChangeNotifier {
     if (busy || _disposed) return false;
     busy = true;
     rateLimited = false;
+    authErrorCode = null;
     error = null;
     _notify();
     try {
@@ -105,6 +107,7 @@ class AccountState extends ChangeNotifier {
       error = failure.message;
       return false;
     } on AuthException catch (failure) {
+      authErrorCode = failure.code;
       rateLimited =
           failure.statusCode == '429' ||
           [
@@ -231,10 +234,69 @@ class AccountState extends ChangeNotifier {
     _apply(await repository.restore());
   });
 
+  Future<bool> updateDisplayName(String name) => _run(() async {
+    _requireSignedIn();
+    _apply(await repository.updateDisplayName(name.trim()));
+  });
+
+  Future<bool> changeEmail(String email) => _run(() async {
+    _requireSignedIn();
+    await repository.requestEmailChange(email);
+  });
+
+  Future<bool> changePassword(
+    String currentPassword,
+    String password, {
+    String? nonce,
+  }) => _run(() async {
+    _requireSignedIn();
+    await repository.changePassword(currentPassword, password, nonce: nonce);
+  });
+
+  Future<bool> sendPasswordCode() => _run(() async {
+    _requireSignedIn();
+    await repository.auth.reauthenticate();
+  });
+
+  Future<bool> deleteAccount(String factorId, String code) => _run(() async {
+    _requireSignedIn();
+    await repository.deleteAccount(factorId, code);
+    message = 'Your account was deleted.';
+    try {
+      await repository.logout();
+    } catch (_) {
+      if (repository.hasSession) {
+        throw const ApiException(
+          'Your account was deleted. Sign out to finish.',
+        );
+      }
+    } finally {
+      _accept(null);
+      pendingSession = null;
+    }
+  });
+
+  void _requireSignedIn() {
+    if (user == null || repository.userId != user!.id || recoveringPassword) {
+      throw const ApiException('Sign in to manage your account.');
+    }
+  }
+
   String _authMessage(AuthException failure) {
     switch (failure.code) {
       case 'invalid_credentials':
         return 'The email or password is incorrect.';
+      case 'current_password_mismatch':
+        return 'The current password is incorrect.';
+      case 'same_password':
+        return 'Choose a password different from your current one.';
+      case 'email_exists':
+      case 'email_address_not_authorized':
+        return 'This email address cannot be used. Try a different address.';
+      case 'reauthentication_needed':
+        return 'Request a verification code to continue.';
+      case 'reauthentication_not_valid':
+        return 'The verification code is invalid or expired. Request a new code.';
       case 'email_not_confirmed':
         return 'Confirm your email before signing in. You can request a new confirmation email.';
       case 'weak_password':

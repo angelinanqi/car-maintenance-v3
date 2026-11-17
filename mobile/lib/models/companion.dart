@@ -131,9 +131,9 @@ class ServicePlan {
       for (final item in groups[group] ?? <Map<String, dynamic>>[]) {
         final timing = item['status'] as Map;
         final line =
-            '${item['title']} · ${item['action']} · ${timing['label']}'
-            '${timing['nextKm'] == null ? '' : ' · ${timing['nextKm']} km'}'
-            '${timing['nextDate'] == null ? '' : ' · ${timing['nextDate']}'}';
+            '${item['title']} · ${item['action']}\n${timing['label']}'
+            '${timing['nextKm'] == null ? '' : '\nDue mileage: ${timing['nextKm']} km'}'
+            '${timing['nextDate'] == null ? '' : '\nDue date: ${timing['nextDate']}'}';
         if (length + line.length > 10000) {
           lines.add(
             'Additional items are available in the saved service plan.',
@@ -141,7 +141,8 @@ class ServicePlan {
           return lines.join('\n');
         }
         lines.add(line);
-        length += line.length + 1;
+        lines.add('');
+        length += line.length + 2;
       }
     }
     return lines.join('\n');

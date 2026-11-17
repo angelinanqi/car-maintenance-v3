@@ -48,6 +48,7 @@ class ChatMessageView extends StatelessWidget {
   final ChatMessage message;
   final ChatRepository repository;
   final VoidCallback? onEmergency;
+  final ValueChanged<String>? onEmergencyGuide;
   final VoidCallback? onMaintenance;
   final ValueChanged<String>? onGuide;
   const ChatMessageView({
@@ -56,6 +57,7 @@ class ChatMessageView extends StatelessWidget {
     this.content,
     required this.repository,
     this.onEmergency,
+    this.onEmergencyGuide,
     this.onMaintenance,
     this.onGuide,
   });
@@ -103,6 +105,12 @@ class ChatMessageView extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final reply = message.reply;
+    final guideId = reply?.emergencyGuideId;
+    final urgent = reply?.route == 'emergency';
+    final roadside = urgent || reply?.route == 'roadside_guidance';
+    final openGuide = guideId != null && onEmergencyGuide != null
+        ? () => onEmergencyGuide!(guideId)
+        : null;
     if (message.isUser) {
       return Padding(
         padding: EdgeInsets.only(
@@ -162,6 +170,26 @@ class ChatMessageView extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 10),
+          if (onEmergency != null && roadside) ...[
+            FilledButton.icon(
+              style: FilledButton.styleFrom(
+                backgroundColor: urgent
+                    ? theme.colorScheme.error
+                    : theme.colorScheme.primary,
+                foregroundColor: urgent
+                    ? theme.colorScheme.onError
+                    : theme.colorScheme.onPrimary,
+              ),
+              onPressed: openGuide ?? onEmergency,
+              icon: const Icon(Icons.emergency_outlined),
+              label: Text(
+                openGuide != null
+                    ? 'Open emergency guide'
+                    : 'Open emergency help',
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
           if (layout.sections.isEmpty)
             ChatAnswer(text: message.text)
           else
@@ -173,30 +201,6 @@ class ChatMessageView extends StatelessWidget {
               const SizedBox(height: 12),
             ],
           ContentMediaList(items: reply?.contentMedia ?? [], content: content),
-          if (onEmergency != null &&
-              (reply?.route == 'emergency' ||
-                  sources.any(
-                    (source) => source['source_type'] == 'emergency_protocol',
-                  ))) ...[
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              style: FilledButton.styleFrom(
-                backgroundColor: reply?.route == 'emergency'
-                    ? theme.colorScheme.error
-                    : theme.colorScheme.primary,
-                foregroundColor: reply?.route == 'emergency'
-                    ? theme.colorScheme.onError
-                    : theme.colorScheme.onPrimary,
-              ),
-              onPressed: onEmergency,
-              icon: const Icon(Icons.emergency_outlined),
-              label: Text(
-                reply?.route == 'emergency'
-                    ? 'Open emergency help'
-                    : 'Explore emergency guidance',
-              ),
-            ),
-          ],
           if (onGuide != null &&
               reply?.recommendedGuides.isNotEmpty == true) ...[
             const SizedBox(height: 16),

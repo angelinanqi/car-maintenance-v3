@@ -9,11 +9,13 @@ class ContentMediaList extends StatelessWidget {
   final List<Map<String, dynamic>> items;
   final ContentRepository? content;
   final Widget Function(Map<String, dynamic>)? imageBuilder;
+  final bool showImageCaptionsAndSources;
   const ContentMediaList({
     super.key,
     required this.items,
     this.content,
     this.imageBuilder,
+    this.showImageCaptionsAndSources = true,
   });
 
   Uri? _url(Map<String, dynamic> item) {
@@ -71,6 +73,7 @@ class ContentMediaList extends StatelessWidget {
               ),
               item: item,
               content: content!,
+              showImageCaptionsAndSources: showImageCaptionsAndSources,
             ),
         ],
       );
@@ -88,10 +91,12 @@ class ContentMediaList extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Text(
-                        '${item['title'] ?? 'Related media'}${item['source_label'] != null ? ' [${item['source_label']}]' : ''}',
-                        style: Theme.of(context).textTheme.titleSmall,
-                      ),
+                      if (showImageCaptionsAndSources ||
+                          item['kind'] != 'image')
+                        Text(
+                          '${item['title'] ?? 'Related media'}${item['source_label'] != null ? ' [${item['source_label']}]' : ''}',
+                          style: Theme.of(context).textTheme.titleSmall,
+                        ),
                       if (item['step_title'] != null)
                         Text('Step: ${item['step_title']}'),
                       if (item['kind'] == 'image')
@@ -121,12 +126,16 @@ class ContentMediaList extends StatelessWidget {
                                       ),
                                     )),
                         ),
-                      if ((item['description'] as String? ?? '').isNotEmpty)
+                      if ((showImageCaptionsAndSources ||
+                              item['kind'] != 'image') &&
+                          (item['description'] as String? ?? '').isNotEmpty)
                         Text(item['description'] as String),
                       if ((item['vehicle_context'] as String? ?? '').isNotEmpty)
                         Text('Applies to: ${item['vehicle_context']}'),
-                      if ((item['source_reference'] as String? ?? '')
-                          .isNotEmpty)
+                      if ((showImageCaptionsAndSources ||
+                              item['kind'] != 'image') &&
+                          (item['source_reference'] as String? ?? '')
+                              .isNotEmpty)
                         Text(
                           'Source: ${item['source_reference']}',
                           style: Theme.of(context).textTheme.bodySmall,
@@ -161,7 +170,13 @@ class ContentMediaList extends StatelessWidget {
 class _ResolvedMedia extends StatefulWidget {
   final Map<String, dynamic> item;
   final ContentRepository content;
-  const _ResolvedMedia({super.key, required this.item, required this.content});
+  final bool showImageCaptionsAndSources;
+  const _ResolvedMedia({
+    super.key,
+    required this.item,
+    required this.content,
+    required this.showImageCaptionsAndSources,
+  });
   @override
   State<_ResolvedMedia> createState() => _ResolvedMediaState();
 }
@@ -189,7 +204,10 @@ class _ResolvedMediaState extends State<_ResolvedMedia> {
         return const Text(
           'Loading supporting media. Written guidance is available above.',
         );
-      return ContentMediaList(items: [snapshot.data!]);
+      return ContentMediaList(
+        items: [snapshot.data!],
+        showImageCaptionsAndSources: widget.showImageCaptionsAndSources,
+      );
     },
   );
 }

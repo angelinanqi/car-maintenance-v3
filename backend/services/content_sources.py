@@ -1,6 +1,6 @@
 """Current published learning and reviewed emergency content for chat retrieval."""
 from backend import db
-from shared.safety import emergency_topics, SOURCE_INJECTION
+from shared.safety import SOURCE_INJECTION
 from shared.content_media import ContentMedia, timestamp_url
 
 
@@ -45,38 +45,46 @@ def load(scope_type, scope_id):
     return sorted(sources, key=lambda source: (source['source_type'], source['source_id']))
 
 
-def emergency_sources(*, include_indexes=True):
+def emergency_sources():
     from backend.services.guide_indexing import index_rows, current
     protocols = db.all_rows('emergency_playbooks', status='published')
-    indexes = index_rows(emergency=True) if protocols and include_indexes else {}
+    indexes = index_rows(emergency=True) if protocols else {}
     sources = []
     for protocol in protocols:
-        if not (protocol.get('reviewed_at') and protocol.get('source', '').strip()
-                and protocol.get('scenario_key') and protocol.get('steps')):
+        if not is_reviewed_protocol(protocol):
             continue
         index = indexes.get(protocol['id'])
-        indexed = current(protocol, index, emergency=True)
-        parts = []
-        media = []
-        if protocol.get('description'):
-            parts.append('Situation: ' + protocol['description'])
-        if protocol.get('safety_warnings'):
-            parts.append('Safety warnings: ' + protocol['safety_warnings'])
-        for number, step in enumerate(protocol['steps'], 1):
-            parts.append(f"{number}. {step['title']}\n{step['description']}")
-            media.extend(reviewed_media(step.get('media'), step_id=step['id'], step_order=number,
-                                        step_title=step['title']))
-        sources.append({
-            'source_type': 'emergency_protocol', 'source_id': protocol['id'],
-            'title': protocol['title'], 'content': '\n\n'.join(parts),
-            'indexed': True, 'index_ready': indexed,
-            'index_revision': index['source_revision'] if indexed else None,
-            'chunk_count': index['chunk_count'] if indexed else 0,
-            'revision': protocol['updated_at'], 'reviewed_at': protocol['reviewed_at'],
-            'scenario_key': protocol['scenario_key'], 'source_reference': protocol['source'],
-            'media': media,
-        })
+        sources.append(emergency_source(protocol, index if current(protocol, index, emergency=True) else None))
     return sorted(sources, key=lambda source: source['source_id'])
+
+
+def is_reviewed_protocol(protocol):
+    return bool(protocol.get('status') == 'published' and protocol.get('reviewed_at')
+                and (protocol.get('source') or '').strip() and protocol.get('scenario_key')
+                and protocol.get('steps'))
+
+
+def emergency_source(protocol, index=None):
+    parts = []
+    media = []
+    if protocol.get('description'):
+        parts.append('Situation: ' + protocol['description'])
+    if protocol.get('safety_warnings'):
+        parts.append('Safety warnings: ' + protocol['safety_warnings'])
+    for number, step in enumerate(protocol['steps'], 1):
+        parts.append(f"{number}. {step['title']}\n{step['description']}")
+        media.extend(reviewed_media(step.get('media'), step_id=step['id'], step_order=number,
+                                    step_title=step['title']))
+    return {
+        'source_type': 'emergency_protocol', 'source_id': protocol['id'],
+        'title': protocol['title'], 'content': '\n\n'.join(parts),
+        'indexed': True, 'index_ready': index is not None,
+        'index_revision': index['source_revision'] if index else None,
+        'chunk_count': index['chunk_count'] if index else 0,
+        'revision': protocol['updated_at'], 'reviewed_at': protocol['reviewed_at'],
+        'scenario_key': protocol['scenario_key'], 'source_reference': protocol['source'],
+        'media': media,
+    }
 
 
 def resolve_content_media(citations, sources, *, emergency=False):
@@ -116,19 +124,14 @@ def resolve_content_media(citations, sources, *, emergency=False):
     return result
 
 
-def emergency_supplement(question, sources):
-    """Add one real reviewed protocol; basic safety does not depend on it."""
-    topics = emergency_topics(question)
-    for source in sources:
-        if (not topics.intersection(emergency_topics(source['scenario_key'] + ' ' + source['title']))
-                or SOURCE_INJECTION.search(source['title'] + '\n' + source['content'])):
-            continue
-        citation = {key: source[key] for key in (
-            'source_type', 'source_id', 'title', 'revision', 'reviewed_at', 'source_reference')}
-        citation['label'] = 'S1'
-        return ('\n\nReviewed emergency protocol: ' + source['title'] + ' [S1]\n\n'
-                + source['content'] + '\n\nSource reference: ' + source['source_reference']), [citation]
-    return '', []
+def emergency_supplement(source):
+    if SOURCE_INJECTION.search(source['title'] + '\n' + source['content']):
+        return '', []
+    citation = {key: source[key] for key in (
+        'source_type', 'source_id', 'title', 'revision', 'reviewed_at', 'source_reference')}
+    citation['label'] = 'S1'
+    return ('Reviewed emergency protocol: ' + source['title'] + ' [S1]\n\n'
+            + source['content']), [citation]
 
 
 def resolve_guide_recommendations(recommendations, sources, *, strict=False):

@@ -61,7 +61,7 @@ class MechanicPreparation {
       lines.add('');
     }
     lines.add('Details to bring:');
-    lines.addAll(detailsToNote.map((detail) => '- $detail'));
+    lines.addAll(detailsToNote.map((detail) => '- $detail\n'));
     lines.add(
       '\nDiscussion notes for a professional; no diagnosis has been confirmed.',
     );

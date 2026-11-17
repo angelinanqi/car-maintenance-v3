@@ -34,6 +34,7 @@ class Chat extends StatefulWidget {
   final String? prompt;
   final Map<String, dynamic>? contextData;
   final VoidCallback? onEmergency;
+  final ValueChanged<String>? onEmergencyGuide;
   final VoidCallback? onMaintenance;
   final VoidCallback? onLearn;
   const Chat({
@@ -46,6 +47,7 @@ class Chat extends StatefulWidget {
     this.prompt,
     this.contextData,
     this.onEmergency,
+    this.onEmergencyGuide,
     this.onMaintenance,
     this.onLearn,
   });
@@ -1260,6 +1262,12 @@ class _ChatState extends State<Chat> {
           ],
         ),
         actions: [
+          if (widget.onEmergency != null)
+            IconButton(
+              tooltip: 'Open emergency help',
+              onPressed: widget.onEmergency,
+              icon: const Icon(Icons.emergency_outlined),
+            ),
           if (signedIn)
             IconButton(
               tooltip: 'Refresh starting points',
@@ -1492,6 +1500,7 @@ class _ChatState extends State<Chat> {
                                         ),
                                         repository: widget.repository,
                                         onEmergency: widget.onEmergency,
+                                        onEmergencyGuide: widget.onEmergencyGuide,
                                         onGuide: _toolBusy || _companion == null
                                             ? null
                                             : (id) => _openGuide(id),

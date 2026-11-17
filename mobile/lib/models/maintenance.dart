@@ -11,6 +11,7 @@ class MaintenanceTask {
   final List<String> lessonIds;
   final bool isCustom;
   final MaintenanceStatus? serverStatus;
+  final bool manufacturerScheduleRemoved;
 
   const MaintenanceTask({
     required this.id,
@@ -25,6 +26,7 @@ class MaintenanceTask {
     this.lessonIds = const [],
     this.isCustom = true,
     this.serverStatus,
+    this.manufacturerScheduleRemoved = false,
   });
 
   factory MaintenanceTask.fromJson(Map<String, dynamic> json) =>
@@ -48,6 +50,8 @@ class MaintenanceTask {
         scheduleSource: json['scheduleSource'] as String? ?? 'none',
         lessonIds: (json['lessonIds'] as List? ?? []).cast<String>(),
         isCustom: json['isCustom'] != false,
+        manufacturerScheduleRemoved:
+            json['manufacturerScheduleRemoved'] == true,
         serverStatus: json['status'] is Map
             ? MaintenanceStatus.fromJson(
                 Map<String, dynamic>.from(json['status'] as Map),
@@ -74,6 +78,10 @@ class MaintenanceTask {
       : scheduleSource == 'custom'
       ? customRule
       : null;
+
+  bool get manufacturerScheduleUnavailable =>
+      manufacturerRule == null &&
+      (scheduleSource == 'manufacturer' || manufacturerScheduleRemoved);
 }
 
 class ServiceRecord {
@@ -199,8 +207,27 @@ class MaintenanceStatus {
         remainingKm: json['remainingKm'] as int?,
         nextDate: DateTime.tryParse(json['nextDate'] as String? ?? ''),
       );
+  bool get isDue => label == 'Due / Overdue';
+  bool get isDueSoon => label == 'Due soon';
+  bool get isUpcoming => isDueSoon || label == 'Upcoming';
+  bool get isUntracked => label == 'Untracked';
+
+  String get shortLabel {
+    if (label.startsWith('Information required')) return 'Details needed';
+    return switch (label) {
+      'Due / Overdue' => 'Due now',
+      'Published milestone — confirm service history' => 'Confirm history',
+      'Published milestones completed' => 'Listed services done',
+      'No schedule' => 'No reminder',
+      _ => label,
+    };
+  }
+
   String get description => [
-    label,
+    if (isUntracked)
+      'Record the last service to see when this item is due.'
+    else
+      label,
     if (nextKm != null) 'At $nextKm km',
     if (remainingKm != null)
       remainingKm! < 0
@@ -211,12 +238,6 @@ class MaintenanceStatus {
     if (nextDate != null) 'Next date: ${formatDate(nextDate!)}',
   ].join('\n');
 }
-
-const maintenanceCategories = [
-  'Tyre Condition and Pressure',
-  'Engine and Fluids',
-  'Other',
-];
 
 String formatDate(DateTime date) => '${date.day}/${date.month}/${date.year}';
 

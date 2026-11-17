@@ -4,7 +4,7 @@ import re
 SOURCE_INJECTION = re.compile(r"ignore (?:all |previous |the )?(?:instructions|rules)|system prompt|developer message", re.I)
 
 
-RISKS = ("normal", "caution", "high_risk", "emergency")
+RISKS = ("normal", "caution", "high_risk")
 REPAIR = (r"\b(repair(?:ing)?|rebuild(?:ing)?|replac(?:e|ing)|chang(?:e|ing)|remov(?:e|ing)|"
           r"install(?:ing)?|servic(?:e|ing)|disassembl(?:e|ing)|bypass(?:ing)?|disabl(?:e|ing)|"
           r"disconnect(?:ing)?|bleed(?:ing)?|rewir(?:e|ing)|fix(?:ing)?|modify(?:ing)?|"
@@ -44,7 +44,7 @@ def educational_only(question):
 
 
 def immediate_emergency(question):
-    """Existing conservative fast path; repair requests require interpretation."""
+    """Conservative backstop for the separate mechanic-question tool."""
     text = question.lower()
     # An explicit current Malay overheating report should not wait for model
     # interpretation. Conditional/educational Malay reports remain ordinary.
@@ -80,8 +80,6 @@ def immediate_emergency(question):
 def policy_risk(question):
     """Backstop over the resolved request, not excluded actions in raw history."""
     question = question.replace('-', ' ')
-    if immediate_emergency(question):
-        return "emergency"
     text = requested_action_text(question)
     interval = bool(re.search(r"\b(how often|interval|schedule)\b|when.*\b(change|replace|service)\b", text))
     if not interval and re.search(REPAIR, text) and any(re.search(component, text) for component in RESTRICTED_COMPONENTS):
@@ -138,9 +136,7 @@ def enforce_policy(intent):
         if intent.risk == 'high_risk':
             intent.risk = 'caution'
     risks = {action_risk, intent.risk}
-    if intent.route == "emergency" or "emergency" in risks:
-        intent.route, intent.risk = "emergency", "emergency"
-    elif intent.route == "restricted" or "high_risk" in risks:
+    if intent.route == "restricted" or "high_risk" in risks:
         intent.route, intent.risk = "restricted", "high_risk"
     elif "caution" in risks:
         intent.risk = "caution"
@@ -150,16 +146,12 @@ def enforce_policy(intent):
 def conversation_route(latest_message, intent):
     """Preserve semantic hazards after deterministic educational exceptions."""
     action_risk = policy_risk(intent.question)
-    if immediate_emergency(latest_message) or action_risk == 'emergency':
-        return 'emergency'
     educational = (bool(re.match(r"\s*(?:what (?:is|are|does)|how does|why (?:is|are|should))\b",
                                 latest_message, re.I))
                    and not re.search(REPAIR, requested_action_text(latest_message))
                    and not re.search(r'\b(?:right now|currently|just happened|sekarang)\b', latest_message, re.I))
     if educational_only(latest_message):
         educational = True
-    if intent.route == 'emergency' and not educational:
-        return 'emergency'
     requested_operation = bool(re.search(REPAIR, requested_action_text(latest_message))
         or re.search(r'\b(?:test|probe|cut|unplug|take apart|wire up)\b', latest_message, re.I))
     if action_risk == 'high_risk' or (intent.route == 'restricted' and requested_operation and not educational):
@@ -172,39 +164,23 @@ def videos_allowed(intent):
                 and intent.risk in {"normal", "caution"} and intent.instructional and not intent.specification)
 
 
-def emergency_topics(text):
-    """Match existing protocol catalogue topics; this does not authorize actions."""
-    text = text.lower().replace('-', ' ')
-    result = set()
-    if re.search(r'\boverheat\w*', text):
-        result.add('overheating')
-    if re.search(r'\bfire\b', text):
-        result.add('fire')
-    if re.search(r'\b(fuel|petrol|gasoline)\b', text) and re.search(r'\b(leak\w*|smell)\b', text):
-        result.add('fuel-leak')
-    if re.search(r'\bbrakes?\b', text) and re.search(r'\b(fail\w*|floor|not working|stopped working|no longer work|don.t work|won.t work)\b', text):
-        result.add('brake-failure')
-    return result
-
-
-def emergency_guidance(question):
+def emergency_guidance(hazard):
     """General safety advice; no diagnosis or vehicle-specific manoeuvre."""
-    text = question.lower()
-    if ('overheat' in text or re.search(r'\benjin\b.{0,50}\bpanas\b|\b(?:steam|wap)\b', text)):
+    if hazard == 'overheating':
         return (
             "General safety advice: stop driving and pull over as soon as it is safe. "
             "Switch off the engine once safely stopped and arrange roadside assistance. "
             "Keep clear of hot coolant and steam; do not open the radiator or coolant cap "
             "while the engine is hot. The cause cannot be established from this message."
         )
-    if re.search(r"\b(fire|fuel|petrol|gasoline)\b", text):
+    if hazard == 'fire_or_fuel':
         return (
             "General safety advice: stop using the vehicle. If safely possible, stop and "
             "switch off the engine. Move people away from the vehicle and traffic, avoid "
             "flames or sparks, and contact emergency services if there is fire or immediate "
             "danger. Arrange professional assistance; do not attempt a fuel-system repair."
         )
-    if re.search(r'\btraffic\b', text):
+    if hazard == 'traffic':
         return (
             "General safety advice: do not attempt repairs while exposed to moving traffic. "
             "Use hazard lights if safe. Move to a protected place only if you can do so "

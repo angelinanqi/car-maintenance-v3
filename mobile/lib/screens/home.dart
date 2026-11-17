@@ -48,19 +48,18 @@ class Home extends StatelessWidget {
       final tasks = vehicle == null
           ? <MaintenanceTask>[]
           : state.tasksFor(vehicle.id);
-      int priority(MaintenanceTask task) =>
-          switch (state.statusFor(task).label) {
-            'Due / Overdue' => 0,
-            'Due soon' => 1,
-            'Upcoming' => 3,
-            'No schedule' => 4,
-            _ => 2,
-          };
+      int priority(MaintenanceTask task) => switch (state.statusFor(task)) {
+        MaintenanceStatus(isDue: true) => 0,
+        MaintenanceStatus(isDueSoon: true) => 1,
+        MaintenanceStatus(isUpcoming: true) => 3,
+        MaintenanceStatus(label: 'No schedule') => 4,
+        _ => 2,
+      };
       tasks.sort((a, b) {
         final result = priority(a).compareTo(priority(b));
         return result != 0 ? result : a.title.compareTo(b.title);
       });
-      final due = tasks.where((t) => priority(t) == 0).length;
+      final due = tasks.where((t) => state.statusFor(t).isDue).length;
       final task = tasks.where((t) => priority(t) < 4).firstOrNull;
       void signIn() => Navigator.push(
         context,
@@ -273,10 +272,10 @@ class Home extends StatelessWidget {
                                   const SizedBox(width: 8),
                                   StatusPill(
                                     state.statusFor(task).label,
-                                    color: priority(task) == 0
+                                    color: state.statusFor(task).isDue
                                         ? const Color(0xFFF9DAD6)
                                         : AppColors.pale,
-                                    foreground: priority(task) == 0
+                                    foreground: state.statusFor(task).isDue
                                         ? AppColors.danger
                                         : AppColors.ink,
                                   ),

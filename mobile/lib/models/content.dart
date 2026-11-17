@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'companion.dart';
 
 class Lesson {
@@ -68,6 +70,11 @@ class LearningTrack {
 }
 
 class EmergencyStep {
+  static final _imageMetadataLine = RegExp(
+    r'^[ \t]*(?:diagram[ \t]+reference|image[ \t]+source)[ \t]*:',
+    caseSensitive: false,
+  );
+
   final String id;
   final String title;
   final String description;
@@ -82,6 +89,13 @@ class EmergencyStep {
     this.localImagePath,
     this.media = const [],
   });
+
+  // Older and downloaded guides can include illustration metadata in the body.
+  String get instructionText => const LineSplitter()
+      .convert(description)
+      .where((line) => !_imageMetadataLine.hasMatch(line))
+      .join('\n')
+      .trim();
 
   factory EmergencyStep.fromJson(
     Map<String, dynamic> json, {

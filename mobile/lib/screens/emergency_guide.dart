@@ -174,23 +174,27 @@ class _EmergencyGuidePageState extends State<EmergencyGuidePage> {
     }
   }
 
-  Future<Uint8List> _readImage(EmergencyStep step) async {
+  Future<Uint8List> _readImage(String imageUrl, String? localImagePath) async {
     Uint8List bytes;
-    if (step.localImagePath != null) {
-      final file = File(step.localImagePath!);
+    if (localImagePath != null) {
+      final file = File(localImagePath);
       if (await file.length() > LocalStore.maxPhotoBytes)
         throw const FormatException('Image too large');
       bytes = await file.readAsBytes();
     } else {
       final api = widget.content?.api;
       if (api == null) throw const ApiException('Image unavailable');
-      bytes = await api.imageBytes(step.imageUrl);
+      bytes = await api.imageBytes(imageUrl);
     }
     await LocalStore.validateImage(bytes);
     return bytes;
   }
 
-  Widget _image(EmergencyStep step) {
+  Widget _image({
+    required String imageUrl,
+    required String stepTitle,
+    String? localImagePath,
+  }) {
     const unavailable = Padding(
       padding: EdgeInsets.all(16),
       child: Text(
@@ -200,8 +204,8 @@ class _EmergencyGuidePageState extends State<EmergencyGuidePage> {
     // The current image contract has no alt text. Do not fabricate a description.
     final image = FutureBuilder<Uint8List>(
       future: _images.putIfAbsent(
-        step.localImagePath ?? step.imageUrl,
-        () => _readImage(step),
+        localImagePath ?? imageUrl,
+        () => _readImage(imageUrl, localImagePath),
       ),
       builder: (_, snapshot) {
         if (snapshot.hasError) return unavailable;
@@ -220,7 +224,7 @@ class _EmergencyGuidePageState extends State<EmergencyGuidePage> {
       },
     );
     return Semantics(
-      label: 'Supporting illustration for ${step.title}',
+      label: 'Supporting illustration for $stepTitle',
       image: true,
       child: ExcludeSemantics(
         child: ConstrainedBox(
@@ -382,7 +386,7 @@ class _EmergencyGuidePageState extends State<EmergencyGuidePage> {
                               ),
                               title: Text('${i + 1}. ${guide.steps[i].title}'),
                               subtitle: i == _current
-                                  ? Text(guide.steps[i].description)
+                                  ? Text(guide.steps[i].instructionText)
                                   : null,
                               onTap: () => _go(i),
                             ),
@@ -442,26 +446,27 @@ class _EmergencyGuidePageState extends State<EmergencyGuidePage> {
                       ),
                       const SizedBox(height: 12),
                       Text(
-                        step.description,
+                        step.instructionText,
                         style: Theme.of(context).textTheme.bodyLarge,
                       ),
                       ContentMediaList(
                         key: ValueKey(step.id),
                         items: step.media,
+                        showImageCaptionsAndSources: false,
                         imageBuilder: (item) => _image(
-                          EmergencyStep(
-                            id: item['id'] as String,
-                            title: item['title'] as String,
-                            description: item['description'] as String,
-                            imageUrl: item['url'] as String,
-                            localImagePath: item['localImagePath'] as String?,
-                          ),
+                          imageUrl: item['url'] as String,
+                          localImagePath: item['localImagePath'] as String?,
+                          stepTitle: step.title,
                         ),
                       ),
                       if (step.localImagePath != null ||
                           step.imageUrl.isNotEmpty) ...[
                         const SizedBox(height: 16),
-                        _image(step),
+                        _image(
+                          imageUrl: step.imageUrl,
+                          localImagePath: step.localImagePath,
+                          stepTitle: step.title,
+                        ),
                       ],
                       const SizedBox(height: 16),
                       AnimatedBuilder(
@@ -473,10 +478,7 @@ class _EmergencyGuidePageState extends State<EmergencyGuidePage> {
                               onPressed: () => _speech.active
                                   ? _speech.stop()
                                   : _speech.read(
-                                      EmergencySpeech.instruction(
-                                        guide,
-                                        _current,
-                                      ),
+                                      EmergencySpeech.instruction(step),
                                     ),
                               icon: Icon(
                                 _speech.active

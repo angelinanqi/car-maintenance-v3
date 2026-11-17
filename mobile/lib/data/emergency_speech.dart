@@ -18,8 +18,14 @@ class EmergencySpeech extends ChangeNotifier with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
   }
 
-  static String instruction(EmergencyGuide guide, int index) =>
-      guide.steps[index].description;
+  static String instruction(EmergencyStep step) {
+    final title = step.title.trim();
+    final text = step.instructionText;
+    if (title.isEmpty) return text;
+    if (text.isEmpty) return title;
+    final separator = RegExp(r'[.!?:;…]$').hasMatch(title) ? '\n' : '.\n';
+    return '$title$separator$text';
+  }
 
   Future<FlutterTts> _initialize() async {
     final engine = _tts ??= FlutterTts();

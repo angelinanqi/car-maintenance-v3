@@ -23,10 +23,9 @@ class ServiceLogDialog extends StatefulWidget {
 
 class _ServiceLogDialogState extends State<ServiceLogDialog> {
   final _form = GlobalKey<FormState>();
-  final _title = TextEditingController(), _mileage = TextEditingController();
+  final _mileage = TextEditingController();
   final _cost = TextEditingController(), _notes = TextEditingController();
   final _workshop = TextEditingController();
-  late String _category;
   String? _performedBy;
   late final String? _owner;
   late final String _recordId;
@@ -43,12 +42,7 @@ class _ServiceLogDialogState extends State<ServiceLogDialog> {
         widget.record?.id ?? DateTime.now().microsecondsSinceEpoch.toString();
     _task = widget.task;
     final record = widget.record;
-    _title.text = record?.title ?? widget.task?.title ?? '';
     _mileage.text = (record?.mileage ?? widget.vehicle.mileage).toString();
-    _category =
-        record?.category ??
-        widget.task?.category ??
-        maintenanceCategories.first;
     _date = record?.date ?? DateTime.now();
     _notes.text = record?.notes ?? '';
     _workshop.text = record?.workshopName ?? '';
@@ -58,7 +52,6 @@ class _ServiceLogDialogState extends State<ServiceLogDialog> {
 
   @override
   void dispose() {
-    _title.dispose();
     _mileage.dispose();
     _cost.dispose();
     _notes.dispose();
@@ -69,7 +62,9 @@ class _ServiceLogDialogState extends State<ServiceLogDialog> {
   Future<void> _save() async {
     if (_busy) return;
     if (!_form.currentState!.validate()) return;
-    if (_task == null && widget.record == null) {
+    final task = _task;
+    final record = widget.record;
+    if (task == null && record == null) {
       setState(
         () => _error = 'Choose the maintenance item this work belongs to.',
       );
@@ -90,10 +85,10 @@ class _ServiceLogDialogState extends State<ServiceLogDialog> {
       await widget.state.addRecord(
         ServiceRecord(
           id: _recordId,
-          taskId: widget.record?.taskId ?? _task?.id,
+          taskId: record?.taskId ?? task?.id,
           vehicleId: widget.vehicle.id,
-          title: _title.text.trim(),
-          category: _category,
+          title: (record?.title ?? task!.title).trim(),
+          category: record?.category ?? task!.category,
           mileage: int.parse(_mileage.text.trim()),
           date: DateTime(_date.year, _date.month, _date.day),
           notes: _notes.text.trim(),
@@ -128,11 +123,7 @@ class _ServiceLogDialogState extends State<ServiceLogDialog> {
         .tasksFor(widget.vehicle.id)
         .where((t) => t.id == id);
     if (matches.isNotEmpty) {
-      setState(() {
-        _task = matches.first;
-        _title.text = _task!.title;
-        _category = _task!.category;
-      });
+      setState(() => _task = matches.first);
     } else {
       setState(
         () => _error =
@@ -178,7 +169,7 @@ class _ServiceLogDialogState extends State<ServiceLogDialog> {
                   ),
                 ),
               ),
-            const ModuleSection(title: 'Work performed'),
+            const ModuleSection(title: 'What was done?'),
             if (widget.task == null && widget.record == null) ...[
               DropdownButtonFormField<String>(
                 key: ValueKey(_task?.id),
@@ -206,8 +197,6 @@ class _ServiceLogDialogState extends State<ServiceLogDialog> {
                         _task = widget.state
                             .tasksFor(widget.vehicle.id)
                             .firstWhere((t) => t.id == id);
-                        _title.text = _task!.title;
-                        _category = _task!.category;
                       }),
                 validator: (v) =>
                     v == null ? 'Select an item, or add one below' : null,
@@ -221,34 +210,12 @@ class _ServiceLogDialogState extends State<ServiceLogDialog> {
                 ),
               ),
             ] else ...[
-              Text(_title.text, style: Theme.of(context).textTheme.titleMedium),
+              Text(
+                widget.record?.title ?? widget.task!.title,
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
               const SizedBox(height: 12),
             ],
-            DropdownButtonFormField<String>(
-              key: ValueKey(_category),
-              initialValue: _category,
-              isExpanded: true,
-              decoration: const InputDecoration(labelText: 'Category'),
-              items:
-                  {
-                        ...maintenanceCategories,
-                        ...widget.state
-                            .tasksFor(widget.vehicle.id)
-                            .map((task) => task.category),
-                        _category,
-                      }
-                      .map(
-                        (v) => DropdownMenuItem(
-                          value: v,
-                          child: Text(
-                            v.isEmpty ? 'Uncategorised' : v,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      )
-                      .toList(),
-              onChanged: _busy ? null : (v) => setState(() => _category = v!),
-            ),
             const ModuleSection(title: 'When was it done?'),
             OutlinedButton.icon(
               icon: const Icon(Icons.calendar_month_outlined),
@@ -384,15 +351,12 @@ class _AddTaskDialogState extends State<AddTaskDialog> {
   final _title = TextEditingController(),
       _distance = TextEditingController(),
       _months = TextEditingController();
-  String _category = maintenanceCategories.first,
-      _source = 'none',
-      _action = 'service';
+  String _source = 'none', _action = 'service';
   late final String? _owner;
   late final String _taskId;
   bool _busy = false, _loading = true;
   String? _error, _catalogueError;
   List<Map<String, dynamic>> _items = [];
-  List<String> _categories = [];
   Map<String, dynamic>? _item;
 
   @override
@@ -403,7 +367,6 @@ class _AddTaskDialogState extends State<AddTaskDialog> {
         widget.task?.id ?? DateTime.now().microsecondsSinceEpoch.toString();
     final task = widget.task;
     _title.text = task?.title ?? '';
-    _category = task?.category ?? maintenanceCategories.first;
     _source = task?.scheduleSource ?? 'none';
     _action = task?.action ?? 'service';
     _distance.text = task?.customRule?.distanceKm?.toString() ?? '';
@@ -420,11 +383,6 @@ class _AddTaskDialogState extends State<AddTaskDialog> {
       final rows = await widget.state.repository!.items();
       if (!mounted) return;
       setState(() {
-        _categories = rows
-            .map((row) => row['category'] as String? ?? '')
-            .where((category) => category.isNotEmpty)
-            .toSet()
-            .toList();
         final existing = widget.state
             .tasksFor(widget.vehicle.id)
             .map((t) => t.itemId)
@@ -456,7 +414,6 @@ class _AddTaskDialogState extends State<AddTaskDialog> {
   void _selectItem(Map<String, dynamic>? item) {
     _item = item;
     _title.text = item?['title'] as String? ?? '';
-    _category = item?['category'] as String? ?? maintenanceCategories.first;
     _action = item?['action'] as String? ?? 'service';
   }
 
@@ -496,7 +453,8 @@ class _AddTaskDialogState extends State<AddTaskDialog> {
           id: id,
           vehicleId: widget.vehicle.id,
           title: _title.text.trim(),
-          category: _category,
+          category:
+              widget.task?.category ?? (_item?['category'] as String?) ?? 'Other',
           itemId: widget.task?.itemId ?? _item?['id'] as String?,
           action: widget.task?.action ?? _action,
           isCustom: widget.task?.isCustom ?? _item == null,
@@ -652,27 +610,6 @@ class _AddTaskDialogState extends State<AddTaskDialog> {
               onChanged: _busy || standard || widget.task != null
                   ? null
                   : (v) => setState(() => _action = v!),
-            ),
-            const SizedBox(height: 16),
-            DropdownButtonFormField<String>(
-              key: ValueKey(_category),
-              initialValue: _category,
-              isExpanded: true,
-              decoration: const InputDecoration(labelText: 'Category'),
-              items: {...maintenanceCategories, ..._categories, _category}
-                  .map(
-                    (v) => DropdownMenuItem(
-                      value: v,
-                      child: Text(
-                        v.isEmpty ? 'Uncategorised' : v,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  )
-                  .toList(),
-              onChanged: _busy || standard
-                  ? null
-                  : (v) => setState(() => _category = v!),
             ),
             const ModuleSection(
               title: 'Schedule',

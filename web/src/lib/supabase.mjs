@@ -23,6 +23,11 @@ export function authError(error) {
   if (!error?.code) return error?.message || "Account access failed. Check your connection and retry.";
   switch (error.code) {
     case "invalid_credentials": return "The email or password is incorrect.";
+    case "current_password_mismatch": return "The current password is incorrect.";
+    case "same_password": return "Choose a password different from your current one.";
+    case "email_exists":
+    case "email_address_not_authorized": return "This email address cannot be used. Try a different address.";
+    case "reauthentication_not_valid": return "The verification code is invalid or expired. Request a new code.";
     case "email_not_confirmed": return "Confirm your email before signing in. You can request another confirmation email.";
     case "weak_password": return "Your password must be 8–20 characters long and include at least one uppercase letter, one lowercase letter, one number, and one special character.";
     case "over_email_send_rate_limit":

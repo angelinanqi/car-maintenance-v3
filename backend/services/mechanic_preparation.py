@@ -32,6 +32,7 @@ def load_context(request, user):
 async def prepare(request, user):
     profile, questions = await run_in_threadpool(load_context, request, user)
     plan = None
+    plan_context = None
     if request.plan_id:
         from backend.services.service_planning import get_plan
         plan = await run_in_threadpool(get_plan, user, str(request.plan_id))
@@ -48,8 +49,10 @@ async def prepare(request, user):
                 if len(json.dumps(facts)) + len(json.dumps(candidate)) > 12000:
                     break
                 facts['items'].append({'group': group, **candidate})
-        questions.append('Server-calculated service proposal (not a diagnosis): ' + json.dumps(facts))
-    draft, tailored = await rag_client.mechanic_questions(request.question, questions, profile)
+        # Scheduled work is context, not a user request for DIY repair instructions.
+        plan_context = facts
+    draft, tailored = await rag_client.mechanic_questions(
+        request.question, questions, profile, service_plan=plan_context)
     configuration = await run_in_threadpool(db.get, 'chat_settings', 'default')
     if not tailored:
         template = configuration.get('mechanic_template')

@@ -20,10 +20,10 @@ begin;
 -- Supabase owns credentials; business-data ownership uses stable app_users IDs.
 create table public.app_users (
     id uuid primary key default gen_random_uuid(),
-    email text not null unique check (email = lower(trim(email)) and length(email) > 0),
+    email text not null check (email = lower(trim(email)) and length(email) > 0),
     display_name text not null check (length(trim(display_name)) > 0),
     password_hash text check (length(password_hash) > 0),
-    auth_user_id uuid unique references auth.users(id) on delete restrict,
+    auth_user_id uuid unique references auth.users(id) on delete cascade,
     mfa_required boolean not null default false,
     role text not null default 'user' check (role in ('user', 'admin')),
     active_vehicle_id text,
@@ -524,7 +524,7 @@ create table public.document_test_questions (
     scope_id uuid not null,
     active boolean not null default true,
     version integer not null default 1 check (version > 0),
-    created_by uuid not null references public.app_users(id),
+    created_by uuid references public.app_users(id) on delete set null,
     created_at timestamptz not null default now(),
     updated_at timestamptz not null default now()
 );
@@ -545,9 +545,9 @@ create table public.document_test_runs (
     decision text not null default 'not_reviewed' check (decision in ('not_reviewed', 'passed', 'needs_fixing')),
     review_note text not null default '' check (length(review_note) <= 2000),
     review_version integer not null default 1 check (review_version > 0),
-    reviewed_by uuid references public.app_users(id),
+    reviewed_by uuid references public.app_users(id) on delete set null,
     reviewed_at timestamptz,
-    started_by uuid not null references public.app_users(id),
+    started_by uuid references public.app_users(id) on delete set null,
     started_at timestamptz not null default now(),
     finished_at timestamptz,
     created_at timestamptz not null default now(),
@@ -555,6 +555,8 @@ create table public.document_test_runs (
 );
 
 -- 4. Indexes.
+
+create unique index app_users_legacy_email on public.app_users(email) where auth_user_id is null;
 
 create index app_sessions_user on public.app_sessions(user_id);
 
@@ -920,7 +922,7 @@ alter table public.documents add constraint documents_source_metadata_object
 
 create table public.website_import_jobs (
     id uuid primary key default gen_random_uuid(),
-    requested_by uuid not null references public.app_users(id),
+    requested_by uuid references public.app_users(id) on delete set null,
     idempotency_key uuid not null,
     submitted_url text not null check (length(submitted_url) between 1 and 2048),
     url_key text not null,
@@ -1294,5 +1296,47 @@ create table if not exists public.emergency_indexes (
 alter table public.emergency_indexes enable row level security;
 revoke all on public.emergency_indexes from public, anon, authenticated;
 grant select, insert, update, delete on public.emergency_indexes to service_role;
+
+-- Keep the application profile in sync with confirmed Auth email changes.
+create function public.sync_account_email() returns trigger
+    language plpgsql security definer set search_path = '' as $$
+begin
+    update public.app_users set email = lower(btrim(new.email))
+    where auth_user_id = new.id and email is distinct from lower(btrim(new.email));
+    return new;
+end;
+$$;
+revoke all on function public.sync_account_email() from public, anon, authenticated;
+create trigger sync_account_email after update of email on auth.users
+    for each row when (btrim(new.email) <> '' and new.email_confirmed_at is not null
+        and old.email is distinct from new.email)
+    execute function public.sync_account_email();
+
+-- Only FastAPI can call these functions. It supplies both IDs from verified claims.
+create function public.account_sessions(p_user uuid, p_current uuid)
+    returns table (id uuid, user_agent text, last_active_at timestamptz)
+    language sql stable security definer set search_path = '' as $$
+        select s.id, left(s.user_agent, 512),
+            coalesce(s.refreshed_at at time zone 'UTC', s.created_at)
+        from auth.sessions as s
+        where s.user_id = p_user and (s.not_after is null or s.not_after > now())
+            and exists (select 1 from auth.sessions where id = p_current and user_id = p_user)
+        order by (s.id = p_current) desc, 3 desc, s.id;
+$$;
+
+create function public.revoke_account_session(p_user uuid, p_current uuid, p_target uuid)
+    returns boolean language sql security definer set search_path = '' as $$
+        with removed as (
+            delete from auth.sessions as s
+            where s.id = p_target and s.user_id = p_user and s.id <> p_current
+                and exists (select 1 from auth.sessions where id = p_current and user_id = p_user)
+            returning 1
+        )
+        select exists (select 1 from removed);
+$$;
+revoke all on function public.account_sessions(uuid, uuid),
+    public.revoke_account_session(uuid, uuid, uuid) from public, anon, authenticated;
+grant execute on function public.account_sessions(uuid, uuid),
+    public.revoke_account_session(uuid, uuid, uuid) to service_role;
 
 commit;

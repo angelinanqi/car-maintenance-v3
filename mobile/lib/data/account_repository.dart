@@ -32,6 +32,18 @@ class AccountSession {
   }
 }
 
+class SignedInSession {
+  final String id, device;
+  final DateTime lastActive;
+  final bool current;
+
+  SignedInSession.fromJson(Map<String, dynamic> data)
+    : id = data['id'] as String,
+      device = data['device'] as String,
+      lastActive = DateTime.parse(data['last_active_at'] as String),
+      current = data['current'] as bool;
+}
+
 class AccountRepository {
   static const storageKey = 'car_account_session';
   static const incidentOwnerKey = 'car_incident_owner';
@@ -151,11 +163,70 @@ class AccountRepository {
     await auth.updateUser(UserAttributes(password: password));
   }
 
+  Future<AccountSession> updateDisplayName(String name) async {
+    _checkTransport();
+    return AccountSession.fromJson(
+      await api.patch('/accounts/me', {'display_name': name}, token: token),
+    );
+  }
+
+  Future<void> requestEmailChange(String email) async {
+    await auth.updateUser(
+      UserAttributes(email: email.trim()),
+      emailRedirectTo: authRedirectUrl,
+    );
+  }
+
+  Future<void> changePassword(
+    String currentPassword,
+    String password, {
+    String? nonce,
+  }) async {
+    final error = validatePassword(password);
+    if (error != null) throw ApiException(error);
+    await auth.updateUser(
+      UserAttributes(
+        password: password,
+        currentPassword: currentPassword,
+        nonce: nonce,
+      ),
+    );
+  }
+
+  Future<List<SignedInSession>> signedInSessions() async {
+    _checkTransport();
+    final rows = await api.getList('/accounts/sessions', token: token);
+    return rows.map(SignedInSession.fromJson).toList();
+  }
+
+  Future<void> revokeSession(String id) async {
+    _checkTransport();
+    await api.delete(
+      '/accounts/sessions/${Uri.encodeComponent(id)}',
+      token: token,
+    );
+  }
+
+  Future<void> deleteAccount(String factorId, String code) async {
+    _checkTransport();
+    final userId = auth.currentUser?.id;
+    await auth.mfa.challengeAndVerify(factorId: factorId, code: code);
+    if (userId == null || auth.currentUser?.id != userId) {
+      throw const ApiException('Your account changed. Sign in again.');
+    }
+    await api.delete('/accounts/me', token: token);
+  }
+
   Future<void> logout() async {
-    await auth.signOut(scope: SignOutScope.local);
-    _userId = null;
-    _authUserId = null;
-    await storage.delete(key: incidentOwnerKey);
-    incidentOwnerId = null;
+    try {
+      await auth.signOut(scope: SignOutScope.local);
+    } finally {
+      if (!hasSession) {
+        _userId = null;
+        _authUserId = null;
+        incidentOwnerId = null;
+        await storage.delete(key: incidentOwnerKey);
+      }
+    }
   }
 }

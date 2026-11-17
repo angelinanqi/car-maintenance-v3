@@ -1,5 +1,5 @@
-"use client";
-import AdminMfa from "@/components/AdminMfa";
+import AccountSettings from "@/components/AccountSettings";
+
 export default function Page() {
-  return <AdminMfa manage />;
+  return <AccountSettings />;
 }

@@ -84,6 +84,7 @@ class ChatReply {
   final bool externalWarning;
   final bool manualRelevant;
   final String? route;
+  final String? emergencyGuideId;
   final String? responseType;
   final String? sessionId;
   final String? sessionToken;
@@ -102,6 +103,7 @@ class ChatReply {
     this.externalWarning = false,
     this.manualRelevant = false,
     this.route,
+    this.emergencyGuideId,
     this.responseType,
     this.sessionId,
     this.sessionToken,
@@ -139,6 +141,7 @@ class ChatReply {
       externalWarning: json['external_warning'] == true,
       manualRelevant: json['manual_relevant'] == true,
       route: json['route'] as String?,
+      emergencyGuideId: json['emergency_guide_id'] as String?,
       responseType: json['response_type'] as String?,
       sessionId: json['session_id'] as String?,
       sessionToken: json['session_token'] as String?,

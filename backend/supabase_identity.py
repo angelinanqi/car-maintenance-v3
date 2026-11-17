@@ -58,6 +58,10 @@ def application_user(provider_user):
     if rows:
         return rows[0]
     email = (provider_user.email or '').strip().lower()
+    legacy = db.read_rows(db.client().table('app_users').select('id')
+                          .eq('email', email).is_('auth_user_id', 'null').limit(1))
+    if legacy:
+        raise HTTPException(409, 'This account needs an administrator to link its existing profile.')
     metadata = provider_user.user_metadata or {}
     name = str(metadata.get('display_name') or email.split('@')[0]).strip()[:100] or 'Driver'
     try:

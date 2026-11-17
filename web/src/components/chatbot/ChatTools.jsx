@@ -159,7 +159,7 @@ export default function ChatTools({ request, restoredActivity, snapshot, session
         <Button variant="outline" disabled={loading || busy || plan.stale} onClick={() => perform(async () => {
           const result = await savePlan();
           setNotes({ mechanic: true, key: crypto.randomUUID(), planId: result.id, question: 'Help me prepare questions about my saved service plan.',
-            initialNotes: [`Saved service proposal · ${result.snapshot.as_of}`, ...['due', 'discuss', 'check'].flatMap(group => result.snapshot.groups[group].map(item => `${item.title} · ${item.action} · ${item.status.label}`))].join('\n') }); setPanel('notes');
+            initialNotes: [`Saved service proposal · ${result.snapshot.as_of}`, ...['due', 'discuss', 'check'].flatMap(group => result.snapshot.groups[group].map(item => `${item.title} · ${item.action}\n${item.status.label}`))].join('\n\n') }); setPanel('notes');
         })}>Prepare mechanic notes</Button>
       </Flex>
     </Stack>}

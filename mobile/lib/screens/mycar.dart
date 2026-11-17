@@ -11,8 +11,12 @@ import '../widgets/car_model_view.dart';
 import 'workshop_mode.dart';
 import '../widgets/sign_in_prompt.dart';
 import '../widgets/maintenance_spending_summary.dart';
+import '../widgets/maintenance_item_heading.dart';
 import 'service_forms.dart';
 import 'vehicle_profile.dart';
+
+const _manufacturerScheduleRemovedMessage =
+    'This item is no longer in the published manufacturer schedule for this vehicle.';
 
 class MyCar extends StatefulWidget {
   final AppState state;
@@ -325,18 +329,13 @@ class _MyCarState extends State<MyCar> {
                 r.title.toLowerCase().contains(_query.toLowerCase()),
           )
           .toList();
-      final overdue = tasks
-          .where((t) => state.statusFor(t).label == 'Due / Overdue')
-          .toList();
+      final overdue = tasks.where((t) => state.statusFor(t).isDue).toList();
       final upcoming = tasks
-          .where(
-            (t) =>
-                state.statusFor(t).label == 'Due soon' ||
-                state.statusFor(t).label == 'Upcoming',
-          )
+          .where((t) => state.statusFor(t).isUpcoming)
           .toList();
+      final recordedTaskIds = records.map((record) => record.taskId).toSet();
       final untracked = tasks
-          .where((t) => !records.any((r) => r.taskId == t.id))
+          .where((t) => !recordedTaskIds.contains(t.id))
           .toList();
       final visible = _statusFilter == 'Untracked'
           ? untracked
@@ -509,7 +508,7 @@ class _MyCarState extends State<MyCar> {
                               'Untracked',
                               'Overdue',
                               'Upcoming',
-                              'Done',
+                              'Service History',
                             ])
                               Padding(
                                 padding: const EdgeInsets.only(right: 8),
@@ -527,7 +526,7 @@ class _MyCarState extends State<MyCar> {
                                   ),
                                   selected: _statusFilter == label,
                                   onSelected: (_) => setState(() {
-                                    if (label == 'Done') {
+                                    if (label == 'Service History') {
                                       _schedule = false;
                                     } else {
                                       _statusFilter = label;
@@ -583,11 +582,18 @@ class _MyCarState extends State<MyCar> {
                                 style: Theme.of(context).textTheme.titleMedium,
                               ),
                               const SizedBox(height: 8),
-                              TextButton(
-                                onPressed: () =>
-                                    setState(() => _statusFilter = 'All'),
-                                child: const Text('View all items'),
-                              ),
+                              if (tasks.isEmpty &&
+                                  !vehicle.manufacturerScheduleAvailable)
+                                const Text(
+                                  'There’s no published manufacturer schedule for this car yet. Add a maintenance item to record work or set a personal reminder.',
+                                  style: TextStyle(color: AppColors.muted),
+                                ),
+                              if (tasks.isNotEmpty)
+                                TextButton(
+                                  onPressed: () =>
+                                      setState(() => _statusFilter = 'All'),
+                                  child: const Text('View all items'),
+                                ),
                               TextButton(
                                 onPressed: busy
                                     ? null
@@ -621,45 +627,30 @@ class _MyCarState extends State<MyCar> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              if (untracked.any((item) => item.id == task.id))
+                              if (!recordedTaskIds.contains(task.id) &&
+                                  !state.statusFor(task).isUntracked)
                                 const Padding(
                                   padding: EdgeInsets.only(bottom: 8),
-                                  child: Text(
-                                    'Untracked — no service recorded',
-                                  ),
+                                  child: Text('No service recorded'),
                                 ),
-                              Row(
-                                children: [
-                                  StatusPill(
-                                    state.statusFor(task).label ==
-                                            'Due / Overdue'
-                                        ? 'Overdue'
-                                        : state.statusFor(task).label,
-                                    color:
-                                        state.statusFor(task).label ==
-                                            'Due / Overdue'
-                                        ? const Color(0xFFF9DAD6)
-                                        : AppColors.pale,
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    child: InkWell(
-                                      onTap: () => _detail(task),
-                                      child: Text(
-                                        task.title,
-                                        style: Theme.of(
-                                          context,
-                                        ).textTheme.titleMedium,
-                                      ),
-                                    ),
-                                  ),
-                                ],
+                              MaintenanceItemHeading(
+                                title: task.title,
+                                status: state.statusFor(task),
+                                onTap: () => _detail(task),
                               ),
                               const SizedBox(height: 10),
                               Text(
                                 state.statusFor(task).description,
                                 style: const TextStyle(color: AppColors.muted),
                               ),
+                              if (task.manufacturerScheduleUnavailable)
+                                const Padding(
+                                  padding: EdgeInsets.only(top: 8),
+                                  child: Text(
+                                    _manufacturerScheduleRemovedMessage,
+                                    style: TextStyle(color: AppColors.muted),
+                                  ),
+                                ),
                               const SizedBox(height: 12),
                               Wrap(
                                 spacing: 8,
@@ -801,8 +792,8 @@ class _StatusLabel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final due = status.label == 'Due / Overdue';
-    final soon = status.label == 'Due soon';
+    final due = status.isDue;
+    final soon = status.isDueSoon;
     return Semantics(
       label: 'Schedule status: ${status.label}',
       child: Container(
@@ -934,11 +925,14 @@ class _MaintenanceDetail extends StatelessWidget {
               title: 'Schedule',
               description: scheduleSourceLabel(task.scheduleSource),
             ),
-            if (task.activeRule == null)
-              Text(
-                task.scheduleSource == 'none'
-                    ? 'This item keeps history without calculating when work is next due.'
-                    : 'The selected schedule is unavailable. Edit this item to choose another schedule source.',
+            if (task.manufacturerScheduleUnavailable)
+              const Text(
+                _manufacturerScheduleRemovedMessage,
+                style: TextStyle(color: AppColors.muted),
+              ),
+            if (task.scheduleSource == 'none')
+              const Text(
+                'This item keeps history without calculating when work is next due.',
               ),
             if (task.activeRule != null) _RuleDetails(rule: task.activeRule!),
             if (task.scheduleSource == 'custom')
@@ -985,7 +979,9 @@ class _MaintenanceDetail extends StatelessWidget {
             ModuleSection(
               title: 'Recorded work',
               description: history.isEmpty
-                  ? 'No work recorded yet. A recurring schedule needs a known service as its starting point.'
+                  ? status.isUntracked
+                        ? status.description
+                        : 'No work recorded yet.'
                   : '${history.length} ${history.length == 1 ? 'record' : 'records'} for this item',
             ),
             for (final record in history)

@@ -19,10 +19,10 @@ from rag.app.generation.intent import Intent, interpret, resolved_question
 from rag.app.generation.context import bounded_history
 from shared.chat_preferences import requested_video, videos_excluded, followup_topic, presentation_followup, video_only_request, spending_total_request
 from rag.app.generation.grounded import applicable, generate, GeneratedReply, INSUFFICIENT, CLARIFY
-from shared.safety import immediate_emergency, policy_risk, videos_allowed, emergency_guidance, RESTRICTED_ANSWER, conversation_route
+from shared.safety import videos_allowed, RESTRICTED_ANSWER, conversation_route
 from rag.app.youtube.retrieval import retrieve_youtube, timestamp_url
 from rag.app.youtube.selection import select_videos, recommendation_candidates
-from rag.app.retrieval.content import retrieve_content, retrieve_emergency, render_emergency, public_source
+from rag.app.retrieval.content import retrieve_content, public_source
 
 MODEL_UNAVAILABLE = "I couldn't complete the answer right now. Please try again shortly."
 MANUAL_UNAVAILABLE = "The manual search is temporarily unavailable. Please try again shortly."
@@ -110,12 +110,7 @@ async def handle_query(query, *, scope, history=None, vehicle_profile=None,
             answer_sections.append({'text': message, 'reference_labels': []})
     phase = perf_counter()
     try:
-        # Immediate explicit hazards don't wait for a model round trip.
-        if immediate_emergency(query):
-            intent = Intent(question=query, route="emergency",
-                            risk="emergency", specification=False, vehicle_conflict=False,
-                            requested_year=None, requested_engine=None, requested_variant=None)
-        elif ambiguous_fluid_fill(query, history):
+        if ambiguous_fluid_fill(query, history):
             intent = Intent(question=query, route='rag', risk='normal', specification=False,
                 vehicle_conflict=False, requested_year=None, requested_engine=None, requested_variant=None,
                 clarification='Do you mean windscreen washer fluid, engine coolant, or another fluid?')
@@ -134,14 +129,7 @@ async def handle_query(query, *, scope, history=None, vehicle_profile=None,
         # Keep the existing concrete-action safety backstop and scoped sources.
         route = conversation_route(query, intent)
         diagnostics["interpreted_route"] = intent.route
-        if route == "emergency":
-            answer = emergency_guidance(intent.question)
-            eligible = retrieve_emergency(intent.question, scope.get("content_sources", []))
-            if eligible:
-                answer += "\n\n" + render_emergency(eligible)
-                useful = True
-            response_type = "emergency_protocol" if eligible else "emergency"
-        elif route == "restricted":
+        if route == "restricted":
             answer, response_type = RESTRICTED_ANSWER, "restricted"
         elif intent.route in {'chat', 'out_of_scope'}:
             route = response_type = intent.route
@@ -394,7 +382,7 @@ async def handle_query(query, *, scope, history=None, vehicle_profile=None,
                         chosen_ids = {v['metadata']['video_id'] for v in confident_videos[:2]}
                         generated.video_labels = [f'Y{i}' for i, v in enumerate(videos, 1)
                                                  if v['metadata']['video_id'] in chosen_ids]
-                if generated.status in {'restricted', 'emergency', 'chat', 'out_of_scope'}:
+                if generated.status in {'restricted', 'chat', 'out_of_scope'}:
                     generated.reference_labels = []
                 videos = [video for index, video in enumerate(videos, 1)
                           if f'Y{index}' in generated.video_labels][:2]
@@ -405,7 +393,7 @@ async def handle_query(query, *, scope, history=None, vehicle_profile=None,
                 response_type = "manual_only" if generated.status == 'answered' else generated.status
                 if not generated.allow_videos or generated.status == 'reference_only':
                     videos = []
-                if generated.status in {'restricted', 'emergency', 'chat', 'out_of_scope'}:
+                if generated.status in {'restricted', 'chat', 'out_of_scope'}:
                     route = generated.status
                     videos = []
                 attachments = [item["descriptor"] for item in reference_candidates
@@ -474,7 +462,7 @@ async def handle_query(query, *, scope, history=None, vehicle_profile=None,
     if useful:
         for index, record in enumerate(eligible, 1):
             label = f"S{index}"
-            if label not in cited_labels and route != "emergency":
+            if label not in cited_labels:
                 continue
             if record.metadata.get("source_type") in {"learning_guide", "emergency_protocol"}:
                 sources.append(public_source(record, label))
@@ -520,7 +508,7 @@ async def handle_query(query, *, scope, history=None, vehicle_profile=None,
             "answer_sections": validated_sections(answer, answer_sections, attachments),
             "recommended_guides": recommended_guides,
             "suggested_activity": 'service_plan' if intent and intent.suggest_service_plan and vehicle_profile
-                and route in {'rag', 'rag_with_external_warning'} and response_type not in {'restricted', 'emergency'} else None,
+                and route in {'rag', 'rag_with_external_warning'} and response_type != 'restricted' else None,
             "external_warning": route == "rag_with_external_warning",
             "manual_relevant": relevance.get("manual_relevant", False), "response_type": response_type, "sources": sources}
 

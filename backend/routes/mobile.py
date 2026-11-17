@@ -19,6 +19,7 @@ from backend.services.personal_maintenance import (
     load_tasks,
     personal_schedules,
     record_view,
+    tasks_with_removed_manufacturer_rules,
 )
 from backend.services import learning_progress
 
@@ -197,7 +198,10 @@ def snapshot(user=Depends(auth.require_user)):
                 }
             )
         mileage = {v["id"]: v["mileage"] for v in vehicles}
+        removed_rules = tasks_with_removed_manufacturer_rules(visible_tasks, vehicles)
         for task in visible_tasks:
+            if task["id"] in removed_rules:
+                task["manufacturerScheduleRemoved"] = True
             task["status"] = status(
                 task,
                 records,

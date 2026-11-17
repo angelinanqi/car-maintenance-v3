@@ -14,6 +14,7 @@ class CarPin {
   final Color color;
   final int count;
   final String position;
+  final String normal;
   final VoidCallback onTap;
   const CarPin({
     required this.label,
@@ -21,6 +22,7 @@ class CarPin {
     required this.onTap,
     required this.count,
     required this.position,
+    required this.normal,
   });
 }
 
@@ -105,7 +107,7 @@ class _CarModelViewState extends State<CarModelView> {
                 : supported && !_failed
                 ? ModelViewer(
                     key: ValueKey(
-                      'corolla-$_attempt-${widget.compact}-${widget.pins.map((pin) => '${pin.label}:${pin.count}:${pin.position}:${pin.color.toARGB32()}').join('|')}',
+                      'corolla-$_attempt-${widget.compact}-${widget.pins.map((pin) => '${pin.label}:${pin.count}:${pin.position}:${pin.normal}:${pin.color.toARGB32()}').join('|')}',
                     ),
                     src: 'assets/models/corolla.glb',
                     alt: 'Interactive Toyota Corolla with maintenance markers',
@@ -115,7 +117,7 @@ class _CarModelViewState extends State<CarModelView> {
                     disableZoom: true,
                     disablePan: true,
                     interactionPrompt: InteractionPrompt.none,
-                    cameraOrbit: '-90deg 76deg ${widget.compact ? '4m' : '6m'}',
+                    cameraOrbit: '50deg 70deg ${widget.compact ? '4m' : '6m'}',
                     fieldOfView: '28deg',
                     backgroundColor: Colors.white,
                     environmentImage: 'neutral',
@@ -123,7 +125,7 @@ class _CarModelViewState extends State<CarModelView> {
                     debugLogging: false,
                     innerModelViewerHtml: [
                       for (var i = 0; i < widget.pins.length; i++)
-                        '<button slot="hotspot-$i" data-position="${widget.pins[i].position}" data-normal="-1 0 0" class="pin" style="background:#${widget.pins[i].color.toARGB32().toRadixString(16).substring(2)}" aria-label="${const HtmlEscape().convert(widget.pins[i].label)}" onclick="Maintenance.postMessage(\'$i\')">${widget.pins[i].count}</button>',
+                        '<button slot="hotspot-$i" data-position="${widget.pins[i].position}" data-normal="${widget.pins[i].normal}" class="pin" style="background:#${widget.pins[i].color.toARGB32().toRadixString(16).substring(2)}" aria-label="${const HtmlEscape().convert(widget.pins[i].label)}" onclick="Maintenance.postMessage(\'$i\')">${widget.pins[i].count}</button>',
                     ].join(),
                     relatedCss:
                         '.pin{width:30px;height:30px;border-radius:50%;border:2px solid white;color:#2b2100;font:700 15px sans-serif;box-shadow:0 1px 3px #6b5a2e66;cursor:pointer}model-viewer{--progress-bar-color:#ffc21a}',
@@ -205,13 +207,11 @@ List<CarPin> maintenanceCarPins(
   return [
     for (final entry in groups.entries)
       CarPin(
-        label: entry.key,
+        label: entry.key.label,
         count: entry.value.length,
-        position: entry.key == 'Engine compartment'
-            ? '-0.85m 1.4m 1.8m'
-            : '-1.15m 0.95m 1.35m',
-        color:
-            entry.value.any((t) => state.statusFor(t).label == 'Due / Overdue')
+        position: entry.key.position,
+        normal: entry.key.normal,
+        color: entry.value.any((t) => state.statusFor(t).isDue)
             ? AppColors.danger
             : AppColors.accent,
         onTap: () => showModalBottomSheet<void>(
@@ -229,7 +229,7 @@ List<CarPin> maintenanceCarPins(
               return ListView(
                 shrinkWrap: true,
                 children: [
-                  ListTile(title: Text('${entry.key} · ${tasks.length}')),
+                  ListTile(title: Text('${entry.key.label} · ${tasks.length}')),
                   for (final task in tasks)
                     ListTile(
                       title: Text(task.title),

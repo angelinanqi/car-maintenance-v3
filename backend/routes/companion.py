@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from backend import auth, db, settings
 from backend.companion_models import PlanPreviewInput, PlanSaveInput, SavedItemInput, NoteUpdate
 from backend.services import learning_companion, service_planning
+from backend.services.service_plan_presentation import for_mobile
 from backend.services.personal_records import owned
 
 router = APIRouter(prefix='/mobile/me', tags=['Learning companion'])
@@ -17,17 +18,17 @@ def companion(user=Depends(auth.require_user)):
 
 @router.post('/service-plans/preview')
 def preview_plan(request: PlanPreviewInput, user=Depends(auth.require_user)):
-    return service_planning.preview(user, request.vehicle_id)
+    return for_mobile(service_planning.preview(user, request.vehicle_id))
 
 
 @router.post('/service-plans')
 def save_plan(request: PlanSaveInput, user=Depends(auth.require_user)):
-    return service_planning.save(user, request.vehicle_id, request.fingerprint)
+    return for_mobile(service_planning.save(user, request.vehicle_id, request.fingerprint))
 
 
 @router.get('/service-plans/{plan_id}')
 def get_plan(plan_id: UUID, user=Depends(auth.require_user)):
-    return service_planning.get_plan(user, str(plan_id))
+    return for_mobile(service_planning.get_plan(user, str(plan_id)))
 
 
 @router.post('/service-plans/{plan_id}/refresh')
@@ -35,7 +36,7 @@ def refresh_plan(plan_id: UUID, user=Depends(auth.require_user)):
     old = owned('service_plans', user['id'], str(plan_id))
     current = service_planning.preview(user, old['vehicle_id'])
     # A refresh returns a proposal; explicit Save creates a new snapshot.
-    return current
+    return for_mobile(current)
 
 
 def saved_view(row):

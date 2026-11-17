@@ -68,7 +68,7 @@ For a **new database**, run the complete [supabase/init.sql](supabase/init.sql) 
 
 For an existing installation, use only the missing upgrades in [supabase/migrations](supabase/migrations). Do not run `init.sql` over existing application data.
 
-Enable email confirmation and TOTP MFA. Add these Auth redirect URLs, using your Mac's hostname:
+Enable email confirmation, Secure email change, TOTP MFA, and Require current password when changing password in Supabase Auth. Add these Auth redirect URLs, using your Mac's hostname:
 
 - `http://127.0.0.1:3000/auth/callback`
 - `http://localhost:3000/auth/callback`

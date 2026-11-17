@@ -35,7 +35,7 @@ const groups = [
     label: "Other Tools",
     items: [
       ["Topics & Videos", "/admin/scopes"],
-      ["Account Security", "/admin/account-security"],
+      ["Account Settings", "/admin/account-security"],
     ],
   },
 ];

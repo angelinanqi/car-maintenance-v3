@@ -57,11 +57,12 @@ export default function AdminMfa({ manage = false }) {
     } catch (cause) { setError(authError(cause)); }
     finally { setBusy(false); }
   }
-  return <Flex minH={manage ? undefined : "100dvh"} align="center" justify="center" p={5}>
-    <Stack bg="white" p={{ base: 6, md: 10 }} borderRadius="12px" maxW="520px" w="full" gap={5}>
+  return <Flex minH={manage ? undefined : "100dvh"} align="center" justify="center" p={manage ? 0 : 5}>
+    <Stack as={manage ? "section" : "div"} bg="white" p={manage ? { base: 5, md: 6 } : { base: 6, md: 10 }}
+      borderWidth={manage ? "1px" : undefined} borderRadius="lg" maxW={manage ? undefined : "520px"} w="full" gap={4}>
       {!manage && <Brand />}
-      <Heading size="lg">{manage ? "Account Security" : factors.length ? "Verify Your Authenticator" : "Set Up Your Authenticator"}</Heading>
-      <Text>Supabase administrators must complete authenticator verification before entering the workspace.</Text>
+      <Heading as="h2" size={manage ? "md" : "lg"}>{manage ? "Two-factor authentication" : factors.length ? "Verify Your Authenticator" : "Set Up Your Authenticator"}</Heading>
+      {!manage && <Text>Authenticator verification is required to enter the workspace.</Text>}
       <Text>Keep a second authenticator as a backup. If every authenticator is lost, contact a trusted operator for identity-verified recovery.</Text>
       {!enrollment && (!factors.length || manage) && <Button onClick={enroll} loading={busy}>{factors.length ? "Add backup authenticator" : "Set up authenticator"}</Button>}
       {enrollment && <>

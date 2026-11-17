@@ -349,6 +349,29 @@ class ContentRepository {
 
   Future<List<EmergencyGuide>> currentEmergencyCatalogue() => _catalogue();
 
+  Future<EmergencyGuide?> publishedEmergencyGuide(String id) async {
+    try {
+      final client = api;
+      if (client == null) {
+        return (await _catalogue()).where((guide) => guide.id == id).firstOrNull;
+      }
+      final guide = EmergencyGuide.fromJson(
+        await client.get(
+          '/emergency/playbooks/${Uri.encodeComponent(id)}',
+          requestTimeout: const Duration(seconds: 4),
+        ),
+        remote: true,
+      );
+      if (guide.id != id || !guide.available) return null;
+      final saved = (await emergencyGuides())
+          .where((item) => item.id == id && item.updatedAt == guide.updatedAt)
+          .firstOrNull;
+      return saved ?? guide;
+    } catch (_) {
+      return null;
+    }
+  }
+
   bool hasUpdate(EmergencyGuide guide) => _remoteGuides.any(
     (remote) => remote.id == guide.id && remote.updatedAt != guide.updatedAt,
   );

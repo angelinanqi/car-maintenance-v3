@@ -102,6 +102,35 @@ def load_tasks(owner, vehicles, items, *, persist_missing=False):
     return tasks
 
 
+def tasks_with_removed_manufacturer_rules(tasks, vehicles):
+    """Find previously published items even when a driver uses a personal rule."""
+    catalogues = {vehicle["id"]: vehicle["catalogue_id"] for vehicle in vehicles}
+    candidates = [
+        task
+        for task in tasks
+        if task["itemId"]
+        and task["manufacturerRule"] is None
+        and task["scheduleSource"] != "manufacturer"
+    ]
+    if not candidates:
+        return set()
+    revisions = db.all_rows(
+        "manufacturer_schedules",
+        vehicle_id=sorted({catalogues[task["vehicleId"]] for task in candidates}),
+        status="superseded",
+    )
+    previous_items = {
+        (revision["vehicle_id"], entry["itemId"])
+        for revision in revisions
+        for entry in revision["entries"]
+    }
+    return {
+        task["id"]
+        for task in candidates
+        if (catalogues[task["vehicleId"]], task["itemId"]) in previous_items
+    }
+
+
 def load(user, profile):
     """Never trust client vehicle IDs, infer history, or write tasks during chat."""
     if profile is None:
@@ -175,6 +204,7 @@ def load(user, profile):
         "Due / Overdue": 0,
         "Due soon": 1,
         "Information required": 2,
+        "Untracked": 2,
         "Upcoming": 3,
     }
     summaries.sort(

@@ -11,8 +11,12 @@ from backend.services.personal_records import owned
 from backend.services.vehicle_profiles import active_vehicle
 
 
-def calculate(vehicle, tasks, records, *, today=None):
+def calculate(vehicle, tasks, records, *, today=None, source_names=None):
     today = today or date.today()
+    source_names = source_names or {}
+    latest = {}
+    for record in sorted(records, key=lambda row: (row['date'], row['mileage'], row['id']), reverse=True):
+        latest.setdefault(record.get('taskId'), record)
     groups = {key: [] for key in ('due', 'discuss', 'check', 'upcoming')}
     for task in sorted(tasks, key=lambda item: (item['title'], item['id'])):
         timing = status(task, records, vehicle['mileage'], today,
@@ -26,11 +30,16 @@ def calculate(vehicle, tasks, records, *, today=None):
             group, reason = 'upcoming', 'outside_visit_or_completed_milestones'
         else:
             group, reason = 'check', 'schedule_or_history_needs_review'
-        rule = task.get('manufacturerRule') if task['scheduleSource'] == 'manufacturer' else task.get('customRule')
+        rule = (task.get('manufacturerRule') if task['scheduleSource'] == 'manufacturer' else
+                task.get('customRule') if task['scheduleSource'] == 'custom' else None)
+        last = latest.get(task['id'])
         groups[group].append({'task_id': task['id'], 'item_id': task.get('itemId'), 'title': task['title'],
                               'action': task['action'], 'schedule_source': task['scheduleSource'], 'status': timing,
-                              'reason': reason, 'lesson_ids': task.get('lessonIds', []), 'rule': rule})
-    snapshot = {'rules_version': 1, 'vehicle_id': vehicle['id'], 'mileage': vehicle['mileage'],
+                              'reason': reason, 'lesson_ids': task.get('lessonIds', []), 'rule': rule,
+                              'latest_service': {'date': last['date'], 'mileage': last['mileage']} if last else None,
+                              'source_name': source_names.get(rule.get('sourceDocumentId'))
+                              if rule and task['scheduleSource'] == 'manufacturer' else None})
+    snapshot = {'rules_version': 2, 'vehicle_id': vehicle['id'], 'mileage': vehicle['mileage'],
                 'as_of': today.isoformat(), 'groups': groups, 'total_tasks': len(tasks),
                 'discussion_window': {'km': settings.DUE_SOON_KM, 'days': settings.DUE_SOON_DAYS}}
     # Include raw inputs as well as output: same timing may hide a changed source revision.
@@ -52,7 +61,11 @@ def preview(user, vehicle_id):
     tasks = load_tasks(user['id'], [vehicle], items)
     records = [record_view(row) for row in db.all_rows('service_records', user_id=user['id'], vehicle_id=vehicle_id)]
     records.sort(key=lambda row: row['id'])
-    return calculate(vehicle, tasks, records)
+    source_ids = {task['manufacturerRule'].get('sourceDocumentId') for task in tasks
+                  if task['scheduleSource'] == 'manufacturer' and task.get('manufacturerRule')}
+    source_ids.discard(None)
+    sources = db.all_rows('documents', id=sorted(source_ids)) if source_ids else []
+    return calculate(vehicle, tasks, records, source_names={row['id']: row['name'] for row in sources})
 
 
 def save(user, vehicle_id, fingerprint):

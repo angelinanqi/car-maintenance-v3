@@ -35,7 +35,7 @@ export default function ChatNotes({ item, vehicleId, session, initialQuestion = 
       } });
       if (!Array.isArray(data.questions) || data.questions.length < 3 || data.questions.length > 5) throw new Error('The question list could not be read. Retry preparing questions.');
       setText([initialNotes, 'Questions for a mechanic', data.vehicle_summary, data.concern_summary,
-        ...data.questions.flatMap((entry, index) => [`${index + 1}. ${entry.question}`, `Why ask: ${entry.reason}`]),
+        ...data.questions.map((entry, index) => `${index + 1}. ${entry.question}\nWhy ask: ${entry.reason}`),
         'Details to bring:', ...(data.details_to_note || [])].filter(Boolean).join('\n\n'));
       setStatus(data.tailored ? 'Tailored questions prepared. Review before sharing.' : 'General administrator checklist. Adapt it to your concern.');
     });
