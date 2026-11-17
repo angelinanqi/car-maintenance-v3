@@ -205,7 +205,7 @@ export default function ChatbotPage() {
           <Flex gap={2} wrap="wrap">
             <Button size="sm" variant="ghost" disabled={blocked} onClick={refreshStartingPoints}>Refresh Starting Points</Button>
             <Button size="sm" variant="outline" disabled={blocked || !key} onClick={startNew}>New Conversation</Button>
-            <Button asChild size="sm" variant="outline" colorPalette="red"><a href="/admin/emergency">Emergency Help</a></Button>
+            {!testing && <Button size="sm" variant="outline" colorPalette="red" disabled={blocked || !!pending || restoreFailed} onClick={() => openTool('emergency')}>Emergency Help</Button>}
           </Flex>
         </Flex>
       </Box>

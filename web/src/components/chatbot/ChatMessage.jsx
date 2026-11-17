@@ -42,9 +42,6 @@ export default function ChatMessage({ message, onMaintenance, onEmergency, onGui
   const layout = chatLayout(message.answer, message.answer_sections, attachments);
   const manualLinks = (Array.isArray(message.manual_links) ? message.manual_links : []).filter(Boolean);
   const guides = (Array.isArray(message.recommended_guides) ? message.recommended_guides : []).filter(Boolean);
-  const urgent = message.route === 'emergency';
-  const emergency = urgent || message.route === 'roadside_guidance';
-  const emergencyGuide = message.emergency_guide_id;
 
   return (
     <Box
@@ -83,15 +80,11 @@ export default function ChatMessage({ message, onMaintenance, onEmergency, onGui
             The service could not complete this answer. Please try again shortly.
           </Text>
         )}
-        {!isUser && emergency && (
-          emergencyGuide || !onEmergency ? <Button asChild colorPalette={urgent ? 'red' : 'brand'} variant={urgent ? 'solid' : 'outline'}>
-            <a href={emergencyGuide ? `/admin/emergency?guide=${encodeURIComponent(emergencyGuide)}` : '/admin/emergency'}>
-              {emergencyGuide ? 'Open emergency guide' : 'Open emergency help'}
-            </a>
-          </Button> : <Button colorPalette={urgent ? 'red' : 'brand'} variant={urgent ? 'solid' : 'outline'} onClick={onEmergency}>
-            Open emergency help
-          </Button>
-        )}
+        {!isUser && (message.route === 'emergency' || sources.some(source => source.source_type === 'emergency_protocol')) && onEmergency && <Button
+          colorPalette={message.route === 'emergency' ? 'red' : 'brand'}
+          variant={message.route === 'emergency' ? 'solid' : 'outline'} onClick={onEmergency}>
+          {message.route === 'emergency' ? 'Open emergency help' : 'Explore emergency guidance'}
+        </Button>}
         {!isUser && onGuide && guides.length > 0 && <Box as="section" aria-label="Further learning">
           <Text fontSize="sm" fontWeight="semibold" mb={2}>Further learning</Text>
           <Stack gap={2}>

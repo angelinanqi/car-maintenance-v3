@@ -92,6 +92,10 @@ def request_deadline(fn):
 def bounded_request(fn):
     @wraps(fn)
     async def wrapped(query, *args, **kwargs):
+        from shared.safety import immediate_emergency
+        # Immediate safety guidance must remain available even when inference is busy.
+        if immediate_emergency(query):
+            return await fn(query, *args, **kwargs)
         if not _request_slots.acquire(blocking=False):
             raise GenerationError('The chatbot is busy; please retry shortly')
         try:

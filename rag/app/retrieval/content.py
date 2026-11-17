@@ -5,12 +5,13 @@ import json
 from rag.app.generation.grounded import INJECTION
 from rag.app.retrieval.hybrid import lexical_search, fuse
 from rag.app.retrieval.search import RetrievalResult
+from shared.safety import emergency_topics
 
 
-def records_for(sources, *, include_media=True):
+def records_for(sources, *, include_media=True, include_indexed=False):
     records = []
     for source in sources:
-        if source.get('indexed'):
+        if source.get('indexed') and not include_indexed:
             continue  # Already searched as scoped persistent chunks, never re-embed in chat.
         text = source['title'] + '\n' + source.get('scenario_key', '').replace('-', ' ') + '\n' + source['content']
         if INJECTION.search(text):
@@ -71,6 +72,18 @@ def retrieve_content(query, sources, top_k=5, *, query_embedding=None):
     return fuse(dense, lexical)[:top_k]
 
 
+def retrieve_emergency(query, sources):
+    requested = emergency_topics(query)
+    matching = [s for s in sources if s['source_type'] == 'emergency_protocol'
+                and requested & emergency_topics(s.get('scenario_key', '') + ' ' + s['title'])]
+    # Never select a protocol merely because its warnings mention another hazard.
+    records = records_for(matching, include_media=False, include_indexed=True)
+    if len(records) < 2:
+        return records
+    ranked = lexical_search(query, records, 1) if records else []
+    return ranked or records[:1]
+
+
 def public_source(record, label):
     metadata = record.metadata
     section = metadata.get('section_path', [])
@@ -82,3 +95,17 @@ def public_source(record, label):
             'source_reference': metadata.get('source_reference', ''),
             **{key: metadata[key] for key in ('media_id', 'start_seconds', 'step_id', 'step_order') if key in metadata},
             **({'chunk_id': record.chunk_id, 'section_path': section} if section else {})}
+
+
+def render_emergency(records):
+    parts = []
+    for number, record in enumerate(records, 1):
+        metadata = record.metadata
+        # Diagram descriptions are navigation metadata, not additional safety
+        # instructions. Keep the published advice verbatim and its source in the
+        # existing citation card rather than exposing internal reference paths.
+        text = '\n'.join(line for line in metadata['source_content'].splitlines()
+                         if not line.strip().startswith('Diagram reference:'))
+        parts.append(f"Reviewed emergency protocol: {metadata['title']} [S{number}]\n\n"
+                     + text.strip())
+    return '\n\n'.join(parts)

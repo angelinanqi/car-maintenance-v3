@@ -19,6 +19,7 @@ from backend.services.personal_maintenance import (
     load_tasks,
     personal_schedules,
     record_view,
+    schedule_source_names,
     tasks_with_removed_manufacturer_rules,
 )
 from backend.services import learning_progress
@@ -37,6 +38,11 @@ class ActiveVehicleInput(InputModel):
     id: str = Field(min_length=1, max_length=200)
 
 
+class MobileManufacturerRule(Rule):
+    # The app echoes its displayed rule on edits. The server selects the actual rule.
+    sourceDocumentId: str | None = None
+
+
 class TaskInput(InputModel):
     id: str
     vehicleId: str
@@ -44,7 +50,7 @@ class TaskInput(InputModel):
     category: str = Field(default="", max_length=200)
     itemId: UUID | None = None
     action: Literal["inspect", "replace", "service"] = "service"
-    manufacturerRule: Rule | None = None
+    manufacturerRule: MobileManufacturerRule | None = None
     customRule: Rule | None = None
     scheduleSource: Literal["none", "custom", "manufacturer"] = "none"
     lessonIds: list[UUID] = Field(default_factory=list)
@@ -199,6 +205,9 @@ def snapshot(user=Depends(auth.require_user)):
             )
         mileage = {v["id"]: v["mileage"] for v in vehicles}
         removed_rules = tasks_with_removed_manufacturer_rules(visible_tasks, vehicles)
+        source_names = schedule_source_names(
+            task["manufacturerRule"] for task in visible_tasks
+        )
         for task in visible_tasks:
             if task["id"] in removed_rules:
                 task["manufacturerScheduleRemoved"] = True
@@ -209,6 +218,15 @@ def snapshot(user=Depends(auth.require_user)):
                 due_soon_km=settings.DUE_SOON_KM,
                 due_soon_days=settings.DUE_SOON_DAYS,
             )
+            rule = task["manufacturerRule"]
+            if rule and (source_id := rule.get("sourceDocumentId")):
+                # Installed apps display this field directly. Change only the response copy.
+                task["manufacturerRule"] = {
+                    **rule,
+                    "sourceDocumentId": (
+                        source_names.get(source_id) or "Document title unavailable"
+                    ),
+                }
         return {
             "vehicles": output,
             "tasks": visible_tasks,

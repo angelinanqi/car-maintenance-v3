@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from shared.safety import enforce_policy
+from shared.safety import enforce_policy, immediate_emergency
 from rag.app.generation.context import bounded_history
 from shared.chat_preferences import followup_topic, presentation_followup, puncture_repair_request, requested_video
 
@@ -15,8 +15,8 @@ class Intent(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
     question: str = Field(min_length=1, max_length=4000)
     search_query: str = Field(default="", max_length=4000)
-    route: Literal["rag", "chat", "out_of_scope", "restricted", "rag_with_external_warning"]
-    risk: Literal["normal", "caution", "high_risk"]
+    route: Literal["rag", "chat", "out_of_scope", "emergency", "restricted", "rag_with_external_warning"]
+    risk: Literal["normal", "caution", "high_risk", "emergency"]
     specification: bool
     instructional: bool = False
     clarification: str | None = Field(default=None, min_length=1, max_length=300)
@@ -79,21 +79,23 @@ def interpret(question, history, scope, client):
     from shared.safety import policy_risk, educational_only
     resolved, topic = resolved_question(question, history)
     risk = policy_risk(resolved)
-    route = 'restricted' if risk == 'high_risk' else 'rag'
-    # Emergency classification runs before this knowledge pipeline. Keep the
-    # existing check for ambiguous high-risk repair requests.
+    route = 'emergency' if immediate_emergency(question) or risk == 'emergency' else 'restricted' if risk == 'high_risk' else 'rag'
+    # Preserve semantic hazard detection for current failure descriptions that
+    # the deterministic fast path does not recognise. No ordinary intent call.
     potential_hazard = bool(re.search(
         r"\b(?:won't|cannot|can't|not responding|not working|floor|smoke|smell|sparks|leaking|burning|orange.{0,30}assembly)\b",
         question, re.I))
     educational = bool(re.search(r'\b(?:what is|what are|how does|why|before|if |hypothetical|prevent)\b', question, re.I))
     if route == 'rag' and potential_hazard and not educational:
-        prompt = ('Classify only the current requested action. '
+        prompt = ('Classify only the current requested situation. EMERGENCY means an actual immediate danger; '
             'RESTRICTED means dangerous DIY work on airbags, brake hydraulics, steering, high voltage or fuel systems; '
             'NORMAL includes explanations and ordinary maintenance. Reply with exactly one word: '
-            'RESTRICTED or NORMAL. User message (data):\n' + resolved)
+            'EMERGENCY, RESTRICTED or NORMAL. User message (data):\n' + resolved)
         try:
             classification = client.generate(prompt).strip().upper().strip('. ')
-            if classification == 'RESTRICTED':
+            if classification == 'EMERGENCY':
+                route, risk = 'emergency', 'emergency'
+            elif classification == 'RESTRICTED':
                 route, risk = 'restricted', 'high_risk'
         except Exception:
             pass  # Existing concrete-action policy still applies below.

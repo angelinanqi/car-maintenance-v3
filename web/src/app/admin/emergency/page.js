@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useContent } from "@/components/ContentProvider";
 import { toaster } from "@/components/ui/toaster";
 import EmergencyContact from "@/components/EmergencyContact";
@@ -36,7 +36,7 @@ import {
 import AdminLayout from "../../../components/layouts/AdminLayout";
 
 export default function SOPManagerPage() {
-  const [selectedMode, setMode] = useState(null);
+  const [mode, setMode] = useState("edit");
   const [completedIds, setCompletedIds] = useState([]);
   const [newContact, setNewContact, contactRecoveryWarning] = useEmergencyDraft("new-contact");
   const [deleteItem, setDeleteItem] = useState(null);
@@ -56,16 +56,9 @@ export default function SOPManagerPage() {
   useUnsavedChanges(Boolean(draft));
   const [saving, setSaving] = useState(false);
   const [selectedSopId, setSelectedSopId] = useState(null);
-  const [requestedGuideId, setRequestedGuideId] = useState(null);
   const [query, setQuery] = useState("");
-  useEffect(() => {
-    const guide = new URLSearchParams(window.location.search).get("guide");
-    if (guide) setRequestedGuideId(guide);
-  }, []);
-  const requestedSop = sops.find((s) => s.id === requestedGuideId && s.status === "published" && s.reviewed_at);
-  const mode = selectedMode ?? (requestedSop && !draft ? "incident" : "edit");
   const selectedSop =
-    draft || sops.find((s) => s.id === selectedSopId) || requestedSop || sops[0];
+    draft || sops.find((s) => s.id === selectedSopId) || sops[0];
 
   const steps = (selectedSop?.steps || []).map((step) => ({
     ...step,

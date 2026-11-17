@@ -68,6 +68,14 @@ def personal_schedules(vehicles):
     }
 
 
+def schedule_source_names(rules):
+    source_ids = sorted(
+        {rule["sourceDocumentId"] for rule in rules if rule and rule.get("sourceDocumentId")}
+    )
+    sources = db.all_rows("documents", id=source_ids) if source_ids else []
+    return {row["id"]: row["name"] for row in sources}
+
+
 def load_tasks(owner, vehicles, items, *, persist_missing=False):
     schedules = personal_schedules(vehicles)
     tasks = []

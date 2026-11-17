@@ -43,8 +43,6 @@ class _AppShellState extends State<AppShell> {
   String? _requestedTaskId;
   Map<String, dynamic>? _chatContext;
   int _maintenanceRequest = 0, _lessonRequest = 0;
-  int _emergencyRequest = 0;
-  String? _emergencyGuideId;
   bool _entered = false;
 
   @override
@@ -65,7 +63,6 @@ class _AppShellState extends State<AppShell> {
       _maintenanceItemId = null;
       _requestedTaskId = null;
       _lessonId = null;
-      _emergencyGuideId = null;
       if (_selectedIndex == 3) _selectedIndex = 0;
     });
   }
@@ -113,15 +110,6 @@ class _AppShellState extends State<AppShell> {
     _chatRequest++;
     _selectedIndex = 3;
   });
-
-  void _openEmergency([String? guideId]) {
-    FocusManager.instance.primaryFocus?.unfocus();
-    setState(() {
-      _selectedIndex = 4;
-      _emergencyGuideId = guideId;
-      _emergencyRequest++;
-    });
-  }
 
   void _prepare() {
     if (!widget.state.signedIn || widget.chat is! FastApiChatRepository) {
@@ -216,7 +204,7 @@ class _AppShellState extends State<AppShell> {
                             _maintenanceRequest++;
                             _selectedIndex = 1;
                           }),
-                          onEmergency: _openEmergency,
+                          onEmergency: () => setState(() => _selectedIndex = 4),
                           onLearn: () => setState(() => _selectedIndex = 2),
                           onAsk: () => setState(() => _selectedIndex = 3),
                           onPlan: () => _askContext({
@@ -275,8 +263,7 @@ class _AppShellState extends State<AppShell> {
                           topic: _topic,
                           prompt: _prompt,
                           contextData: _chatContext,
-                          onEmergency: _openEmergency,
-                          onEmergencyGuide: _openEmergency,
+                          onEmergency: () => setState(() => _selectedIndex = 4),
                           onMaintenance: () => setState(() {
                             _selectedIndex = 1;
                             _scheduleRequest++;
@@ -289,10 +276,6 @@ class _AppShellState extends State<AppShell> {
                         child: Emergency(
                           state: widget.state,
                           repository: _content,
-                          requestedGuideId: _selectedIndex == 4
-                              ? _emergencyGuideId
-                              : null,
-                          guideRequest: _emergencyRequest,
                         ),
                       ),
                     ],
@@ -307,10 +290,7 @@ class _AppShellState extends State<AppShell> {
                   selectedIndex: _selectedIndex,
                   onTap: (index) {
                     FocusManager.instance.primaryFocus?.unfocus();
-                    setState(() {
-                      _selectedIndex = index;
-                      _emergencyGuideId = null;
-                    });
+                    setState(() => _selectedIndex = index);
                   },
                   destinations: const [
                     PillNavDestination(

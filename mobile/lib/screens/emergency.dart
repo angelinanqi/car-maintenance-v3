@@ -22,15 +22,7 @@ export 'emergency_guide.dart' show EmergencyGuidePage;
 class Emergency extends StatefulWidget {
   final AppState state;
   final ContentRepository? repository;
-  final String? requestedGuideId;
-  final int guideRequest;
-  const Emergency({
-    super.key,
-    required this.state,
-    this.repository,
-    this.requestedGuideId,
-    this.guideRequest = 0,
-  });
+  const Emergency({super.key, required this.state, this.repository});
   @override
   State<Emergency> createState() => _EmergencyState();
 }
@@ -70,7 +62,6 @@ class _EmergencyState extends State<Emergency> with WidgetsBindingObserver {
     _load();
     _loadProgress();
     _recoverPhotos();
-    _openRequestedGuide();
   }
 
   @override
@@ -90,7 +81,6 @@ class _EmergencyState extends State<Emergency> with WidgetsBindingObserver {
       _checkGuestRecords();
     }
     _wasSignedIn = widget.state.signedIn;
-    if (oldWidget.guideRequest != widget.guideRequest) _openRequestedGuide();
   }
 
   @override
@@ -259,27 +249,6 @@ class _EmergencyState extends State<Emergency> with WidgetsBindingObserver {
       ),
     );
     if (mounted) await _loadProgress();
-  }
-
-  Future<void> _openRequestedGuide() async {
-    final id = widget.requestedGuideId;
-    if (id == null) return;
-    final request = widget.guideRequest;
-    final owner = _owner;
-    final guide = await _content.publishedEmergencyGuide(id);
-    if (!mounted ||
-        request != widget.guideRequest ||
-        id != widget.requestedGuideId ||
-        owner != _owner) {
-      return;
-    }
-    if (guide != null) {
-      await _openGuide(guide);
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('This guide is unavailable.')),
-      );
-    }
   }
 
   Future<void> _downloads() async {

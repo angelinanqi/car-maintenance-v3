@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from shared.observability import observed
 from shared.table_evidence import table_literal_text, table_claim_error, MEASUREMENT, canonical_unit
-from shared.safety import SOURCE_INJECTION, policy_risk, RESTRICTED_ANSWER, professional_overview
+from shared.safety import SOURCE_INJECTION, policy_risk, immediate_emergency, emergency_guidance, RESTRICTED_ANSWER, professional_overview
 from shared.chat_preferences import videos_excluded, puncture_repair_request
 from rag.app.generation.context import content, prepare_context, bounded_history
 from rag.app.generation.answer_prompt import ANSWER_PROMPT
@@ -537,6 +537,8 @@ def generate(question, records, client, *, scope, risk, vehicle_profile=None,
     """One prose call; application policy and independent media do the rest."""
     actual = latest_message or question
     action_risk = policy_risk(actual)
+    if immediate_emergency(actual) or action_risk == 'emergency':
+        return GeneratedReply(emergency_guidance(actual), 'emergency')
     if action_risk == 'high_risk':
         return GeneratedReply(RESTRICTED_ANSWER, 'restricted')
     explain_media = bool(re.search(r'\b(?:diagram|image|picture|illustration|table|figure)\b', actual, re.I))

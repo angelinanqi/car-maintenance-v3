@@ -175,13 +175,8 @@ class ApiClient {
     ),
   );
 
-  Future<Map<String, dynamic>> get(
-    String path, {
-    String? token,
-    Duration? requestTimeout,
-  }) async => _object(
-    await _request(path, token: token, requestTimeout: requestTimeout),
-  );
+  Future<Map<String, dynamic>> get(String path, {String? token}) async =>
+      _object(await _request(path, token: token));
 
   Future<Map<String, dynamic>> put(
     String path,

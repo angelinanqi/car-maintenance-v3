@@ -1,6 +1,5 @@
 """Provider-independent HTTP boundary for the existing private RAG service."""
 from shared.observability import correlation_headers, observed, emit
-import asyncio
 import logging
 from typing import Literal
 
@@ -12,27 +11,8 @@ from backend import settings
 from shared.models import SourceAttachmentReference
 from shared.models import MechanicQuestionDraft
 from shared.mechanic_questions import general_questions
-from shared.emergency_routing import EMERGENCY_CLASSIFICATION_TIMEOUT, EmergencyDecision
 
 logger = logging.getLogger(__name__)
-
-
-@observed('emergency_classification_request')
-async def classify_emergency(message, history, guides):
-    if not settings.RAG_SERVICE_URL or not settings.RAG_SERVICE_TOKEN:
-        return None
-    try:
-        timeout = min(settings.RAG_SERVICE_TIMEOUT, EMERGENCY_CLASSIFICATION_TIMEOUT + 1)
-        async with asyncio.timeout(timeout):
-            async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
-                response = await client.post(settings.RAG_SERVICE_URL + '/v1/emergency-classification',
-                    headers={**correlation_headers(), 'Authorization': 'Bearer ' + settings.RAG_SERVICE_TOKEN},
-                    json={'message': message, 'history': history, 'guides': guides})
-                response.raise_for_status()
-                return EmergencyDecision.model_validate(response.json())
-    except (TimeoutError, httpx.HTTPError, ValueError) as error:
-        logger.warning('Emergency classification unavailable (%s)', type(error).__name__)
-        return None
 
 
 @observed('rag_service_request')

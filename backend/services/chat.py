@@ -14,8 +14,7 @@ from backend.services import rag_client
 from backend.services import vehicle_profiles
 from backend.services import personal_maintenance
 from backend import settings
-from shared.emergency_routing import EMERGENCY_ROUTES
-from shared.safety import emergency_guidance
+from shared.safety import immediate_emergency, emergency_guidance
 from shared.answer_sections import validated_sections
 
 # One process is the existing supported backend deployment. Concurrent turns
@@ -94,17 +93,19 @@ def enforce_automatic_vehicle(row, user):
     return catalogue_id or 'general'
 
 
-def emergency_scope(kind, identity):
+def conversation_scope(kind, identity, *, safety_only=False):
+    if not safety_only:
+        return scopes.resolve(kind, identity)
+    # Safety guidance uses no manuals or personal maintenance evidence.
     return {'scope_type': kind, 'scope_id': str(identity), 'label': 'Emergency assistance',
             'document_ids': [], 'document_metadata': {}, 'content_sources': [], 'video_ids': []}
 
 
-def automatic_scope(row, user):
-    return scopes.resolve('auto', enforce_automatic_vehicle(row, user))
+def automatic_scope(row, user, *, safety_only=False):
+    return conversation_scope('auto', enforce_automatic_vehicle(row, user), safety_only=safety_only)
 
 
-def load_session(request, user):
-    """Authorize the conversation without loading reference or maintenance data."""
+def load(request, user, *, safety_only=False):
     token = request.session_token
     automatic = not request.scope_type and not request.scope_id and not request.car_model
     if request.session_id:
@@ -112,21 +113,29 @@ def load_session(request, user):
         if row.get('automatic'):
             if request.scope_type or request.scope_id:
                 raise HTTPException(409, 'Start a new chat to change conversation mode.')
-            return row, token, 'auto', enforce_automatic_vehicle(row, user)
+            scope = automatic_scope(row, user, safety_only=safety_only)
+            if safety_only:
+                return row, token, scope, [], None, None
+            profile = vehicle_profiles.load(user)
+            return row, token, scope, recent_messages(row['id']), profile, personal_maintenance.load(user, profile)
         kind = "vehicle" if row.get("vehicle_id") else "category"
         identity = row[kind + "_id"]
         if (request.scope_type and request.scope_type != kind) or (request.scope_id and request.scope_id != identity):
             raise HTTPException(409, "Start a new chat to change knowledge scope.")
-        enforce_vehicle(user, kind, identity, row.get('user_vehicle_id'))
     else:
-        token = secrets.token_urlsafe(32)
-        token_hash = hashlib.sha256(token.encode()).hexdigest()
         if automatic:
             vehicle = vehicle_profiles.active_vehicle(user)
-            row = {'automatic': True, 'user_id': user['id'],
-                   'user_vehicle_id': vehicle['id'] if vehicle else None,
-                   'vehicle_id': vehicle['catalogue_id'] if vehicle else None, 'token_hash': token_hash}
-            return row, token, 'auto', row['vehicle_id'] or 'general'
+            token = secrets.token_urlsafe(32)
+            values = {'automatic': True, 'user_id': user['id'],
+                      'user_vehicle_id': vehicle['id'] if vehicle else None,
+                      'vehicle_id': vehicle['catalogue_id'] if vehicle else None,
+                      'token_hash': hashlib.sha256(token.encode()).hexdigest()}
+            scope = automatic_scope(values, user, safety_only=safety_only)
+            profile = None if safety_only else vehicle_profiles.load(user)
+            row = db.insert('chat_sessions', values)
+            if safety_only:
+                return row, token, scope, [], None, None
+            return row, token, scope, [], profile, personal_maintenance.load(user, profile)
         kind, identity = request.scope_type, request.scope_id
         if not kind or not identity:
             # Old explicit vehicle clients can start a fresh scoped session;
@@ -140,28 +149,25 @@ def load_session(request, user):
         except ValueError:
             raise HTTPException(422, "Use a valid knowledge scope identifier.") from None
         personal_id = enforce_vehicle(user, kind, identity)
-        row = {kind + '_id': str(identity), 'user_id': user['id'],
-               'user_vehicle_id': personal_id, 'token_hash': token_hash}
-    return row, token, kind, str(identity)
-
-
-def enforce_session_vehicle(row, user, kind, scope_id):
-    if row.get('automatic'):
-        enforce_automatic_vehicle(row, user)
-    else:
-        enforce_vehicle(user, kind, scope_id, row.get('user_vehicle_id'))
-
-
-def load_knowledge(row, user, kind, scope_id):
-    scope = scopes.resolve(kind, scope_id)
-    profile = (None if user.get('role') == 'admin' and not row.get('automatic')
-               and not row.get('user_vehicle_id') else vehicle_profiles.load(user))
+        conversation_scope(kind, identity, safety_only=safety_only)
+        token = secrets.token_urlsafe(32)
+        row = db.insert("chat_sessions", {kind + "_id": str(identity),
+                         'user_id': user['id'], 'user_vehicle_id': personal_id,
+                         "token_hash": hashlib.sha256(token.encode()).hexdigest()})
+    enforce_vehicle(user, kind, identity, row.get('user_vehicle_id'))
+    scope = conversation_scope(kind, identity, safety_only=safety_only)
+    if safety_only:
+        return row, token, scope, [], None, None
+    profile = None if user.get('role') == 'admin' and not row.get('user_vehicle_id') else vehicle_profiles.load(user)
     personal_id = profile['vehicle_id'] if profile else None
     if user.get('role') != 'admin' and personal_id != row.get('user_vehicle_id'):
         raise HTTPException(409, 'The active vehicle changed. Start or restore its separate conversation.')
-    if profile and kind == 'vehicle' and profile['catalogue_id'] != str(scope_id):
+    if profile and kind == 'vehicle' and profile['catalogue_id'] != str(identity):
         raise HTTPException(409, 'The active vehicle does not match this knowledge scope.')
-    return scope, profile, personal_maintenance.load(user, profile)
+    # Client history is untrusted and may belong to another knowledge scope.
+    messages = recent_messages(row["id"])
+    maintenance = personal_maintenance.load(user, profile)
+    return row, token, scope, messages, profile, maintenance
 
 
 def recent_messages(session_id):
@@ -184,46 +190,38 @@ async def send(request, user):
     if identity:
         _active.add(identity)
     try:
-        row, token, kind, scope_id = await run_in_threadpool(load_session, request, user)
-        fingerprint = request_hash(request)
+        safety_only = immediate_emergency(request.message)
+        row, token, scope, history, profile, maintenance = await run_in_threadpool(
+            load, request, user, safety_only=safety_only)
+        identity = row["id"]
+        _active.add(identity)
         if request.request_id:
             saved = await run_in_threadpool(db.all_rows, 'chat_messages', id=str(request.request_id))
             if saved:
                 message = saved[0]
                 if (message['session_id'] != identity or message['role'] != 'assistant'
-                        or (message.get('reply') or {}).get('request_hash') != fingerprint):
+                        or (message.get('reply') or {}).get('request_hash') != request_hash(request)):
                     raise HTTPException(409, 'This question ID has already been used. Restore the conversation before continuing.')
-                if message['reply'].get('route') in EMERGENCY_ROUTES:
-                    scope = emergency_scope(kind, scope_id)
-                    scope['content_sources'] = await current_protocols_for_retry(message)
-                else:
-                    scope, _, _ = await run_in_threadpool(load_knowledge, row, user, kind, scope_id)
+                if safety_only:
+                    try:
+                        scope['content_sources'] = await asyncio.wait_for(
+                            run_in_threadpool(optional_emergency_sources), EMERGENCY_PROTOCOL_TIMEOUT)
+                    except TimeoutError:
+                        scope['content_sources'] = []
                 restored = await run_in_threadpool(restore_messages, [message], scope, identity, user)
                 return {**restored[0]['reply'], 'session_id': identity, 'session_token': token,
                         'scope_type': scope['scope_type'], 'scope_id': scope['scope_id']}
-
-        history = await run_in_threadpool(recent_messages, identity) if identity else []
-        catalogue = await optional_emergency_catalogue()
-        decision = await rag_client.classify_emergency(request.message, history, [
-            {key: guide[key] for key in ('id', 'title', 'scenario_key', 'description')} for guide in catalogue.values()
-        ])
-        roadside = decision is not None and decision.route in EMERGENCY_ROUTES
-        if roadside:
-            answer = await emergency_reply(decision, catalogue.get(decision.guide_id))
-        else:
-            scope, profile, maintenance = await run_in_threadpool(load_knowledge, row, user, kind, scope_id)
-        if not identity:
-            await run_in_threadpool(enforce_session_vehicle, row, user, kind, scope_id)
-            row = await run_in_threadpool(db.insert, 'chat_sessions', row)
-            identity = row['id']
-            _active.add(identity)
-        if roadside:
-            await run_in_threadpool(enforce_session_vehicle, row, user, kind, scope_id)
+        if safety_only:
+            answer = await emergency_reply(request.message)
+            if row.get('automatic'):
+                await run_in_threadpool(enforce_automatic_vehicle, row, user)
+            else:
+                await run_in_threadpool(enforce_vehicle, user, scope['scope_type'], scope['scope_id'], row.get('user_vehicle_id'))
             answer['message_id'] = await run_in_threadpool(
                 save_turn, identity, request.message, answer, [],
-                str(request.request_id) if request.request_id else None, fingerprint)
+                str(request.request_id) if request.request_id else None, request_hash(request))
             return {**answer, 'session_id': identity, 'session_token': token,
-                    'scope_type': kind, 'scope_id': scope_id}
+                    'scope_type': scope['scope_type'], 'scope_id': scope['scope_id']}
         activity_context = None
         activity_notice = None
         if activity:
@@ -253,7 +251,10 @@ async def send(request, user):
         current = await run_in_threadpool(scopes.resolve, scope["scope_type"], scope["scope_id"])
         if current != scope:
             raise HTTPException(409, "Knowledge associations changed. Please retry your question.")
-        await run_in_threadpool(enforce_session_vehicle, row, user, kind, scope_id)
+        if row.get('automatic'):
+            await run_in_threadpool(enforce_automatic_vehicle, row, user)
+        else:
+            await run_in_threadpool(enforce_vehicle, user, scope['scope_type'], scope['scope_id'], row.get('user_vehicle_id'))
         from backend.services.source_assets import attachments, resolve_manual_sources
         answer['attachments'] = await run_in_threadpool(attachments, answer.get('attachments', []), current, identity)
         answer['answer_sections'] = validated_sections(
@@ -263,7 +264,7 @@ async def send(request, user):
             browse=answer.get('response_type') == 'insufficient_information')
         from backend.services.content_sources import resolve_content_media
         answer['content_media'] = resolve_content_media(answer['sources'], current.get('content_sources', []),
-                                                      emergency=answer.get('route') in EMERGENCY_ROUTES)
+                                                      emergency=answer.get('route') == 'emergency')
         if answer['attachments'] or answer['sources'] or answer['manual_links']:
             final_scope = await run_in_threadpool(scopes.resolve, scope['scope_type'], scope['scope_id'])
             if final_scope != scope:
@@ -285,73 +286,48 @@ async def send(request, user):
                                     {'activity': activity.model_dump(mode='json')})
         answer['message_id'] = await run_in_threadpool(
             save_turn, identity, request.message, answer, attachment_refs,
-            str(request.request_id) if request.request_id else None, fingerprint)
+            str(request.request_id) if request.request_id else None, request_hash(request))
         return {**answer, "session_id": identity, "session_token": token,
                 "scope_type": scope["scope_type"], "scope_id": scope["scope_id"]}
     finally:
         _active.discard(identity)
 
 
-def emergency_catalogue():
-    from backend.services.content_sources import is_reviewed_protocol
-    return {row['id']: {'id': row['id'], 'title': row['title'], 'scenario_key': row['scenario_key'],
-                        'description': (row.get('description') or '')[:200], 'revision': row['updated_at']}
-            for row in db.all_rows('emergency_playbooks', status='published') if is_reviewed_protocol(row)}
-
-
-async def optional_emergency_catalogue():
+def optional_emergency_sources():
+    from backend.services.content_sources import emergency_sources
     try:
-        return await asyncio.wait_for(run_in_threadpool(emergency_catalogue), EMERGENCY_PROTOCOL_TIMEOUT)
+        return emergency_sources(include_indexes=False)
     except Exception as error:
-        logging.getLogger(__name__).warning('Emergency catalogue unavailable (%s)', type(error).__name__)
-        return {}
-
-
-def current_protocol(guide):
-    from backend.services.content_sources import emergency_source, is_reviewed_protocol
-    try:
-        row = db.get('emergency_playbooks', guide['id'])
-    except HTTPException as error:
-        if error.status_code == 404:
-            return None
-        raise
-    if is_reviewed_protocol(row) and row['updated_at'] == guide['revision']:
-        return emergency_source(row)
-    return None
-
-
-async def current_protocols_for_retry(message):
-    sources = [source for source in message['reply'].get('sources', [])
-               if source.get('source_type') == 'emergency_protocol']
-    try:
-        async with asyncio.timeout(EMERGENCY_PROTOCOL_TIMEOUT):
-            protocols = await asyncio.gather(*(run_in_threadpool(current_protocol,
-                {'id': source['source_id'], 'revision': source['revision']}) for source in sources))
-            return [protocol for protocol in protocols if protocol]
-    except Exception as error:
-        logging.getLogger(__name__).warning('Saved emergency protocols unavailable (%s)', type(error).__name__)
+        # Only optional published-content loading is recoverable here. Session,
+        # ownership and vehicle failures are never converted into safety replies.
+        logging.getLogger(__name__).warning('Emergency protocols unavailable (%s)', type(error).__name__)
         return []
 
 
-async def emergency_reply(decision, guide):
+def reviewed_emergency_supplement(question):
     from backend.services.content_sources import emergency_supplement, resolve_content_media
+    snapshot = optional_emergency_sources()
+    text, citations = emergency_supplement(question, snapshot)
+    if not citations:
+        return '', [], []
+    current = optional_emergency_sources()
+    identities = {(s['source_id'], s['revision']) for s in current}
+    if any((s['source_id'], s['revision']) not in identities for s in citations):
+        return '', [], []
+    return text, citations, resolve_content_media(citations, current, emergency=True)
+
+
+async def emergency_reply(question):
+    # Optional protocol reads have one shared, short deadline. A slow content
+    # dependency cannot delay basic guidance until its normal database timeout.
     text, sources, media = '', [], []
-    if guide:
-        try:
-            source = await asyncio.wait_for(run_in_threadpool(current_protocol, guide), EMERGENCY_PROTOCOL_TIMEOUT)
-            if source:
-                text, sources = emergency_supplement(source)
-                media = resolve_content_media(sources, [source], emergency=True)
-        except Exception as error:
-            logging.getLogger(__name__).warning('Emergency guide unavailable (%s)', type(error).__name__)
-    if decision.route == 'emergency':
-        safety = emergency_guidance(decision.hazard)
-        text = safety + ('\n\n' + text if text else '')
-    elif not text:
-        text = 'Open Emergency help to find roadside guidance and assistance.'
-    return {'answer': text, 'route': decision.route,
-            'response_type': 'emergency_protocol' if sources else decision.route,
-            'emergency_guide_id': sources[0]['source_id'] if sources else None,
+    try:
+        text, sources, media = await asyncio.wait_for(
+            run_in_threadpool(reviewed_emergency_supplement, question), EMERGENCY_PROTOCOL_TIMEOUT)
+    except Exception as error:
+        logging.getLogger(__name__).warning('Emergency supplement skipped (%s)', type(error).__name__)
+    return {'answer': emergency_guidance(question) + text, 'route': 'emergency',
+            'response_type': 'emergency_protocol' if sources else 'emergency',
             'sources': sources, 'videos': [], 'attachments': [], 'manual_links': [],
             'content_media': media,
             'recommended_guides': [], 'manual_relevant': False, 'external_warning': False}
@@ -447,15 +423,11 @@ def restore_messages(messages, scope, session_id, user):
                      attachments=restored_attachments,
                      videos=restore_recommendations(reply.get('videos', []), scope, channel_ids),
                      message_id=message['id'])
-        guide_id = reply.get('emergency_guide_id')
-        if guide_id and not any(source.get('source_type') == 'emergency_protocol'
-                                and source.get('source_id') == guide_id for source in valid):
-            reply.pop('emergency_guide_id', None)
         reply['answer_sections'] = validated_sections(
             reply['answer'], reply.get('answer_sections', []), restored_attachments)
         from backend.services.content_sources import resolve_content_media
         reply['content_media'] = resolve_content_media(valid, scope.get('content_sources', []),
-                                                      emergency=reply.get('route') in EMERGENCY_ROUTES)
+                                                      emergency=reply.get('route') == 'emergency')
         result.append({'id': message['id'], 'role': message['role'], 'content': message['content'],
                        'reply': reply if message['role'] == 'assistant' else None})
     return result

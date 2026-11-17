@@ -210,7 +210,7 @@ def safe_path(path):
         'tags removal-impact archive restore delete-impact deactivate index indexing youtube '
         'channels videos sync status questions runs tests document-test-summaries chat-starters '
         'companion-settings companion progress recap recaps nearby workshops mechanic-questions '
-        'configuration scopes categories profiles schedule-draft emergency-classification assets internal handoffs pending '
+        'configuration scopes categories profiles schedule-draft assets internal handoffs pending '
         'index-ready index-failed confirm-corrections corrections content').split())
     parts = str(path).split('?', 1)[0].split('#', 1)[0].split('/')
     return '/'.join(part if part in static or not part else ':id' for part in parts)[:240] or '/'

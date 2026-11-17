@@ -5,7 +5,7 @@ import logging
 from shared.mechanic_questions import general_questions
 from shared.models import MechanicQuestionDraft
 from rag.app.generation.provider import GenerationClient
-from shared.safety import immediate_emergency, policy_risk
+from shared.safety import policy_risk
 
 logger = logging.getLogger(__name__)
 
@@ -14,7 +14,7 @@ def prepare_questions(question, user_questions, vehicle_profile, *, service_plan
     # Apply the request policy to user concerns, not scheduled component/action
     # names such as "brake fluid: replace" in a server-calculated service plan.
     context = '\n'.join([*user_questions, question])
-    if immediate_emergency(context) or policy_risk(context) in {'high_risk', 'caution'}:
+    if policy_risk(context) in {'emergency', 'high_risk', 'caution'}:
         logger.info('Using general mechanic questions for a safety-sensitive user concern')
         return {'draft': general_questions(question), 'tailored': False}
     prompt = (

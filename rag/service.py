@@ -1,4 +1,4 @@
-"""Private HTTP transport for the RAG pipeline and Emergency classification.
+"""HTTP transport for the existing pipeline. No retrieval or model changes.
 
 Start with: python -m rag.service (requires the root RAG dependencies).
 Only FastAPI's server-resolved scope and history should reach this private API.
@@ -17,13 +17,12 @@ from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, UploadFile,
 from fastapi.exceptions import RequestValidationError
 from shared.http_errors import http_error, validation_error
 from starlette.exceptions import HTTPException as StarletteHTTPException
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field
 from rag.config import settings
 from rag.app.generation.provider import request_deadline, GenerationError, GenerationClient
 from shared.models import PersonalVehicleProfile, PersonalMaintenanceContext, SourceAttachmentReference, MechanicQuestionDraft
 from shared.schedule_drafting import ScheduleDraftRequest, ScheduleDraftResponse
 from shared.document_testing import DocumentTestRequest, DocumentTestReply
-from shared.emergency_routing import EmergencyDecision, EmergencyGuideSummary
 
 from shared.observability import configure, ready, shutdown, request_monitor
 
@@ -111,13 +110,6 @@ class Request(BaseModel):
     maintenance_context: PersonalMaintenanceContext | None = None
     activity_context: dict | None = None
     assistance: Literal['explain', 'simplify'] | None = None
-
-
-class EmergencyClassificationRequest(BaseModel):
-    model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
-    message: str = Field(min_length=1, max_length=settings.CHAT_MAX_MESSAGE_LENGTH)
-    history: list[Message] = Field(default_factory=list, max_length=settings.CHAT_HISTORY_LIMIT)
-    guides: list[EmergencyGuideSummary]
 
 
 class Answer(BaseModel):
@@ -242,16 +234,6 @@ def verify_revisions(scope, *, allow_partial=False):
             'unavailable_documents': unavailable}
 
 
-@app.post('/v1/emergency-classification', response_model=EmergencyDecision)
-async def emergency_classification(request: EmergencyClassificationRequest, authorization: str = Header(default='')):
-    verify_service_credentials(authorization)
-    from rag.app.generation.emergency_routing import classify_turn
-    try:
-        return await classify_turn(request.message, [message.model_dump() for message in request.history], request.guides)
-    except ValidationError:
-        raise HTTPException(503, 'The emergency classifier returned an invalid decision.') from None
-
-
 @app.post('/v1/chat', response_model=Answer)
 @request_deadline
 async def chat(request: Request, authorization: str = Header(default='')):
@@ -260,7 +242,10 @@ async def chat(request: Request, authorization: str = Header(default='')):
             or not request.scope.get('scope_id')):
         raise HTTPException(422, 'A resolved knowledge scope is required.')
     try:
-        scope = await asyncio.to_thread(verify_revisions, request.scope, allow_partial=True)
+        from shared.safety import immediate_emergency
+        scope = request.scope
+        if not immediate_emergency(request.message):
+            scope = await asyncio.to_thread(verify_revisions, request.scope, allow_partial=True)
         from rag.app.query import handle_query
         return Answer.model_validate(await handle_query(request.message,
             history=[message.model_dump() for message in request.history], scope=scope,

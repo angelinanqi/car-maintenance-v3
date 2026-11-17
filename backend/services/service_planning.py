@@ -6,7 +6,7 @@ import json
 from fastapi import HTTPException
 from backend import db, settings
 from backend.services.maintenance import status
-from backend.services.personal_maintenance import load_tasks, record_view
+from backend.services.personal_maintenance import load_tasks, record_view, schedule_source_names
 from backend.services.personal_records import owned
 from backend.services.vehicle_profiles import active_vehicle
 
@@ -61,11 +61,9 @@ def preview(user, vehicle_id):
     tasks = load_tasks(user['id'], [vehicle], items)
     records = [record_view(row) for row in db.all_rows('service_records', user_id=user['id'], vehicle_id=vehicle_id)]
     records.sort(key=lambda row: row['id'])
-    source_ids = {task['manufacturerRule'].get('sourceDocumentId') for task in tasks
-                  if task['scheduleSource'] == 'manufacturer' and task.get('manufacturerRule')}
-    source_ids.discard(None)
-    sources = db.all_rows('documents', id=sorted(source_ids)) if source_ids else []
-    return calculate(vehicle, tasks, records, source_names={row['id']: row['name'] for row in sources})
+    source_names = schedule_source_names(
+        task['manufacturerRule'] for task in tasks if task['scheduleSource'] == 'manufacturer')
+    return calculate(vehicle, tasks, records, source_names=source_names)
 
 
 def save(user, vehicle_id, fingerprint):
