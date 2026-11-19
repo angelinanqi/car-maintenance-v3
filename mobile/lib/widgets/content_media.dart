@@ -94,7 +94,7 @@ class ContentMediaList extends StatelessWidget {
                       if (showImageCaptionsAndSources ||
                           item['kind'] != 'image')
                         Text(
-                          '${item['title'] ?? 'Related media'}${item['source_label'] != null ? ' [${item['source_label']}]' : ''}',
+                          '${item['title'] ?? 'Related media'}',
                           style: Theme.of(context).textTheme.titleSmall,
                         ),
                       if (item['step_title'] != null)

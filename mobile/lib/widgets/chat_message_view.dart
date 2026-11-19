@@ -12,22 +12,27 @@ import 'chat_video_preview.dart';
 import 'content_media.dart';
 import '../data/content_repository.dart';
 
+String _sourceTitle(Map<String, dynamic> source) {
+  for (final value in [source['title'], source['document_title']]) {
+    if (value is! String) continue;
+    final title = value.trim();
+    if (title.isNotEmpty && title != source['document_id']) return title;
+  }
+  return 'Reference document';
+}
+
 String sourceDescription(Map<String, dynamic> source) {
   final kind = switch (source['source_type']) {
     'learning_guide' => 'Learning guide',
     'emergency_protocol' => 'Reviewed emergency protocol',
     'personal_vehicle_profile' => 'Your saved vehicle details',
     'personal_maintenance' => 'Your saved services and calculated due status',
-    _ => 'Reference document',
+    _ => null,
   };
-  final title =
-      source['title'] ??
-      source['document_title'] ??
-      source['document_id'] ??
-      'Reference';
   final reference = source['source_reference'] as String?;
   return [
-    '${source['label'] ?? 'Source'}: $kind — $title',
+    _sourceTitle(source),
+    if (kind != null) kind,
     if (source['reviewed_at'] != null) 'Reviewed: ${source['reviewed_at']}',
     if (reference != null && reference.isNotEmpty)
       'Source reference: $reference',
@@ -137,6 +142,10 @@ class ChatMessageView extends StatelessWidget {
       );
     }
     final sources = reply?.sources ?? [];
+    final citationTitles = <String, String>{
+      for (final source in sources)
+        if (source['label'] case final String label) label: _sourceTitle(source),
+    };
     final layout = chatLayout(message.text, reply?.answerSections ?? [], reply?.attachments ?? []);
     return Container(
       margin: const EdgeInsets.only(left: 32, top: 8, bottom: 12),
@@ -163,10 +172,10 @@ class ChatMessageView extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           if (layout.sections.isEmpty)
-            ChatAnswer(text: message.text)
+            ChatAnswer(text: message.text, citationTitles: citationTitles)
           else
             for (final section in layout.sections) ...[
-              ChatAnswer(text: section.text),
+              ChatAnswer(text: section.text, citationTitles: citationTitles),
               if (repository is FastApiChatRepository)
                 for (final attachment in section.attachments)
                   _attachment(attachment),

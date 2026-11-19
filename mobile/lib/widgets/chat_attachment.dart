@@ -263,8 +263,6 @@ class _ChatAttachmentState extends State<ChatAttachment> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(_title(), style: Theme.of(context).textTheme.titleSmall),
-            if (a['reference_label'] != null)
-              Text('Reference ${a['reference_label']}'),
             Text(
               '${a['document_title'] ?? 'Manual'}${pages.isEmpty ? ', page unavailable' : ', pages $pages'}',
             ),
