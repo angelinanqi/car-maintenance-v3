@@ -7,7 +7,7 @@ MyRoadie helps drivers keep service records, learn about maintenance, and ask qu
 | Android app | [Mobile README](mobile/README.md) |
 | Admin dashboard | [Web README](web/README.md) |
 | Document processing and AI search | [AI pipeline README](rag/README.md) |
-| Required fine-tuned model | [Fine-tuning README](fine-tuning/README.md) |
+| Optional fine-tuned model | [Fine-tuning README](fine-tuning/README.md) |
 
 ## Everyday use
 
@@ -47,7 +47,8 @@ Edit [app.config.json](app.config.json) for addresses and public settings:
 | `API_BASE_URL` | The Mac backend's Tailscale HTTPS address, used by Android |
 | `BACKEND_API_URL` | `http://127.0.0.1:8000`, used by the dashboard server |
 | `MINERU_API_URL` | The Windows OCR machine's Tailscale HTTPS address |
-| `OLLAMA_MODEL` | `roadie-gemma3-ft` — required |
+| `SUPABASE_STORAGE_UPLOAD_MAX_BYTES` | Maximum compressed document extraction ZIP size in bytes. Defaults to 50,000,000. Set it to the applicable Storage limit for your project and document bucket. |
+| `OLLAMA_MODEL` | `gemma3:4b` (base model) |
 
 Keep JSON values as strings. Put private credentials in a root `.env` file:
 
@@ -58,7 +59,7 @@ RAG_SERVICE_TOKEN=your_random_private_token
 
 Generate the token with `.venv/bin/python -c 'import secrets; print(secrets.token_urlsafe(32))'` and paste it into `.env`.
 
-Optional features use `GOOGLE_PLACES_API_KEY` for nearby workshops, `YOUTUBE_API_KEY` for video discovery, and `GEMINI_API_KEY` for ingestion-time image descriptions. Gemini can instead use Google Cloud credentials through `GOOGLE_APPLICATION_CREDENTIALS` and the project settings in JSON. Interactive answers use the local fine-tuned model.
+Optional features use `GOOGLE_PLACES_API_KEY` for nearby workshops, `YOUTUBE_API_KEY` for video discovery, and `GEMINI_API_KEY` for ingestion-time image descriptions. Gemini can instead use Google Cloud credentials through `GOOGLE_APPLICATION_CREDENTIALS` and the project settings in JSON. Interactive answers use the local Gemma model.
 
 Explicit environment variables override the JSON and `.env`. Rebuild the web or mobile app after changing its public configuration.
 
@@ -88,7 +89,7 @@ tailscale serve --bg --https=8443 http://127.0.0.1:3000
 
 Enable HTTPS and MagicDNS for your Tailscale network. The backend uses port **443**; the remote dashboard uses **8443**. Keep the private RAG service on loopback port **8001**.
 
-Set up [Windows OCR](rag/README.md#windows-ocr-setup) and [import the fine-tuned model](fine-tuning/README.md#import-on-a-new-mac), then start the app normally. On a fresh Mac with existing Supabase documents, also [restore local search](rag/README.md#restore-search-on-a-new-mac).
+Set up [Windows OCR](rag/README.md#windows-ocr-setup) and [install the base model](rag/README.md#mac-setup-and-checks), then start the app normally. On a fresh Mac with existing Supabase documents, also [restore local search](rag/README.md#restore-search-on-a-new-mac).
 
 ## Live logs
 
@@ -126,7 +127,7 @@ Logs stay under `output/logs/`, which Git ignores. Web logs rotate at 5 MiB with
 | Dashboard will not open | Start the launcher; try `http://127.0.0.1:3000/login` on the Mac. |
 | Phone cannot connect | Check Tailscale, `API_BASE_URL`, and the Mac's port-443 forwarding. |
 | PDF processing fails | Start Windows OCR; check `output/logs/ocr.log` there and `backend.log` on the Mac. |
-| AI will not start | Check `output/logs/rag.log` and `ollama.log`; confirm the fine-tuned model is imported. First model downloads can take time. |
+| AI will not start | Check `output/logs/rag.log` and `ollama.log` and confirm the configured model is installed. First model downloads can take time. |
 | Port already in use | Stop the old launcher before starting another. |
 
 Keep `.env`, `output/`, fine-tuning artifacts, and Android signing keys. `output/` contains live search indexes, extraction caches, and recovery checkpoints. Back up Supabase data and Storage separately. Normal service logs are in `output/logs/`.

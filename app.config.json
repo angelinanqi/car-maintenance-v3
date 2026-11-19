@@ -84,7 +84,7 @@
   "GOOGLE_CLOUD_PROJECT": "project-8599f5c4-b60a-4048-a30",
   "YOUTUBE_CHANNEL_URL": "https://www.youtube.com/@karworxauto554",
   "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_IYj-xXEUnqg8Jnj2Kx7fnw_ArYCaz4i",
-  "OLLAMA_MODEL": "roadie-gemma3-ft",
+  "OLLAMA_MODEL": "gemma3:4b",
   "OLLAMA_URL": "http://127.0.0.1:11435",
   "OLLAMA_CONTEXT_LENGTH": "8192",
   "OLLAMA_MAX_OUTPUT_TOKENS": "1024",

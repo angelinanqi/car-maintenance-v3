@@ -1,60 +1,31 @@
-# Fine-tuned model
+# MyRoadie fine-tuning
 
-The app requires **`roadie-gemma3-ft`**: the Ollama `gemma3:4b` Q4_K_M base with the corrective LoRA adapter. It is already selected in [app.config.json](../app.config.json). You do not need to train again to run or move the app.
+MyRoadie tested whether fine-tuning could help Gemma 3 4B answer questions using passages retrieved from automotive manuals. The goal was to preserve the instructions and precautions in the source, cite the relevant evidence, and say when the evidence did not give a requested procedure or specification. Both experiments adapted the answer generator. MyRoadie still retrieves the manuals and guides at question time.
 
-The current adapter came from the **30-step corrective run**. Earlier 50-step pilot records describe a different experiment. Training records and historical reports are evidence of those runs, not current setup instructions.
+**The submitted application uses the original Gemma 3 4B instruction-tuned model**, configured as `gemma3:4b` in Ollama. The two adapters are experimental artifacts. The submitted thesis §4.4.8 is the source of truth for the methodology and model decision. The run folders provide the supporting data, settings and outputs. [Application configuration](../app.config.json#L87)
 
-## Import on a new Mac
+## The two experiments
 
-Install Ollama and keep these files together:
+| Experiment | What was tested | Recorded result |
+| --- | --- | --- |
+| [01 General RAG pilot](01-general-rag-pilot/README.md) | Fine-tune on a subset of the public Pints AI Finetune-RAG dataset to practise answering from supplied evidence. | 50 optimiser updates. Validation loss fell from 1.4362 to 0.7550. The answer comparison still showed repetition, incomplete answers and unsupported automotive repair steps. |
+| [02 Corrective automotive](02-corrective-automotive/README.md) | Reload the original Gemma checkpoint and train a fresh QLoRA adapter on owner-manual excerpts that target the pilot's failures. | 30 optimiser updates. Several answers preserved more source details or identified missing procedures. Unnecessary quotation and an incomplete source remained problems. The small comparison gave limited evidence for changing the selected model. |
 
-- [deployment/Modelfile](deployment/Modelfile)
-- `deployment/roadie-corrective-lora-f32.gguf`
+QLoRA keeps the quantised base weights fixed and trains a small set of additional weights called a LoRA adapter. Each experiment produced its own adapter.
 
-If the app is stopped, start a temporary model server in one terminal:
+## Datasets and splits
 
-```bash
-OLLAMA_HOST=127.0.0.1:11435 ollama serve
-```
+| Experiment | Training | Validation during the experiment | Held-out answer comparison |
+| --- | --- | --- | --- |
+| General RAG pilot | 320 prepared examples from Pints AI Finetune-RAG. The public dataset spans several topics and uses synthetic reference answers. | 24 examples. The notebook measured validation loss before and after training. | 12 public test examples. Three separate Roadie development probes also tested automotive behaviour. |
+| Corrective automotive | 176 examples from five vehicle owner manuals. There were 112 source-preservation, 32 procedure-gap and 32 specification-gap targets. | The trainer ran with evaluation disabled. | 16 examples were prepared from two different source documents. The main comparison used 12. The three earlier development probes were repeated separately as exposed regression checks. |
 
-In another terminal, run from the project root:
+The datasets and update budgets kept the work manageable on a Colab GPU. The pilot grouped shared source files or identical chunks before splitting. The corrective split used different source documents and checked for exact passage overlap. The corrective targets came from templates applied to extracted manual text, and the source extraction sometimes omitted details. Synthetic targets, small held-out sets and the reuse of development probes limit what the results say about real-world reliability. [Pints AI dataset card](https://huggingface.co/datasets/pints-ai/Finetune-RAG) · [Pilot split manifest](01-general-rag-pilot/archive/run-20261106-094913-UTC/dataset-manifest.json) · [Corrective split manifest](02-corrective-automotive/archive/data-prep/manifest.json)
 
-```bash
-OLLAMA_HOST=127.0.0.1:11435 ollama pull gemma3:4b
-OLLAMA_HOST=127.0.0.1:11435 ollama create roadie-gemma3-ft -f fine-tuning/deployment/Modelfile
-OLLAMA_HOST=127.0.0.1:11435 ollama show --modelfile roadie-gemma3-ft
-```
+## Finding the evidence
 
-The last command should show an **ADAPTER** entry. Stop the temporary server with **Ctrl+C**, then run `./start-app.command`. If the app's managed server is already running, use it for the import commands instead of starting a second server.
+- The [pilot file guide](01-general-rag-pilot/README.md) links to the executed Colab notebook, dataset, training logs and raw results.
+- The [corrective file guide](02-corrective-automotive/README.md) links directly to the dataset, training script, logs, generated answers and trained adapter.
+- [Archive](archive/README.md) contains older instructions, saved report copies and a list of moved paths. Some notes describe the corrective adapter's temporary Ollama deployment under `roadie-gemma3-ft`.
 
-Check `http://127.0.0.1:8001/health` after startup: the model must be `roadie-gemma3-ft` and `adapter_verified` must be `true`. Ollama's load log records 476 adapter tensors. The app rejects a base-model override and does not silently fall back to it.
-
-## What to keep
-
-| Location | Contents |
-| --- | --- |
-| [corrective/dataset.json](corrective/dataset.json), [manifest.json](corrective/manifest.json) | Prepared examples and their source split |
-| [corrective/run_corrective.py](corrective/run_corrective.py) | Original Colab training script |
-| [Saved corrective run](../dumpster/corrective-20261106-111215-UTC/) | Safetensors adapter, tokenizer, configuration, logs, and base/tuned answers |
-| [deployment/deployment.json](deployment/deployment.json) | Original conversion revision, hashes, and import checks |
-| [review.json](review.json) | Historical pilot review |
-| [Historical fine-tuning documents](../dumpster/fine-tuning-documentation/) | Previous reports and superseded instructions, preserved unchanged |
-
-Ollama caches the imported model itself. Keep the exported GGUF and original training artifacts so you can reproduce the import. Large weights are ignored by Git and must be backed up separately. Original document filenames in historical JSON records now refer to the archived documents above.
-
-## Understand or repeat the training
-
-The corrective dataset contains **176 training examples** and **16 prepared comparison examples** from separate manual document families. It uses source quotations, warning-only gaps, and missing-specification cases. These are automatically prepared targets, not expert-labelled automotive answers.
-
-The recorded run used LoRA rank **8**, learning rate **0.00008**, gradient accumulation **4**, a **1,024-token** training limit, seed **3407**, and up to **30 optimizer steps**. The exact configuration and actual answers are in the saved corrective run above.
-
-To repeat the original procedure in Colab:
-
-1. Use the original prepared notebook environment with a GPU and its `RUN` and `CONFIG` variables. The script depends on this state.
-2. Wait for any existing training to finish.
-3. Run [corrective/COLAB-CELL.txt](corrective/COLAB-CELL.txt) and select `run_corrective.py` in its upload dialog.
-4. Let the job finish once, then save its adapter and results from `MyDrive/Roadie-finetuning/corrective-<timestamp>/`.
-
-If the original runtime state is gone, use the preserved [recovery notebook](../dumpster/roadie-finetuning-20261106/Roadie_Recovery.ipynb) to inspect and recover the saved run first. The optional `EXPORT-CELL.txt` is a separate full-model export; it is not needed to import the existing GGUF adapter.
-
-For another trained adapter, use official llama.cpp LoRA conversion with the code revision recorded in `deployment.json`, verify compatibility with the serving base, and validate actual Roadie answers before replacing the deployed adapter. Preserve previous results. Lower training loss alone does not establish factual accuracy, and reserved final evaluation questions must stay out of training and tuning.
+For the viva, open the pilot comparison and the corrective technical review side by side. The pilot's lower validation loss shows that the model predicted the held-out target text better. Reading the generated answers exposed problems the loss could not measure. The corrective run addressed some of those problems, while the submitted application retained the original model. [Pilot answer comparison](01-general-rag-pilot/archive/run-20261106-094913-UTC/comparison.md) · [Corrective technical review](02-corrective-automotive/archive/run-20261106-111215-UTC/technical-review.md)

@@ -1,0 +1,28 @@
+{
+  "raw_rows": 1653,
+  "rejected": {},
+  "splits": {
+    "test": {
+      "eligible": 140,
+      "selected": 12,
+      "rejected_over_token_budget": 26
+    },
+    "validation": {
+      "eligible": 126,
+      "selected": 24,
+      "rejected_over_token_budget": 39
+    },
+    "train": {
+      "eligible": 1054,
+      "selected": 320,
+      "rejected_over_token_budget": 268
+    }
+  },
+  "seed": 3407,
+  "max_length": 3064,
+  "dataset_revision": "3374821d5e10262bc523828de8a9fefa88055ddf",
+  "dataset_sha256": "fb0638ad966ba3bfa8828e01cec413c82200cf5e25eb64874032cda9ac73b436",
+  "synthetic_targets_human_verified": false,
+  "recipe": "positive source with whole neighbouring chunks; no fictitious distractors; append single-source attribution",
+  "scope": "general evidence-conditioned QA, not automotive expertise or refusal training"
+}

@@ -1,0 +1,8 @@
+{
+  "tuned_loss": 0.7550292611122131,
+  "tuned_model_preparation_time": 0.0157,
+  "tuned_runtime": 50.3719,
+  "tuned_samples_per_second": 0.476,
+  "tuned_steps_per_second": 0.476,
+  "epoch": 0.625
+}

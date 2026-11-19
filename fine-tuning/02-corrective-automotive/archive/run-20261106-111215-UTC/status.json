@@ -1,0 +1,8 @@
+{
+  "status": "trained_and_compared",
+  "trained": true,
+  "steps": 30,
+  "review_complete": false,
+  "ollama_deployed": false,
+  "recipe": "corrective-automotive"
+}

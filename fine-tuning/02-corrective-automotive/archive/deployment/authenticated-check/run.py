@@ -2,7 +2,7 @@
 import sys,json,time,uuid,secrets,base64,hmac,hashlib,struct,os
 from pathlib import Path
 from datetime import datetime,timezone
-ROOT=Path(__file__).resolve().parents[3];sys.path.insert(0,str(ROOT))
+ROOT=Path(__file__).resolve().parents[5];sys.path.insert(0,str(ROOT))
 from shared.configuration import load_configuration
 load_configuration()
 from backend import db,settings

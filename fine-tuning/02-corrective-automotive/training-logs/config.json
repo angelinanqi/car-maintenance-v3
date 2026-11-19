@@ -1,0 +1,12 @@
+{
+  "max_steps": 30,
+  "max_training_seconds": 900,
+  "max_length": 1024,
+  "seed": 3407,
+  "rank": 8,
+  "learning_rate": 8e-05,
+  "gradient_accumulation": 4,
+  "max_new_tokens": 320,
+  "model": "unsloth/gemma-3-4b-it-unsloth-bnb-4bit",
+  "model_revision": "316726ca0bd24aa323bfaf86e8a379ee1176d1fe"
+}

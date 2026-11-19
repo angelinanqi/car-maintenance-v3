@@ -583,19 +583,32 @@ def finish_extraction(document_id):
         if (manifest.get("document_id") != str(document_id)
                 or manifest.get("source_revision") != checkpoint["source_revision"]):
             raise ValueError("Saved extraction does not match the pending document revision")
-    path = extraction_path(document_id)
-    data = archive.read_bytes()
-    retry_connection(lambda: db.bucket(settings.SUPABASE_DOCUMENT_BUCKET).upload(
-        path, data, {"content-type": "application/zip", "upsert": "true"}))
-    values = dict(status="awaiting_index", error=None, extraction_storage_path=path,
-                  extraction_completed_at=checkpoint["completed_at"], processed_at=None,
-                  chunk_count=0, indexed_revision=None, indexed_at=None)
-    # If a response is lost, repeating this PATCH cannot undo an index acknowledgement.
+    size = archive.stat().st_size
+    limit = settings.SUPABASE_STORAGE_UPLOAD_MAX_BYTES
+    if size > limit:
+        values = dict(status="failed", error=(
+            f"The extraction ZIP is {size:,} bytes and exceeds the configured Supabase Storage "
+            f"upload limit of {limit:,} bytes. Use a smaller source document or ask an administrator "
+            "to check the project's Storage limits."
+        ))
+    else:
+        path = extraction_path(document_id)
+        data = archive.read_bytes()
+        retry_connection(lambda: db.bucket(settings.SUPABASE_DOCUMENT_BUCKET).upload(
+            path, data, {"content-type": "application/zip", "upsert": "true"}))
+        values = dict(status="awaiting_index", error=None, extraction_storage_path=path,
+                      extraction_completed_at=checkpoint["completed_at"], processed_at=None,
+                      chunk_count=0, indexed_revision=None, indexed_at=None)
+    # Only update the pending revision. Keep the checkpoint until the status write succeeds.
     retry_connection(lambda: db.client().table("documents").update(values)
         .eq("id", str(document_id)).eq("source_revision", checkpoint["source_revision"])
         .eq("status", "processing").execute())
     pending.unlink(missing_ok=True)
-    emit('document_index', 'queued', job_id=str(document_id))
+    if values["status"] == "failed":
+        mark_outcome('failed')
+        logger.warning("Document %s: %s", document_id, values["error"])
+    else:
+        emit('document_index', 'queued', job_id=str(document_id))
 
 
 def retry_pending_extractions():

@@ -1,6 +1,6 @@
 # AI pipeline
 
-Roadie searches published references before answering. Fine-tuned Gemma writes the answer using selected evidence; the app checks citations and values and can return labelled source excerpts when it cannot verify a complete answer.
+Roadie searches published references before answering. Gemma writes the answer using selected evidence. The app checks citations and values and can return labelled source excerpts when it cannot verify a complete answer.
 
 ## How it works
 
@@ -8,7 +8,7 @@ Roadie searches published references before answering. Fine-tuned Gemma writes t
 2. **Index:** The worker chunks prepared content, embeds it with `nomic-ai/nomic-embed-text-v1.5`, and stores it in local Chroma. Published learning guides and emergency content also enter search.
 3. **Retrieve:** A question uses its permitted vehicle/topic scope and recent conversation context. Vector and keyword search find candidates.
 4. **Rank:** `cross-encoder/ms-marco-MiniLM-L6-v2` selects relevant passages.
-5. **Answer:** Ollama runs **`roadie-gemma3-ft`** with the selected text and extracted table evidence. Citations, numeric relationships, and application safety rules are checked before delivery. Original images and videos are attached separately.
+5. **Answer:** Ollama runs **`gemma3:4b`** by default with the selected text and extracted table evidence. Citations, numeric relationships, and application safety rules are checked before delivery. Original images and videos are attached separately.
 
 Gemini is used for ingestion-time image descriptions. It does not generate interactive chat answers. Generic references are distinguished from verified manufacturer documents. Videos come from the available catalogue.
 
@@ -28,7 +28,7 @@ Wait for **OCR ready** before processing a PDF. The first document may also requ
 
 ## Mac setup and checks
 
-Use the root `.venv` from the [main setup](../README.md#first-time-mac-setup) and [import the fine-tuned model](../fine-tuning/README.md#import-on-a-new-mac). The normal `./start-app.command` launcher starts RAG, Ollama, and the embedded indexing worker together.
+Use the root `.venv` from the [main setup](../README.md#first-time-mac-setup). If `gemma3:4b` is missing, use the Ollama desktop app or start a temporary Ollama server with `ollama serve`, then run `ollama pull gemma3:4b`. Stop any temporary server when the download finishes. The normal `./start-app.command` launcher starts RAG, its own Ollama server, and the embedded indexing worker together.
 
 The configured model server is `http://127.0.0.1:11435`. The private RAG service is `http://127.0.0.1:8001`. The backend and RAG share `RAG_SERVICE_TOKEN` from `.env`.
 
@@ -38,7 +38,7 @@ After startup:
 curl -f http://127.0.0.1:8001/health
 ```
 
-The response should report `model: "roadie-gemma3-ft"` and `adapter_verified: true`. Base-model overrides are rejected. Import or connection failures must be fixed before chat is available.
+With the default model, the response should report `status: "ok"`, `model: "gemma3:4b"`, and `adapter_verified: false`.
 
 Model downloads can make the first startup slow. On the 8 GB Mac, avoid large indexing or video-sync jobs during interactive use. Keep the existing embedding and Chroma settings together; changing the embedding model or dimension requires rebuilding its index.
 
@@ -64,7 +64,7 @@ Check the logs and exit status, stop the standalone backend, then start `./start
 | --- | --- |
 | OCR unreachable | Windows launcher, Tailscale, and `MINERU_API_URL/health` |
 | Document stays at `awaiting_index` | `output/logs/rag.log`, shared token, and extraction compatibility |
-| Model does not load | `output/logs/ollama.log` and the [fine-tuning guide](../fine-tuning/README.md) |
+| Model does not load | `output/logs/ollama.log` and the [Mac model setup](#mac-setup-and-checks) |
 | Answer says evidence is missing | Review source coverage, publication, index status, and the actual extracted passage |
 
 Keep `output/`, including worker state and OCR task checkpoints. Fix failed work through the admin workflow; do not delete checkpoints or resubmit an uncertain OCR task blindly. Full request and processing logs are in `output/logs/`.

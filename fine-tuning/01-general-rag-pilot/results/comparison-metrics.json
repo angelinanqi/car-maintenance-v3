@@ -1,0 +1,28 @@
+{
+  "base_validation": {
+    "base_loss": 1.43622887134552,
+    "base_model_preparation_time": 0.0157,
+    "base_runtime": 79.9793,
+    "base_samples_per_second": 0.3,
+    "base_steps_per_second": 0.3
+  },
+  "tuned_validation": {
+    "tuned_loss": 0.7550292611122131,
+    "tuned_model_preparation_time": 0.0157,
+    "tuned_runtime": 50.3719,
+    "tuned_samples_per_second": 0.476,
+    "tuned_steps_per_second": 0.476,
+    "epoch": 0.625
+  },
+  "warning": "Word overlap and citation presence are diagnostics, not correctness. Human review remains blank.",
+  "base": {
+    "public_word_f1": 0.4932965621498735,
+    "citation_presence_fraction": 0.75,
+    "public_token_cap_hits": 6
+  },
+  "tuned": {
+    "public_word_f1": 0.5678719311116197,
+    "citation_presence_fraction": 0.5,
+    "public_token_cap_hits": 7
+  }
+}

@@ -1,0 +1,101 @@
+{
+  "review_type": "AI-assisted technical review",
+  "main_pairs": 12,
+  "exposed_regression_pairs": 3,
+  "observed_main_pairs": {
+    "improved_coverage_or_boundary": 6,
+    "comparable": 3,
+    "correct_but_more_verbose": 2,
+    "unresolved_extraction_gap": 1
+  },
+  "metrics": {
+    "base": {
+      "cases": 12,
+      "citations": 12,
+      "caps": 0
+    },
+    "tuned": {
+      "cases": 12,
+      "citations": 12,
+      "caps": 0
+    }
+  },
+  "cases": [
+    {
+      "id": "fbf2bfe063aff6a1-source",
+      "assessment": "Unresolved",
+      "note": "Source loses the destination gear symbol. Base invents N; tuned avoids N but produces incomplete shift instructions instead of identifying the extraction gap. Neither answer is acceptable practical guidance."
+    },
+    {
+      "id": "9ea753097690e165-source",
+      "assessment": "Improved coverage",
+      "note": "Tuned restores the requirement to carry a valid intelligent key before starting; base omits it. Steps remain intact."
+    },
+    {
+      "id": "fa37a6f0e761b6e9-source",
+      "assessment": "Comparable",
+      "note": "Both retain the coolant composition, corrosion purpose and no-clear-water precaution. Tuned quotes the source."
+    },
+    {
+      "id": "ae8c9f6a2c86f608-source",
+      "assessment": "Improved coverage",
+      "note": "Tuned restores Settings \u2192 Alarm Volume and retains ignition/battery conditions; base omits the navigation sequence."
+    },
+    {
+      "id": "e338637244b7a40e-source",
+      "assessment": "Improved coverage",
+      "note": "Both preserve the refuelling prohibitions. Tuned additionally retains the source explanation about leaking fuel causing explosion/fire."
+    },
+    {
+      "id": "02aa3bbd774ba62b-source",
+      "assessment": "Improved conditions",
+      "note": "Tuned retains the key, gear, brake and ignition conditions. Base incorrectly compresses the OFF condition into not pressing the brake, omitting that the ignition switch must also be pressed again."
+    },
+    {
+      "id": "aa660b4baf796f84-procedure-gap",
+      "assessment": "Comparable",
+      "note": "Both identify absence of a replacement procedure and retain warnings. Neither invents replacement stages."
+    },
+    {
+      "id": "906f5b75262359e9-procedure-gap",
+      "assessment": "Improved boundary",
+      "note": "Tuned explicitly says no repair stages are supplied. Base interprets the excerpt as a towing-process explanation without clearly identifying the requested repair-stage evidence gap."
+    },
+    {
+      "id": "60d276ab11c4ae0e-procedure-gap",
+      "assessment": "Improved boundary",
+      "note": "Tuned refuses to infer removal/replacement instructions and retains both air-cleaner precautions. Base incorrectly frames not oiling the element as removal/replacement guidance."
+    },
+    {
+      "id": "b1215c98ab243e4e-specification-gap",
+      "assessment": "Correct, more verbose",
+      "note": "Both identify missing torque. Tuned unnecessarily quotes unrelated multimedia instructions before the gap statement; base is more focused."
+    },
+    {
+      "id": "cbbc0cfc1e061620-specification-gap",
+      "assessment": "Comparable",
+      "note": "Both explicitly identify missing torque; tuned is concise."
+    },
+    {
+      "id": "0f409b81dc85602a-specification-gap",
+      "assessment": "Correct, more verbose",
+      "note": "Both identify missing torque. Tuned copies the entire unrelated sensor-limitations excerpt, so base is more concise."
+    },
+    {
+      "id": "dev-oil",
+      "assessment": "Exposed regression check passes",
+      "note": "Tuned retains warm-up, stop, waiting period, wipe/reinsert/read and F/L exactly once. Base is also complete; the first broad fine-tune had duplicated the procedure."
+    },
+    {
+      "id": "dev-no-pin",
+      "assessment": "Exposed regression check passes",
+      "note": "Both retain no-pin/service-centre advice; tuned preserves the supplied damage precaution."
+    },
+    {
+      "id": "dev-evidence-gap",
+      "assessment": "Exposed regression check improves",
+      "note": "Tuned explicitly states replacement stages are absent and gives only the supported warning. The first broad fine-tune fabricated caliper removal, rotor resurfacing, installation and testing."
+    }
+  ],
+  "scope": "narrow source-preservation and evidence-boundary improvement; not a general accuracy score"
+}

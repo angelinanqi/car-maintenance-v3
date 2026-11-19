@@ -15,9 +15,10 @@ def path_setting(name, default):
 
 
 # All interactive generation is local; ingestion imports GeminiClient directly.
-OLLAMA_MODEL = os.getenv('OLLAMA_MODEL') or 'roadie-gemma3-ft'
-if OLLAMA_MODEL not in {'roadie-gemma3-ft', 'roadie-gemma3-ft:latest'}:
-    raise ValueError('Roadie requires the fine-tuned roadie-gemma3-ft model; remove any base-model environment override')
+OLLAMA_BASE_MODEL = 'gemma3:4b'
+OLLAMA_MODEL = os.getenv('OLLAMA_MODEL') or OLLAMA_BASE_MODEL
+if OLLAMA_MODEL not in {OLLAMA_BASE_MODEL, 'roadie-gemma3-ft', 'roadie-gemma3-ft:latest'}:
+    raise ValueError('OLLAMA_MODEL must be gemma3:4b or roadie-gemma3-ft')
 OLLAMA_URL = (os.getenv('OLLAMA_URL') or 'http://127.0.0.1:11434').rstrip('/')
 OLLAMA_CONTEXT_LENGTH = int(os.getenv('OLLAMA_CONTEXT_LENGTH') or '8192')
 OLLAMA_MAX_OUTPUT_TOKENS = int(os.getenv('OLLAMA_MAX_OUTPUT_TOKENS') or '1024')

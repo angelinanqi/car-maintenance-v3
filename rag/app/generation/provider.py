@@ -116,18 +116,23 @@ class GenerationClient:
         self.usage_history = []
 
     def verify_model(self):
-        """Fail startup if the required model lacks its actual adapter layer."""
+        """Check that the configured model is installed with the expected adapter state."""
         try:
             with httpx.Client(timeout=httpx.Timeout(15, connect=5), trust_env=False) as client:
                 response = client.post(settings.OLLAMA_URL + '/api/show', json={'model': self.model})
                 response.raise_for_status()
                 detail = response.json()
             modelfile = detail.get('modelfile', '')
-            if not any(line.strip().upper().startswith('ADAPTER ') for line in modelfile.splitlines()):
-                raise GenerationError('The configured model has no LoRA adapter; recreate roadie-gemma3-ft from its deployment Modelfile')
-            return {'model': self.model, 'adapter_verified': True}
+            if not modelfile.strip():
+                raise ValueError('Missing Ollama Modelfile')
+            has_adapter = any(line.strip().upper().startswith('ADAPTER ') for line in modelfile.splitlines())
         except (httpx.HTTPError, ValueError, TypeError, AttributeError):
-            raise GenerationError('The required fine-tuned model could not be verified in Ollama') from None
+            raise GenerationError(f'The configured model {self.model} could not be verified in Ollama') from None
+        requires_adapter = self.model != settings.OLLAMA_BASE_MODEL
+        if has_adapter != requires_adapter:
+            expected = 'with' if requires_adapter else 'without'
+            raise GenerationError(f'Ollama model {self.model} must be installed {expected} a LoRA adapter')
+        return {'model': self.model, 'adapter_verified': has_adapter}
 
     @observed('ollama_call')
     def generate(self, prompt: str, *, schema: dict | None = None, images=None) -> str:
@@ -174,7 +179,7 @@ class GenerationClient:
             returned_model = result.get('model')
             if (not isinstance(returned_model, str)
                     or returned_model.removesuffix(':latest') != self.model.removesuffix(':latest')):
-                raise GenerationError('Ollama returned a different model from the required fine-tuned model')
+                raise GenerationError('Ollama returned a different model from the configured model')
             usage['inference_ms'] = round((perf_counter() - inference_started) * 1000, 1)
             self.last_usage = {key: result.get(key) for key in (
                 'prompt_eval_count', 'eval_count', 'load_duration', 'prompt_eval_duration',

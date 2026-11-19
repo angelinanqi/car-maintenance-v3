@@ -7,3 +7,8 @@
 *.zip
 checkpoints/
 gguf-export/
+
+# Large tokenizer payloads saved alongside local PEFT adapter weights.
+**/adapter/tokenizer.json
+**/adapter/tokenizer.model
+.ipynb_checkpoints/

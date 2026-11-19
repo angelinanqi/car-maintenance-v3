@@ -1,0 +1,25 @@
+{
+  "trained_steps": 30,
+  "adapter_base": "unsloth/gemma-3-4b-it-unsloth-bnb-4bit",
+  "adapter_rank": 8,
+  "nonzero_lora_B_tensors": 238,
+  "adapter_sha256": "073d8fef012f6f52befeee224b11870b553fd841cd65e0c39908ad32702c139e",
+  "source_hash_and_document_overlap": false,
+  "train_count": 176,
+  "held_count": 16,
+  "note": "Nonzero adapter weights plus saved trainer state verify training updates; this is not a model-quality test.",
+  "adapter_parameter_count": 14901248,
+  "saved_adapter_tensor_dtype_counts": {
+    "F32": 476
+  },
+  "adapter_target_module_counts": {
+    "down_proj": 34,
+    "gate_proj": 34,
+    "up_proj": 34,
+    "k_proj": 34,
+    "o_proj": 34,
+    "q_proj": 34,
+    "v_proj": 34
+  },
+  "adapter_tensor_count": 476
+}

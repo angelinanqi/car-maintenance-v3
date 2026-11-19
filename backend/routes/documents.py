@@ -50,7 +50,7 @@ def process_batch(request: ProcessBatch):
     results = []
     for document_id in dict.fromkeys(request.ids):
         try:
-            row, _ = documents.queue(document_id, request.force)
+            row, queued = documents.queue(document_id, request.force)
             results.append({"id": str(document_id), "status": row["status"], "queued": queued})
         except HTTPException as error:
             results.append({"id": str(document_id), "error": error.detail})

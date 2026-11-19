@@ -29,6 +29,7 @@ DOCUMENT_MAX_BYTES = int(os.getenv("DOCUMENT_MAX_BYTES") or "52428800")
 DOCUMENT_EXTENSIONS = [value.strip().lower() for value in (os.getenv("DOCUMENT_EXTENSIONS") or ".pdf,.md").split(",")]
 DOCUMENT_BATCH_LIMIT = int(os.getenv("DOCUMENT_BATCH_LIMIT") or "20")
 EXTRACTION_MAX_BYTES = int(os.getenv("EXTRACTION_MAX_BYTES") or "209715200")
+SUPABASE_STORAGE_UPLOAD_MAX_BYTES = int(os.getenv("SUPABASE_STORAGE_UPLOAD_MAX_BYTES") or "50000000")
 IMAGE_MAX_BYTES = int(os.getenv("IMAGE_MAX_BYTES") or "10485760")
 IMAGE_CONTENT_TYPES = [value.strip() for value in (os.getenv("IMAGE_CONTENT_TYPES") or "image/jpeg,image/png,image/webp,image/gif").split(",")]
 API_PAGE_SIZE = int(os.getenv("API_PAGE_SIZE") or "100")
@@ -48,7 +49,8 @@ GOOGLE_PLACES_API_KEY = os.getenv("GOOGLE_PLACES_API_KEY", "").strip()
 GOOGLE_PLACES_TIMEOUT = float(os.getenv("GOOGLE_PLACES_TIMEOUT") or "15")
 
 for name in ("SUPABASE_TIMEOUT", "DOCUMENT_MAX_BYTES", "DOCUMENT_BATCH_LIMIT", "EXTRACTION_MAX_BYTES",
-             "IMAGE_MAX_BYTES", "CHAT_MAX_MESSAGE_LENGTH", "CHAT_HISTORY_LIMIT", "MINERU_TIMEOUT", "RAG_SERVICE_TIMEOUT", "GOOGLE_PLACES_TIMEOUT"):
+             "SUPABASE_STORAGE_UPLOAD_MAX_BYTES", "IMAGE_MAX_BYTES", "CHAT_MAX_MESSAGE_LENGTH",
+             "CHAT_HISTORY_LIMIT", "MINERU_TIMEOUT", "RAG_SERVICE_TIMEOUT", "GOOGLE_PLACES_TIMEOUT"):
     if not 0 < globals()[name] < float("inf"):
         raise ValueError(f"{name} must be finite and positive")
 if not 1 <= BACKEND_PORT <= 65535 or not 1 <= API_PAGE_SIZE <= 1000:

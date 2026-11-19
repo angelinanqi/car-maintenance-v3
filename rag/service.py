@@ -36,7 +36,8 @@ async def lifespan(app):
     startup_logger = logging.getLogger("uvicorn.error")
     model_status = await asyncio.to_thread(GenerationClient().verify_model)
     app.state.model_status = model_status
-    startup_logger.info('RAG startup: required fine-tuned model and adapter verified: %s', model_status['model'])
+    startup_logger.info('RAG startup: verified Ollama model %s (adapter_verified=%s)',
+                        model_status['model'], model_status['adapter_verified'])
     # An unavailable encoder leaves the scoped lexical fallback operational.
     if (settings.CHROMA_PATH / "chroma.sqlite3").is_file():
         started = perf_counter()
@@ -82,8 +83,10 @@ logger = logging.getLogger(__name__)
 
 @app.get('/health')
 async def health():
-    status = getattr(app.state, 'model_status', {'model': settings.OLLAMA_MODEL, 'adapter_verified': False})
-    return {'status': 'ok' if status['adapter_verified'] else 'starting', 'provider': 'ollama', **status}
+    model_status = getattr(app.state, 'model_status', None)
+    if model_status is None:
+        return {'status': 'starting', 'provider': 'ollama', 'model': settings.OLLAMA_MODEL, 'adapter_verified': False}
+    return {'status': 'ok', 'provider': 'ollama', **model_status}
 
 
 async def pipeline_unavailable(request, error):

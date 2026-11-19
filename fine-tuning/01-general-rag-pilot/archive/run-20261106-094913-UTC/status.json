@@ -1,0 +1,7 @@
+{
+  "status": "trained_and_compared",
+  "trained": true,
+  "steps": 50,
+  "review_complete": false,
+  "ollama_deployed": false
+}
